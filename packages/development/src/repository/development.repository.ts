@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
+import type { Currency } from '@baza/contracts';
 import { DevelopmentDocument, DevelopmentLocation, DevelopmentContact } from '../schemas/development.schema';
 
 /**
@@ -116,6 +117,48 @@ export class DevelopmentRepository {
    * (проигравший теперь корректно получает modifiedCount:0, что уже
    * обрабатывается веткой checkReplay/ConflictException выше по стеку).
    */
+  /**
+   * CAS-захват валюты ЖК (см. DevelopmentDocument.currency). Должен быть
+   * ПЕРВОЙ записью в транзакции createUnit/updateUnitPrice — тот же
+   * принцип, что BookingLockRepository.bumpForUnit: конкурентная
+   * транзакция, пытающаяся записать в тот же документ, получает от
+   * MongoDB write conflict и повторяется (withTransaction retry), поэтому
+   * вторая по факту видит уже установленную первой транзакцией валюту,
+   * а не пустое состояние в собственном обособленном снапшоте.
+   *
+   * `ok:true` — валюта только что установлена (документ ранее её не имел)
+   * ЛИБО уже совпадала с requested. `ok:false` — уже стоит другая валюта,
+   * currentCurrency называет её для сообщения об ошибке.
+   */
+  async lockCurrency(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    currency: Currency,
+    session: ClientSession,
+    options: { allowReplacing?: Currency } = {},
+  ): Promise<{ ok: true } | { ok: false; currentCurrency?: Currency }> {
+    const or: Record<string, unknown>[] = [{ currency: { $exists: false } }, { currency: null }, { currency }];
+    if (options.allowReplacing) {
+      // Переприсвоение: вызывающий уже убедился (в той же транзакции), что
+      // текущую валюту не держит больше никто, кроме юнита, чью валюту он
+      // сейчас меняет — допускаем замену только с ЭТОГО конкретного
+      // значения, а не с любого, иначе тут же потерялась бы вся защита.
+      or.push({ currency: options.allowReplacing });
+    }
+    const locked = await this.model
+      .findOneAndUpdate(
+        { _id: id, organizationId, $or: or },
+        { $set: { currency } },
+        { session, new: true },
+      )
+      .exec();
+    if (locked) {
+      return { ok: true };
+    }
+    const current = await this.model.findOne({ _id: id, organizationId }).session(session).exec();
+    return { ok: false, currentCurrency: current?.currency };
+  }
+
   async updateStatus(
     id: Types.ObjectId,
     organizationId: Types.ObjectId,

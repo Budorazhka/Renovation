@@ -11,6 +11,7 @@ function makeOrganization(overrides: Partial<AdminOrganizationListItem> = {}): A
     name: 'Батуми Риелт',
     type: 'agency',
     status: 'active',
+    mlsVerified: false,
     createdAt: '2026-08-20T10:00:00.000Z',
     positionsCount: 5,
     ...overrides,
@@ -21,6 +22,8 @@ function mockAdminApi(overrides: {
   listOrganizations?: (...args: unknown[]) => Promise<unknown>
   freezeOrganization?: (...args: unknown[]) => Promise<unknown>
   unfreezeOrganization?: (...args: unknown[]) => Promise<unknown>
+  verifyMls?: (...args: unknown[]) => Promise<unknown>
+  revokeMlsVerification?: (...args: unknown[]) => Promise<unknown>
 }) {
   vi.doMock('../src/api/admin-api', async () => {
     const actual = await vi.importActual<typeof import('../src/api/admin-api')>('../src/api/admin-api')
@@ -37,6 +40,10 @@ function mockAdminApi(overrides: {
         unfreezeOrganization:
           overrides.unfreezeOrganization ??
           ((id: string) => Promise.resolve({ id, status: 'active' })),
+        verifyMls:
+          overrides.verifyMls ?? ((id: string) => Promise.resolve({ id, mlsVerified: true })),
+        revokeMlsVerification:
+          overrides.revokeMlsVerification ?? ((id: string) => Promise.resolve({ id, mlsVerified: false })),
       },
     }
   })
@@ -192,6 +199,99 @@ describe('OrganizationsPage', () => {
       expect(screen.queryByRole('alertdialog')).toBeNull()
       expect(screen.queryAllByText('Активна').length).toBeGreaterThan(0)
     })
+  })
+
+  it('executes verify MLS action requiring reason >= 10 chars (N-10)', async () => {
+    const verifyMls = vi.fn((id: string) => Promise.resolve({ id, mlsVerified: true }))
+    mockAdminApi({ verifyMls })
+    await renderOrganizationsPage()
+
+    await waitFor(() => {
+      expect(screen.queryByText('Верифицировать MLS')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByText('Верифицировать MLS'))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeNull()
+      expect(screen.queryByText('Верифицировать MLS-биржу?')).not.toBeNull()
+    })
+
+    const confirmBtn = screen.getAllByRole('button', { name: 'Верифицировать' }).find(
+      (btn) => btn.closest('.dialog-actions') !== null,
+    ) as HTMLButtonElement
+    expect(confirmBtn.disabled).toBe(true)
+
+    const reasonInput = screen.getByLabelText(/Причина/)
+    fireEvent.change(reasonInput, { target: { value: 'Проверено по телефону и документам' } })
+    expect(confirmBtn.disabled).toBe(false)
+
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(verifyMls).toHaveBeenCalledWith('org1', 'Проверено по телефону и документам')
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(screen.queryAllByText('Проверено').length).toBeGreaterThan(0)
+      expect(screen.queryByText('Отозвать MLS')).not.toBeNull()
+    })
+  })
+
+  it('executes revoke MLS verification for a verified organization (N-10)', async () => {
+    const revokeMlsVerification = vi.fn((id: string) => Promise.resolve({ id, mlsVerified: false }))
+    mockAdminApi({
+      listOrganizations: () =>
+        Promise.resolve({
+          items: [makeOrganization({ id: 'org-v', mlsVerified: true })],
+          nextCursor: null,
+        }),
+      revokeMlsVerification,
+    })
+    await renderOrganizationsPage()
+
+    await waitFor(() => {
+      expect(screen.queryByText('Отозвать MLS')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByText('Отозвать MLS'))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeNull()
+      expect(screen.queryByText('Отозвать MLS-верификацию?')).not.toBeNull()
+    })
+
+    const reasonInput = screen.getByLabelText(/Причина/)
+    fireEvent.change(reasonInput, { target: { value: 'Документы больше не действительны' } })
+
+    const confirmBtn = screen.getAllByRole('button', { name: 'Отозвать' }).find(
+      (btn) => btn.closest('.dialog-actions') !== null,
+    ) as HTMLButtonElement
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(revokeMlsVerification).toHaveBeenCalledWith('org-v', 'Документы больше не действительны')
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(screen.queryAllByText('Не проверено').length).toBeGreaterThan(0)
+      expect(screen.queryByText('Верифицировать MLS')).not.toBeNull()
+    })
+  })
+
+  it('does not show MLS verification actions for a developer organization (N-10)', async () => {
+    mockAdminApi({
+      listOrganizations: () =>
+        Promise.resolve({
+          items: [makeOrganization({ id: 'org-dev', type: 'developer', name: 'Elite Developer' })],
+          nextCursor: null,
+        }),
+    })
+    await renderOrganizationsPage()
+
+    await waitFor(() => {
+      expect(screen.queryByText('Elite Developer')).not.toBeNull()
+    })
+
+    expect(screen.queryByText('Не применимо')).not.toBeNull()
+    expect(screen.queryByText('Верифицировать MLS')).toBeNull()
+    expect(screen.queryByText('Отозвать MLS')).toBeNull()
   })
 
   it('opens billing modal and activates subscription', async () => {

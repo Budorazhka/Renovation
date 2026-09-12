@@ -6,6 +6,8 @@ import { requireAdminContext } from '../../shared/admin/admin-context.middleware
 import { AdminOrganizationService } from './admin-organization.service';
 import { ListAdminOrganizationsQueryDto } from './dto/list-admin-organizations-query.dto';
 import { FreezeOrganizationRequestDto } from './dto/freeze-organization-request.dto';
+import { VerifyMlsRequestDto } from './dto/verify-mls-request.dto';
+import { RevokeMlsVerificationRequestDto } from './dto/revoke-mls-verification-request.dto';
 
 @Controller('admin/organizations')
 @UseGuards(AdminGuard)
@@ -51,6 +53,36 @@ export class AdminOrganizationController {
   ) {
     const adminContext = requireAdminContext(req);
     return this.service.unfreeze(adminContext, {
+      id: new Types.ObjectId(organizationIdParam),
+      reason: dto.reason,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Post(':organizationId/verify-mls')
+  @HttpCode(200)
+  async verifyMls(
+    @Req() req: FastifyRequest,
+    @Param('organizationId') organizationIdParam: string,
+    @Body() dto: VerifyMlsRequestDto,
+  ) {
+    const adminContext = requireAdminContext(req);
+    return this.service.verifyMls(adminContext, {
+      id: new Types.ObjectId(organizationIdParam),
+      reason: dto.reason,
+      correlationId: req.correlationId,
+    });
+  }
+
+  @Post(':organizationId/revoke-mls-verification')
+  @HttpCode(200)
+  async revokeMlsVerification(
+    @Req() req: FastifyRequest,
+    @Param('organizationId') organizationIdParam: string,
+    @Body() dto: RevokeMlsVerificationRequestDto,
+  ) {
+    const adminContext = requireAdminContext(req);
+    return this.service.revokeMlsVerification(adminContext, {
       id: new Types.ObjectId(organizationIdParam),
       reason: dto.reason,
       correlationId: req.correlationId,

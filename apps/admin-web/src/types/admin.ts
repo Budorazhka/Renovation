@@ -210,6 +210,7 @@ export interface AdminOrganizationListItem {
   name: string
   type: AdminOrganizationType
   status: AdminOrganizationStatus
+  mlsVerified: boolean
   createdAt: string
   positionsCount?: number
 }
@@ -232,6 +233,7 @@ export interface AdminOrganizationDetail {
   name: string
   type: AdminOrganizationType
   status: AdminOrganizationStatus
+  mlsVerified: boolean
   createdAt: string
   positionsCount: number
   positions: AdminOrganizationPosition[]
@@ -245,6 +247,16 @@ export interface FreezeOrganizationResult {
 export interface UnfreezeOrganizationResult {
   id: string
   status: 'active'
+}
+
+export interface VerifyMlsResult {
+  id: string
+  mlsVerified: true
+}
+
+export interface RevokeMlsVerificationResult {
+  id: string
+  mlsVerified: false
 }
 
 // Billing

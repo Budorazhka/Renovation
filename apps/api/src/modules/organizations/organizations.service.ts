@@ -838,6 +838,7 @@ export class OrganizationsService {
       name: string;
       type: OrganizationType;
       status: OrganizationDocument['status'];
+      mlsVerified: boolean;
       createdAt: string;
       positionsCount?: number;
     }>;
@@ -868,6 +869,7 @@ export class OrganizationsService {
           name: doc.name,
           type: doc.type,
           status: doc.status,
+          mlsVerified: doc.mlsVerified,
           createdAt: doc.createdAt ? doc.createdAt.toISOString() : new Date().toISOString(),
           positionsCount: positions.length,
         };
@@ -885,6 +887,7 @@ export class OrganizationsService {
     name: string;
     type: OrganizationType;
     status: OrganizationDocument['status'];
+    mlsVerified: boolean;
     createdAt: string;
     positionsCount: number;
     positions: Array<{ id: string; role: FixedRole; status: string }>;
@@ -901,6 +904,7 @@ export class OrganizationsService {
       name: org.name,
       type: org.type,
       status: org.status,
+      mlsVerified: org.mlsVerified,
       createdAt: org.createdAt ? org.createdAt.toISOString() : new Date().toISOString(),
       positionsCount: positions.length,
       positions: positions.map((p) => ({
@@ -1000,5 +1004,80 @@ export class OrganizationsService {
     });
 
     return { id: params.id.toString(), status: 'active' };
+  }
+
+  /**
+   * ADMIN-ORG (N-10): верификация MLS — застройщик заявки биржи в любом
+   * случае не видит (CommunityService гейтит по organization.type), поэтому
+   * верифицировать его MLS-флаг бессмысленно и, скорее всего, ошибка
+   * оператора — отклоняем явно, а не молча выставляем флаг без эффекта.
+   */
+  async adminVerifyMls(params: {
+    id: Types.ObjectId;
+    reason: string;
+    actorId: Types.ObjectId;
+    correlationId?: string;
+  }): Promise<{ id: string; mlsVerified: true }> {
+    const org = await this.organizationRepository.findById(params.id);
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+    if (org.type === 'developer') {
+      throw new AppException(
+        ErrorCode.VALIDATION_FAILED,
+        'MLS verification applies only to agency and independent_realtor organizations',
+      );
+    }
+
+    await runInTransaction(this.connection, async (session) => {
+      await this.organizationRepository.updateMlsVerified(params.id, true, session);
+      await this.auditService.append(
+        {
+          actor: { type: 'admin_account', id: params.actorId },
+          action: 'organization.mls_verify',
+          resource: 'organization',
+          resourceId: params.id,
+          reason: params.reason,
+          before: { mlsVerified: org.mlsVerified },
+          after: { mlsVerified: true },
+          correlationId: params.correlationId ?? '',
+        },
+        session,
+      );
+    });
+
+    return { id: params.id.toString(), mlsVerified: true };
+  }
+
+  /** ADMIN-ORG (N-10): отзыв верификации MLS. */
+  async adminRevokeMlsVerification(params: {
+    id: Types.ObjectId;
+    reason: string;
+    actorId: Types.ObjectId;
+    correlationId?: string;
+  }): Promise<{ id: string; mlsVerified: false }> {
+    const org = await this.organizationRepository.findById(params.id);
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    await runInTransaction(this.connection, async (session) => {
+      await this.organizationRepository.updateMlsVerified(params.id, false, session);
+      await this.auditService.append(
+        {
+          actor: { type: 'admin_account', id: params.actorId },
+          action: 'organization.mls_revoke',
+          resource: 'organization',
+          resourceId: params.id,
+          reason: params.reason,
+          before: { mlsVerified: org.mlsVerified },
+          after: { mlsVerified: false },
+          correlationId: params.correlationId ?? '',
+        },
+        session,
+      );
+    });
+
+    return { id: params.id.toString(), mlsVerified: false };
   }
 }

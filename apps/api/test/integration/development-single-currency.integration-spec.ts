@@ -287,6 +287,55 @@ describe('Одна валюта на ЖК — integration (real MongoDB)', () =>
     expect(await connection.collection('units').countDocuments({})).toBe(0);
   });
 
+  /**
+   * ИСПРАВЛЕНО 13.09.2026 (найдено ревью): раньше проверка читала валюты
+   * юнитов ДО открытия транзакции — два параллельных createUnit с разными
+   * валютами оба видели пустой ЖК в своём снимке и оба успешно писали
+   * unit-документ (новые unit-документы друг с другом не конфликтуют).
+   * Здесь оба запроса стартуют по-настоящему одновременно (Promise.all,
+   * без await между ними) — именно то условие гонки, которое TOCTOU-чек
+   * пропускал.
+   */
+  it('два по-настоящему параллельных createUnit с разными валютами: ровно один проходит', async () => {
+    const organizationId = new Types.ObjectId();
+    const identityId = new Types.ObjectId();
+    const { buildingA, buildingB, floorA, floorB } = await seedDevelopment(organizationId);
+
+    const results = await Promise.allSettled([
+      developmentsService.createUnit({
+        buildingId: buildingA._id,
+        floorId: floorA._id,
+        organizationId,
+        number: '1',
+        kind: 'apartment',
+        area: 40,
+        price: { amountMinorUnits: 10_000_000, currency: 'USD' },
+        idempotency: idempotency(identityId, 'race-usd'),
+      }),
+      developmentsService.createUnit({
+        buildingId: buildingB._id,
+        floorId: floorB._id,
+        organizationId,
+        number: '1',
+        kind: 'apartment',
+        area: 40,
+        price: { amountMinorUnits: 26_000_000, currency: 'GEL' },
+        idempotency: idempotency(identityId, 'race-gel'),
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: ErrorCode.MONEY_CURRENCY_MISMATCH,
+    });
+
+    const currencies = await connection.collection('units').distinct('price.currency', {});
+    expect(currencies).toHaveLength(1);
+  });
+
   it('генератор шахматки не может залить корпус валютой, отличной от валюты ЖК', async () => {
     const organizationId = new Types.ObjectId();
     const identityId = new Types.ObjectId();

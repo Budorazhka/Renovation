@@ -4266,6 +4266,76 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /admin/organizations/{organizationId}/verify-mls:
+    post:
+      operationId: adminVerifyMls
+      summary: Верификация MLS-биржи для агентства/риэлтора (N-10)
+      description: >-
+        Открывает доступ к бирже MLS (community type:'exchange') организации.
+        Недоступно для организаций типа developer — они не видят биржу вне
+        зависимости от этого флага.
+      tags: [admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyMlsRequest'
+      responses:
+        '200':
+          description: MLS-верификация организации включена
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, mlsVerified]
+                properties:
+                  id: {type: string}
+                  mlsVerified: {type: boolean, enum: [true]}
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /admin/organizations/{organizationId}/revoke-mls-verification:
+    post:
+      operationId: adminRevokeMlsVerification
+      summary: Отзыв MLS-верификации у агентства/риэлтора (N-10)
+      tags: [admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyMlsRequest'
+      responses:
+        '200':
+          description: MLS-верификация организации отозвана
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, mlsVerified]
+                properties:
+                  id: {type: string}
+                  mlsVerified: {type: boolean, enum: [false]}
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /admin/accounts:
     get:
       operationId: adminListAccounts
@@ -8810,14 +8880,23 @@ components:
           type: string
           minLength: 10
 
+    VerifyMlsRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+
     AdminOrganizationItem:
       type: object
-      required: [id, name, type, status, createdAt]
+      required: [id, name, type, status, mlsVerified, createdAt]
       properties:
         id: {type: string}
         name: {type: string}
         type: {type: string, enum: [agency, developer, independent_realtor]}
         status: {type: string, enum: [active, frozen, archived]}
+        mlsVerified: {type: boolean}
         createdAt: {type: string, format: date-time}
         positionsCount: {type: integer}
 
@@ -8835,12 +8914,13 @@ components:
 
     AdminOrganizationDetailResponse:
       type: object
-      required: [id, name, type, status, createdAt, positionsCount, positions]
+      required: [id, name, type, status, mlsVerified, createdAt, positionsCount, positions]
       properties:
         id: {type: string}
         name: {type: string}
         type: {type: string, enum: [agency, developer, independent_realtor]}
         status: {type: string, enum: [active, frozen, archived]}
+        mlsVerified: {type: boolean}
         createdAt: {type: string, format: date-time}
         positionsCount: {type: integer}
         positions:

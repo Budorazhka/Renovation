@@ -7,6 +7,7 @@ import { ErrorCode } from '../../shared/errors/error-codes';
 import { IdempotencyService } from '../../shared/idempotency/idempotency.service';
 import { runInTransaction } from '../../shared/transactions/run-in-transaction';
 import { OutboxService } from '../outbox/outbox.service';
+import { PolicyEvaluatorService } from '../authorization/policy-evaluator.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import type { OrganizationType } from '../organizations/schemas/organization.schema';
 import { CommunitySectionRepository } from './repository/community-section.repository';
@@ -131,8 +132,48 @@ export class CommunityService implements OnModuleInit {
     private readonly eventRepository: CommunityEventRepository,
     private readonly idempotencyService: IdempotencyService,
     private readonly outboxService: OutboxService,
+    private readonly policyEvaluator: PolicyEvaluatorService,
     private readonly organizationsService: OrganizationsService,
   ) {}
+
+  /**
+   * ИСПРАВЛЕНО 13.09.2026 (найдено ревью): раньше "модератор" внутри
+   * updateThread/updateReply значил просто "тот же organizationId", без
+   * проверки самого гранта — любой сотрудник с правом community_thread
+   * .create (открывающим доступ к PATCH-эндпоинту вообще) мог поэтому
+   * редактировать чужой контент коллег по организации. Теперь модератор —
+   * это ещё и грант 'manage' у САМОЙ этой позиции; сверка организации
+   * остаётся (community — межорганизационная площадка, 'manage' — грант
+   * роли внутри своей организации, не полномочие над чужим контентом
+   * другой организации).
+   */
+  private async canModerate(callerPositionId: Types.ObjectId, resource: 'community_thread' | 'community_reply') {
+    return this.policyEvaluator.evaluate({
+      subjectType: 'position',
+      subjectId: callerPositionId,
+      resource,
+      action: 'manage',
+    });
+  }
+
+  /**
+   * N-10 (roadmap-2026-09.md, решение владельца 11.09.2026): биржу MLS
+   * (`type:'exchange'`) видят и создают только проверенные агентства и
+   * риэлторы. Застройщик не проходит вообще, независимо от
+   * `mlsVerified` — решение владельца называет только «агентства и
+   * риэлторы», без исключений. Несуществующая организация (не должно
+   * происходить — organizationId всегда из проверенного tenantContext)
+   * трактуется как неподходящая, не бросает — тот же принцип, что
+   * buildAuthorSnapshot: это проверка права видеть контент, а не сама
+   * попытка прочитать организацию.
+   */
+  private async isMlsEligible(organizationId: Types.ObjectId): Promise<boolean> {
+    const organization = await this.organizationsService.getOrganizationById(organizationId);
+    if (!organization || organization.type === 'developer') {
+      return false;
+    }
+    return organization.mlsVerified;
+  }
 
   async onModuleInit(): Promise<void> {
     await this.seedDefaultsIfEmpty();
@@ -232,7 +273,17 @@ export class CommunityService implements OnModuleInit {
 
   // ─── Темы (треды) ──────────────────────────────────────────────────────────
 
-  async listThreads(query: ListCommunityThreadsQueryDto) {
+  async listThreads(query: ListCommunityThreadsQueryDto, callerOrganizationId: Types.ObjectId) {
+    const mlsEligible = await this.isMlsEligible(callerOrganizationId);
+
+    // Явный запрос биржи от неподходящей организации — пустая страница, не
+    // ошибка: тот же принцип, что и скрытие через NOT_FOUND у getThread,
+    // просто для списка нет одного ресурса, которого "не существует".
+    if (!mlsEligible && query.type === 'exchange') {
+      const pageSize = query.pageSize ?? 20;
+      return { items: [], total: 0, page: query.page ?? 1, pageSize, hasMore: false };
+    }
+
     const result = await this.threadRepository.findPaginated(
       {
         sectionId: query.section,
@@ -242,6 +293,10 @@ export class CommunityService implements OnModuleInit {
         exchangeIntent: query.exchangeIntent,
         exchangeSide: query.exchangeSide,
         exchangeStatus: query.exchangeStatus,
+        // Без явного type-фильтра список смешивает разделы — исключаем
+        // exchange отдельно, иначе неподходящая организация увидела бы
+        // заявки биржи в общей ленте/поиске в обход фильтра выше.
+        excludeTypes: mlsEligible ? undefined : ['exchange'],
       },
       query.sort ?? 'active',
       query.page ?? 1,
@@ -257,9 +312,12 @@ export class CommunityService implements OnModuleInit {
     };
   }
 
-  async getThread(threadId: string) {
+  async getThread(threadId: string, callerOrganizationId: Types.ObjectId) {
     const thread = await this.threadRepository.findById(threadId);
-    if (!thread) {
+    // NOT_FOUND единый для "не существует" и "биржа скрыта организации" —
+    // тот же принцип, что тенантная изоляция в других модулях (не
+    // раскрывать чужому существование записи через отдельный код ошибки).
+    if (!thread || (thread.type === 'exchange' && !(await this.isMlsEligible(callerOrganizationId)))) {
       throw new AppException(ErrorCode.NOT_FOUND, `Thread '${threadId}' not found`);
     }
     // Async view increment
@@ -292,6 +350,17 @@ export class CommunityService implements OnModuleInit {
     const section = await this.sectionRepository.findById(params.data.sectionId);
     if (!section) {
       throw new AppException(ErrorCode.NOT_FOUND, `Section '${params.data.sectionId}' not found`);
+    }
+
+    // N-10: кто не видит биржу — не может и публиковать в неё, иначе
+    // застройщик или непроверенное агентство писало бы заявки, которые
+    // сами не увидят, но которые всё равно попадут перед проверенными
+    // организациями.
+    if (params.data.type === 'exchange' && !(await this.isMlsEligible(params.organizationId))) {
+      throw new AppException(
+        ErrorCode.FORBIDDEN,
+        'MLS exchange is available only to verified agencies and independent realtors',
+      );
     }
 
     const threadId = `th-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -379,6 +448,7 @@ export class CommunityService implements OnModuleInit {
     threadId: string,
     identityId: Types.ObjectId,
     callerOrganizationId: Types.ObjectId,
+    callerPositionId: Types.ObjectId,
     data: UpdateCommunityThreadDto,
   ) {
     const thread = await this.threadRepository.findById(threadId);
@@ -387,10 +457,8 @@ export class CommunityService implements OnModuleInit {
     }
 
     const isAuthor = thread.authorIdentityId.equals(identityId);
-    // 'manage' — это грант на роль ВНУТРИ организации заявителя, а не
-    // полномочие над чужим контентом межорганизационной площадки: модератор
-    // может править только темы своей же организации.
-    const isModerator = thread.organizationId.equals(callerOrganizationId);
+    const sameOrg = thread.organizationId.equals(callerOrganizationId);
+    const isModerator = !isAuthor && sameOrg && (await this.canModerate(callerPositionId, 'community_thread'));
     if (!isAuthor && !isModerator) {
       throw new AppException(ErrorCode.FORBIDDEN, 'Only author or moderator can update thread');
     }
@@ -468,7 +536,20 @@ export class CommunityService implements OnModuleInit {
 
   // ─── Ответы (Replies) ────────────────────────────────────────────────────────
 
-  async listReplies(threadId: string, query: ListCommunityRepliesQueryDto) {
+  async listReplies(
+    threadId: string,
+    query: ListCommunityRepliesQueryDto,
+    callerOrganizationId: Types.ObjectId,
+  ) {
+    // Ответы биржевой заявки несут тот же PII-риск, что и сама заявка
+    // (N-10) — без этой проверки неподходящая организация не видела бы
+    // тему в списке/по id, но могла бы прочитать её ответы напрямую, зная
+    // threadId.
+    const thread = await this.threadRepository.findById(threadId);
+    if (!thread || (thread.type === 'exchange' && !(await this.isMlsEligible(callerOrganizationId)))) {
+      throw new AppException(ErrorCode.NOT_FOUND, `Thread '${threadId}' not found`);
+    }
+
     const result = await this.replyRepository.findPaginatedByThread(
       threadId,
       query.sort ?? 'best_first',
@@ -509,7 +590,10 @@ export class CommunityService implements OnModuleInit {
     }
 
     const thread = await this.threadRepository.findById(params.threadId);
-    if (!thread) {
+    // N-10: тот же принцип, что listReplies/getThread — не отвечать в
+    // биржевую заявку тому, кому она вообще не показывается (NOT_FOUND, а
+    // не FORBIDDEN — не подтверждаем существование чужой заявки).
+    if (!thread || (thread.type === 'exchange' && !(await this.isMlsEligible(params.organizationId)))) {
       throw new AppException(ErrorCode.NOT_FOUND, `Thread '${params.threadId}' not found`);
     }
     if (thread.locked) {
@@ -575,6 +659,7 @@ export class CommunityService implements OnModuleInit {
     replyId: string,
     identityId: Types.ObjectId,
     callerOrganizationId: Types.ObjectId,
+    callerPositionId: Types.ObjectId,
     data: UpdateCommunityReplyDto,
   ) {
     const reply = await this.replyRepository.findById(replyId);
@@ -583,7 +668,8 @@ export class CommunityService implements OnModuleInit {
     }
 
     const isAuthor = reply.authorIdentityId.equals(identityId);
-    const isModerator = reply.organizationId.equals(callerOrganizationId);
+    const sameOrg = reply.organizationId.equals(callerOrganizationId);
+    const isModerator = !isAuthor && sameOrg && (await this.canModerate(callerPositionId, 'community_reply'));
     if (!isAuthor && !isModerator) {
       throw new AppException(ErrorCode.FORBIDDEN, 'Only author or moderator can update reply');
     }
@@ -644,12 +730,12 @@ export class CommunityService implements OnModuleInit {
 
   // ─── Биржа сделок MLS (Exchange) ─────────────────────────────────────────────
 
-  async listExchangeDeals(query: ListCommunityThreadsQueryDto) {
+  async listExchangeDeals(query: ListCommunityThreadsQueryDto, callerOrganizationId: Types.ObjectId) {
     const exchangeQuery: ListCommunityThreadsQueryDto = {
       ...query,
       type: 'exchange',
     };
-    return this.listThreads(exchangeQuery);
+    return this.listThreads(exchangeQuery, callerOrganizationId);
   }
 
   async updateExchangeStatus(

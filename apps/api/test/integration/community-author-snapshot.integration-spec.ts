@@ -31,6 +31,7 @@ import {
 import { PositionDocument, PositionSchema } from '../../src/modules/organizations/schemas/position.schema';
 import type { IdempotencyService } from '../../src/shared/idempotency/idempotency.service';
 import type { OutboxService } from '../../src/modules/outbox/outbox.service';
+import type { PolicyEvaluatorService } from '../../src/modules/authorization/policy-evaluator.service';
 
 /**
  * N-08 (11.09.2026): до этого коммита контроллер не передавал снимок
@@ -106,6 +107,11 @@ describe('Community: N-08 автор темы/ответа — реальное 
       record: jest.fn().mockResolvedValue(undefined),
     };
     const outboxService: Pick<OutboxService, 'publish'> = { publish: jest.fn().mockResolvedValue(undefined) };
+    // Модерация (13.09.2026) здесь не проверяется — только N-08 подпись
+    // автора; grant 'manage' не нужен ни одному из этих тестов.
+    const policyEvaluator: Pick<PolicyEvaluatorService, 'evaluate'> = {
+      evaluate: jest.fn().mockResolvedValue(false),
+    };
 
     service = new CommunityService(
       connection,
@@ -115,6 +121,7 @@ describe('Community: N-08 автор темы/ответа — реальное 
       new CommunityEventRepository(EventModel),
       idempotencyService as unknown as IdempotencyService,
       outboxService as unknown as OutboxService,
+      policyEvaluator as unknown as PolicyEvaluatorService,
       organizationsService,
     );
 

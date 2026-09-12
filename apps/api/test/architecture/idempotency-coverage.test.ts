@@ -219,6 +219,8 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /admin/complaints/:complaintId/resolve': 'условный update по status:pending (CAS), повтор с уже резолюцированной жалобой — 409',
   'POST /admin/organizations/:organizationId/freeze': 'условный update по статусу (заморозка организации)',
   'POST /admin/organizations/:organizationId/unfreeze': 'условный update по статусу (разморозка организации)',
+  'POST /admin/organizations/:organizationId/verify-mls': 'условный update по булеву флагу mlsVerified (N-10), тот же принцип, что freeze/unfreeze',
+  'POST /admin/organizations/:organizationId/revoke-mls-verification': 'условный update по булеву флагу mlsVerified (N-10)',
 
   // --- Мессенджеры и чаты ---
   'DELETE /messenger/accounts/:accountId': 'удаление аккаунта мессенджера по id идемпотентно',

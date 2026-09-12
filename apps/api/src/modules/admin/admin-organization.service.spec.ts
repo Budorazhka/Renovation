@@ -111,4 +111,69 @@ describe('AdminOrganizationService', () => {
     });
     expect(result.status).toBe('active');
   });
+
+  it('verifyMls проверяет причину и право verify_mls (N-10)', async () => {
+    const orgId = new Types.ObjectId();
+    const requireReasonSpy = jest.fn();
+    const requireGrantSpy = jest.fn().mockResolvedValue(undefined);
+    const adminVerifySpy = jest.fn().mockResolvedValue({ id: orgId.toString(), mlsVerified: true });
+
+    const service = new AdminOrganizationService(
+      { adminVerifyMls: adminVerifySpy } as unknown as OrganizationsService,
+      { requireReason: requireReasonSpy, requireGrant: requireGrantSpy } as unknown as AdminPolicyService,
+    );
+
+    const context = makeAdminContext();
+    const result = await service.verifyMls(context, {
+      id: orgId,
+      reason: 'Проверено по телефону и документам агентства',
+      correlationId: 'req-mls-1',
+    });
+
+    expect(requireReasonSpy).toHaveBeenCalledWith('Проверено по телефону и документам агентства');
+    expect(requireGrantSpy).toHaveBeenCalledWith({
+      adminContext: context,
+      resource: 'organization',
+      action: 'verify_mls',
+    });
+    expect(adminVerifySpy).toHaveBeenCalledWith({
+      id: orgId,
+      reason: 'Проверено по телефону и документам агентства',
+      actorId: new Types.ObjectId(context.adminAccountId),
+      correlationId: 'req-mls-1',
+    });
+    expect(result.mlsVerified).toBe(true);
+  });
+
+  it('revokeMlsVerification проверяет причину и право revoke_mls_verification (N-10)', async () => {
+    const orgId = new Types.ObjectId();
+    const requireReasonSpy = jest.fn();
+    const requireGrantSpy = jest.fn().mockResolvedValue(undefined);
+    const adminRevokeSpy = jest.fn().mockResolvedValue({ id: orgId.toString(), mlsVerified: false });
+
+    const service = new AdminOrganizationService(
+      { adminRevokeMlsVerification: adminRevokeSpy } as unknown as OrganizationsService,
+      { requireReason: requireReasonSpy, requireGrant: requireGrantSpy } as unknown as AdminPolicyService,
+    );
+
+    const context = makeAdminContext();
+    const result = await service.revokeMlsVerification(context, {
+      id: orgId,
+      reason: 'Документы агентства больше не действительны',
+    });
+
+    expect(requireReasonSpy).toHaveBeenCalledWith('Документы агентства больше не действительны');
+    expect(requireGrantSpy).toHaveBeenCalledWith({
+      adminContext: context,
+      resource: 'organization',
+      action: 'revoke_mls_verification',
+    });
+    expect(adminRevokeSpy).toHaveBeenCalledWith({
+      id: orgId,
+      reason: 'Документы агентства больше не действительны',
+      actorId: new Types.ObjectId(context.adminAccountId),
+      correlationId: undefined,
+    });
+    expect(result.mlsVerified).toBe(false);
+  });
 });

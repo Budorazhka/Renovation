@@ -627,12 +627,34 @@ export class DevelopmentsService {
    * `excludeUnitId` — при смене цены существующего юнита он сам из
    * сравнения исключается, иначе запретил бы собственную операцию.
    */
+  /**
+   * ИСПРАВЛЕНО 13.09.2026: раньше проверка читала распределение валют по
+   * юнитам ДО открытия транзакции — два параллельных запроса с разными
+   * валютами оба видели пустой/непротиворечивый ЖК в своём собственном
+   * снимке и оба успешно писали юнит дальше (запись новых unit-документов
+   * друг с другом не конфликтует, TOCTOU). Теперь первой записью
+   * ТРАНЗАКЦИИ идёт CAS `DevelopmentRepository.lockCurrency` на сам
+   * Development-документ — тот же принцип, что BookingLockRepository
+   * .bumpForUnit (apps/api/.../booking-lock.repository.ts): конкурентная
+   * транзакция, пытающаяся записать в тот же документ, получает от
+   * MongoDB write conflict и повторяется автоматически (withTransaction
+   * retry, run-in-transaction.ts), поэтому проигравшая сторона на повторе
+   * увидит уже установленную первой стороной валюту, а не независимо
+   * пустое состояние.
+   *
+   * `excludeUnitId` (смена цены/валюты существующего юнита) — залоченную
+   * валюту мог держать только сам этот юнит; сканом oставшихся юнитов
+   * (исключая его) проверяем, вправду ли он единственный держатель, и
+   * если да — переносим лок на новую валюту той же атомарной CAS-записью.
+   * Вызывающий обязан передать session уже ОТКРЫТОЙ транзакции и вызвать
+   * этот метод первым — до любых других записей в ней.
+   */
   private async assertSingleCurrencyWithinDevelopment(params: {
     buildingId: Types.ObjectId;
     organizationId: Types.ObjectId;
     currencies: Currency[];
     excludeUnitId?: Types.ObjectId;
-    session?: ClientSession;
+    session: ClientSession;
   }): Promise<void> {
     const incoming = new Set(params.currencies);
     if (incoming.size > 1) {
@@ -655,18 +677,40 @@ export class DevelopmentsService {
       throw new NotFoundException('Building not found');
     }
 
+    const lock = await this.developmentRepository.lockCurrency(
+      building.developmentId,
+      params.organizationId,
+      requested,
+      params.session,
+    );
+    if (lock.ok) {
+      return;
+    }
+
     const developmentBuildings = await this.buildingRepository.listByDevelopmentId(building.developmentId);
-    const existing = await this.unitRepository.listDistinctCurrenciesForBuildings(
+    const existingElsewhere = await this.unitRepository.listDistinctCurrenciesForBuildings(
       developmentBuildings.map((b) => b._id),
       params.organizationId,
       { excludeUnitId: params.excludeUnitId, session: params.session },
     );
-
-    const conflicting = existing.filter((currency) => currency !== requested);
-    if (conflicting.length > 0) {
+    if (existingElsewhere.some((currency) => currency !== requested)) {
       throw new AppException(
         ErrorCode.MONEY_CURRENCY_MISMATCH,
-        `Development already uses ${conflicting.sort().join(', ')}, cannot add ${requested}`,
+        `Development already uses ${lock.currentCurrency}, cannot add ${requested}`,
+      );
+    }
+
+    const reassigned = await this.developmentRepository.lockCurrency(
+      building.developmentId,
+      params.organizationId,
+      requested,
+      params.session,
+      { allowReplacing: lock.currentCurrency },
+    );
+    if (!reassigned.ok) {
+      throw new AppException(
+        ErrorCode.MONEY_CURRENCY_MISMATCH,
+        `Development already uses ${reassigned.currentCurrency}, cannot add ${requested}`,
       );
     }
   }
@@ -703,14 +747,15 @@ export class DevelopmentsService {
       }
     }
 
-    await this.assertSingleCurrencyWithinDevelopment({
-      buildingId: params.buildingId,
-      organizationId: params.organizationId,
-      currencies: [params.price.currency],
-    });
+    return this.createIdempotently(params.idempotency, async (session) => {
+      await this.assertSingleCurrencyWithinDevelopment({
+        buildingId: params.buildingId,
+        organizationId: params.organizationId,
+        currencies: [params.price.currency],
+        session,
+      });
 
-    return this.createIdempotently(params.idempotency, (session) =>
-      this.unitRepository.create(
+      return this.unitRepository.create(
         {
           buildingId: params.buildingId,
           floorId: params.floorId,
@@ -728,8 +773,8 @@ export class DevelopmentsService {
           floorPlanId: params.floorPlanId,
         },
         session,
-      ),
-    );
+      );
+    });
   }
 
   /**
@@ -752,14 +797,16 @@ export class DevelopmentsService {
     if (!unit) {
       throw new NotFoundException('Unit not found');
     }
-    await this.assertSingleCurrencyWithinDevelopment({
-      buildingId: unit.buildingId,
-      organizationId: params.organizationId,
-      currencies: [params.price.currency],
-      excludeUnitId: params.unitId,
-    });
 
     return runInTransaction(this.connection, async (session) => {
+      await this.assertSingleCurrencyWithinDevelopment({
+        buildingId: unit.buildingId,
+        organizationId: params.organizationId,
+        currencies: [params.price.currency],
+        excludeUnitId: params.unitId,
+        session,
+      });
+
       const { modifiedCount } = await this.unitRepository.updatePriceWithVersionCheck(
         params.unitId,
         params.organizationId,
@@ -1377,12 +1424,6 @@ export class DevelopmentsService {
       }
     }
 
-    await this.assertSingleCurrencyWithinDevelopment({
-      buildingId: params.buildingId,
-      organizationId: params.organizationId,
-      currencies: [params.defaultPrice.currency],
-    });
-
     if (params.floorPlanId) {
       const floorPlan = await this.floorPlanRepository.findByIdForOrganization(
         params.floorPlanId,
@@ -1394,6 +1435,13 @@ export class DevelopmentsService {
     }
 
     return runInTransaction(this.connection, async (session) => {
+      await this.assertSingleCurrencyWithinDevelopment({
+        buildingId: params.buildingId,
+        organizationId: params.organizationId,
+        currencies: [params.defaultPrice.currency],
+        session,
+      });
+
       let generatedFloors = 0;
       const floorMap = new Map<number, FloorDocument>();
 
@@ -1535,13 +1583,14 @@ export class DevelopmentsService {
       throw new NotFoundException('Building not found');
     }
 
-    await this.assertSingleCurrencyWithinDevelopment({
-      buildingId: params.buildingId,
-      organizationId: params.organizationId,
-      currencies: params.units.map((u) => u.price.currency),
-    });
-
     return runInTransaction(this.connection, async (session) => {
+      await this.assertSingleCurrencyWithinDevelopment({
+        buildingId: params.buildingId,
+        organizationId: params.organizationId,
+        currencies: params.units.map((u) => u.price.currency),
+        session,
+      });
+
       const floorNumbers = Array.from(new Set(params.units.map((u) => u.floorNumber)));
       const floorMap = new Map<number, FloorDocument>();
 

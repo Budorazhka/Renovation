@@ -201,13 +201,19 @@ describe('BillingService', () => {
       expect(overview.subscription.planCode).toBe('realtor_free');
     });
 
-    it('организация не найдена — сохраняется прежнее поведение (agency_trial), а не падает', async () => {
+    // ИСПРАВЛЕНО 13.09.2026 (найдено ревью): раньше несуществующая
+    // организация молча получала agency_trial-подписку — для
+    // admin/organizations/:organizationId/billing (organizationId прямо
+    // из URL) это позволяло завести "висячую" подписку/биллинг для
+    // организации, которой нет. Теперь явный 404.
+    it('организация не найдена — NOT_FOUND, а не молчаливый agency_trial', async () => {
       const orgId = new Types.ObjectId();
       (mockOrganizationsService.getOrganizationById as jest.Mock).mockResolvedValue(null);
 
-      const overview = await service.getOrganizationSubscription(orgId);
-
-      expect(overview.subscription.planCode).toBe('agency_trial');
+      await expect(service.getOrganizationSubscription(orgId)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      expect(mockSubRepo.upsertSubscription).not.toHaveBeenCalled();
     });
 
     it('returns existing subscription if already present', async () => {
@@ -305,6 +311,26 @@ describe('BillingService', () => {
       );
       expect(result.planCode).toBe('agency_pro');
       expect(result.status).toBe('active');
+    });
+
+    // ИСПРАВЛЕНО 13.09.2026 (найдено ревью): раньше organizationId из URL
+    // (admin/organizations/:organizationId/billing/activate) шёл прямо в
+    // upsert без проверки, что такая организация вообще существует.
+    it('организация не найдена — NOT_FOUND, тариф не активируется', async () => {
+      const adminCtx = makeAdminContext();
+      const orgId = new Types.ObjectId();
+      (mockOrganizationsService.getOrganizationById as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.adminActivateSubscription(adminCtx, {
+          organizationId: orgId,
+          planCode: 'agency_pro',
+          reason: 'Payment received via bank transfer invoice #1042',
+          idempotency: idem(),
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(mockSubRepo.upsertSubscription).not.toHaveBeenCalled();
+      expect(mockLedgerRepo.appendEntry).not.toHaveBeenCalled();
     });
   });
 

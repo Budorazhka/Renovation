@@ -16,7 +16,7 @@ export const exportApi = {
    */
   async downloadExport(entity: ExportEntity): Promise<void> {
     const response = await api.get(`/api/v1/exports/${entity}`);
-    
+
     // Извлекаем имя файла из заголовка Content-Disposition (RFC 5987 filename* или обычный filename)
     let fileName = `${entity}_export.xlsx`;
     const disposition = response.headers['content-disposition'] as string | undefined;

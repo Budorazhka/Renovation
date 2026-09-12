@@ -272,13 +272,19 @@ export class BillingService {
 
     if (!subscription) {
       const organization = await this.organizationsService.getOrganizationById(organizationId);
-      // Организация не найдена — сюда доходить не должно (organizationId
-      // всегда из проверенного tenantContext/AdminContext выше по стеку),
-      // но метод не обязан сам решать эту проблему: agency_trial как и
-      // раньше, не бросать здесь несвойственную этому месту ошибку.
-      const planCode = organization
-        ? TRIAL_PLAN_CODE_BY_ORGANIZATION_TYPE[organization.type]
-        : 'agency_trial';
+      // ИСПРАВЛЕНО 13.09.2026 (найдено ревью): для tenant-эндпоинта
+      // organizationId и правда всегда приходит из проверенного
+      // tenantContext, но admin/organizations/:organizationId/billing
+      // передаёт сюда ID прямо из URL — AdminGuard проверяет только
+      // валидность admin-сессии и (после 10-11.09.2026) грант
+      // manual_ledger, но НЕ существование организации. Раньше это молча
+      // заводило agency_trial-подписку и (при activate) запись биллинга
+      // для несуществующей/опечатанной организации — "висячие" данные,
+      // которые никто не увидит и не сможет вычистить штатным путём.
+      if (!organization) {
+        throw new AppException(ErrorCode.NOT_FOUND, `Organization '${organizationId.toHexString()}' not found`);
+      }
+      const planCode = TRIAL_PLAN_CODE_BY_ORGANIZATION_TYPE[organization.type];
 
       const startedAt = new Date();
       const expiresAt = new Date(startedAt.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -366,6 +372,19 @@ export class BillingService {
   ): Promise<OrganizationSubscriptionDocument> {
     if (!params.reason || params.reason.trim().length < 10) {
       throw new AppException(ErrorCode.ADMIN_REASON_REQUIRED, 'Reason must be at least 10 characters');
+    }
+
+    // ИСПРАВЛЕНО 13.09.2026 (найдено ревью) — тот же класс проблемы, что
+    // getOrganizationSubscription выше: organizationId здесь берётся прямо
+    // из URL admin/organizations/:organizationId/billing/activate, и без
+    // этой проверки привилегированный admin мог активировать платный
+    // тариф и записать биллинг-ledger для несуществующей организации.
+    const organization = await this.organizationsService.getOrganizationById(params.organizationId);
+    if (!organization) {
+      throw new AppException(
+        ErrorCode.NOT_FOUND,
+        `Organization '${params.organizationId.toHexString()}' not found`,
+      );
     }
 
     await this.ensurePlansSeeded();

@@ -41,7 +41,12 @@ function makeService(overrides: {
 } = {}) {
   return new DevelopmentsService(
     makeMockConnection() as never,
-    (overrides.developmentRepository ?? {}) as DevelopmentRepository,
+    // lockCurrency — то же самое: дефолт «первый лок всегда успешен»,
+    // чтобы тесты не про валюту не знали про CAS-механизм (13.09.2026).
+    {
+      lockCurrency: jest.fn().mockResolvedValue({ ok: true }),
+      ...overrides.developmentRepository,
+    } as unknown as DevelopmentRepository,
     // Дефолты для проверки «одна валюта на ЖК» (12.09.2026): она ищет
     // корпус, его ЖК и валюты уже заведённых юнитов. Тестам не про валюту
     // незачем это описывать, поэтому по умолчанию ЖК пустой, и любая

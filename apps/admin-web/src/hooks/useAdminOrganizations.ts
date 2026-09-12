@@ -18,6 +18,7 @@ export function useAdminOrganizations(filter: OrganizationsFilter = {}): {
   state: OrganizationsState
   loadMore: () => void
   applyStatusChange: (updated: { id: string; status: AdminOrganizationStatus }) => void
+  applyMlsVerifiedChange: (updated: { id: string; mlsVerified: boolean }) => void
 } {
   const [state, setState] = useState<OrganizationsState>({ status: 'loading' })
   const nextCursorRef = useRef<string | null>(null)
@@ -84,5 +85,18 @@ export function useAdminOrganizations(filter: OrganizationsFilter = {}): {
     )
   }, [])
 
-  return { state, loadMore, applyStatusChange }
+  const applyMlsVerifiedChange = useCallback((updated: { id: string; mlsVerified: boolean }) => {
+    setState((current) =>
+      current.status === 'ready'
+        ? {
+            ...current,
+            items: current.items.map((item) =>
+              item.id === updated.id ? { ...item, mlsVerified: updated.mlsVerified } : item,
+            ),
+          }
+        : current,
+    )
+  }, [])
+
+  return { state, loadMore, applyStatusChange, applyMlsVerifiedChange }
 }

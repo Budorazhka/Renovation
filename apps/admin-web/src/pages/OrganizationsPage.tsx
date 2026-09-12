@@ -10,7 +10,9 @@ import type {
   AdminOrganizationStatus,
   AdminOrganizationType,
   FreezeOrganizationResult,
+  RevokeMlsVerificationResult,
   UnfreezeOrganizationResult,
+  VerifyMlsResult,
 } from '../types/admin'
 
 const ORGANIZATION_TYPES: AdminOrganizationType[] = ['agency', 'developer', 'independent_realtor']
@@ -28,7 +30,7 @@ export function OrganizationsPage() {
     search?: string
   }>({})
 
-  const { state, loadMore, applyStatusChange } = useAdminOrganizations(activeFilter)
+  const { state, loadMore, applyStatusChange, applyMlsVerifiedChange } = useAdminOrganizations(activeFilter)
 
   const freezeAction = useConfirmReasonAction<AdminOrganizationListItem, FreezeOrganizationResult>(
     (org, reason) => adminApi.freezeOrganization(org.id, reason),
@@ -41,6 +43,22 @@ export function OrganizationsPage() {
     (org, reason) => adminApi.unfreezeOrganization(org.id, reason),
     (result) => {
       applyStatusChange({ id: result.id, status: result.status })
+    },
+  )
+
+  // N-10: биржа MLS видна только проверенным агентствам/риэлторам —
+  // застройщик кнопки верификации вообще не видит (см. renderTarget ниже).
+  const verifyMlsAction = useConfirmReasonAction<AdminOrganizationListItem, VerifyMlsResult>(
+    (org, reason) => adminApi.verifyMls(org.id, reason),
+    (result) => {
+      applyMlsVerifiedChange({ id: result.id, mlsVerified: result.mlsVerified })
+    },
+  )
+
+  const revokeMlsAction = useConfirmReasonAction<AdminOrganizationListItem, RevokeMlsVerificationResult>(
+    (org, reason) => adminApi.revokeMlsVerification(org.id, reason),
+    (result) => {
+      applyMlsVerifiedChange({ id: result.id, mlsVerified: result.mlsVerified })
     },
   )
 
@@ -140,6 +158,7 @@ export function OrganizationsPage() {
                   <th>Название</th>
                   <th>Тип</th>
                   <th>Статус</th>
+                  <th>MLS-биржа</th>
                   <th>Сотрудников/позиций</th>
                   <th>Создана</th>
                   <th>Действия</th>
@@ -157,6 +176,15 @@ export function OrganizationsPage() {
                         {organizationStatusLabel(org.status)}
                       </span>
                     </td>
+                    <td>
+                      {org.type === 'developer' ? (
+                        <span className="muted-text">Не применимо</span>
+                      ) : (
+                        <span className={`status-badge status-badge--${org.mlsVerified ? 'active' : 'archived'}`}>
+                          {org.mlsVerified ? 'Проверено' : 'Не проверено'}
+                        </span>
+                      )}
+                    </td>
                     <td>{org.positionsCount ?? '—'}</td>
                     <td>{formatDateTime(org.createdAt)}</td>
                     <td>
@@ -168,6 +196,24 @@ export function OrganizationsPage() {
                         >
                           Тариф / Биллинг
                         </button>
+                        {org.type !== 'developer' && !org.mlsVerified ? (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => verifyMlsAction.open(org)}
+                          >
+                            Верифицировать MLS
+                          </button>
+                        ) : null}
+                        {org.type !== 'developer' && org.mlsVerified ? (
+                          <button
+                            type="button"
+                            className="secondary danger-text"
+                            onClick={() => revokeMlsAction.open(org)}
+                          >
+                            Отозвать MLS
+                          </button>
+                        ) : null}
                         {org.status === 'active' ? (
                           <button
                             type="button"
@@ -243,6 +289,34 @@ export function OrganizationsPage() {
         onReasonChange={unfreezeAction.setReason}
         onCancel={unfreezeAction.close}
         onConfirm={() => void unfreezeAction.submit()}
+      />
+
+      <ConfirmReasonDialog
+        dialog={verifyMlsAction.dialog}
+        title="Верифицировать MLS-биржу?"
+        renderTarget={(org) => `${org.name} (${organizationTypeLabel(org.type)})`}
+        warning="Организация получит доступ к бирже MLS сообщества (заявки на аренду/продажу/передачу клиента). Верификация — по телефону и документам агентства. Действие будет зафиксировано в журнале аудита."
+        confirmLabel="Верифицировать"
+        confirmingLabel="Верифицируем…"
+        minReasonLength={verifyMlsAction.minReasonLength}
+        canSubmit={verifyMlsAction.canSubmit}
+        onReasonChange={verifyMlsAction.setReason}
+        onCancel={verifyMlsAction.close}
+        onConfirm={() => void verifyMlsAction.submit()}
+      />
+
+      <ConfirmReasonDialog
+        dialog={revokeMlsAction.dialog}
+        title="Отозвать MLS-верификацию?"
+        renderTarget={(org) => `${org.name} (${organizationTypeLabel(org.type)})`}
+        warning="Организация потеряет доступ к бирже MLS сообщества. Действие будет зафиксировано в журнале аудита."
+        confirmLabel="Отозвать"
+        confirmingLabel="Отзываем…"
+        minReasonLength={revokeMlsAction.minReasonLength}
+        canSubmit={revokeMlsAction.canSubmit}
+        onReasonChange={revokeMlsAction.setReason}
+        onCancel={revokeMlsAction.close}
+        onConfirm={() => void revokeMlsAction.submit()}
       />
     </section>
   )

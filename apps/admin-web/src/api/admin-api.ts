@@ -21,9 +21,11 @@ import type {
   PermissionGrant,
   PermissionScope,
   ResolveComplaintResult,
+  RevokeMlsVerificationResult,
   SubscriptionPlan,
   UnfreezeOrganizationResult,
   UnpublishResult,
+  VerifyMlsResult,
 } from '../types/admin'
 
 type Fetcher = typeof fetch
@@ -266,6 +268,20 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
 
     async unfreezeOrganization(organizationId: string, reason: string): Promise<UnfreezeOrganizationResult> {
       return request(`/admin/organizations/${encodeURIComponent(organizationId)}/unfreeze`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+    },
+
+    async verifyMls(organizationId: string, reason: string): Promise<VerifyMlsResult> {
+      return request(`/admin/organizations/${encodeURIComponent(organizationId)}/verify-mls`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+    },
+
+    async revokeMlsVerification(organizationId: string, reason: string): Promise<RevokeMlsVerificationResult> {
+      return request(`/admin/organizations/${encodeURIComponent(organizationId)}/revoke-mls-verification`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
       })

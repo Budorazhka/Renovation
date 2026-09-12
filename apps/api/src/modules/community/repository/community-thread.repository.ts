@@ -18,6 +18,8 @@ export interface ListThreadsFilter {
   exchangeIntent?: ExchangeIntent;
   exchangeSide?: ExchangeSide;
   exchangeStatus?: ExchangeStatus;
+  /** N-10: типы тем, скрытые от вызывающего (биржа MLS от неверифицированных). Игнорируется, если задан `type`. */
+  excludeTypes?: ThreadType[];
 }
 
 export interface PaginatedResult<T> {
@@ -45,7 +47,11 @@ export class CommunityThreadRepository {
     const query: FilterQuery<CommunityThreadDocument> = {};
 
     if (filter.sectionId) query.sectionId = filter.sectionId;
-    if (filter.type) query.type = filter.type;
+    if (filter.type) {
+      query.type = filter.type;
+    } else if (filter.excludeTypes && filter.excludeTypes.length > 0) {
+      query.type = { $nin: filter.excludeTypes };
+    }
     if (filter.tag) query.tags = filter.tag;
     if (filter.authorIdentityId) query.authorIdentityId = filter.authorIdentityId;
     if (filter.exchangeIntent) query['exchange.intent'] = filter.exchangeIntent;

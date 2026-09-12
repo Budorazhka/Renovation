@@ -12,6 +12,7 @@ import type { CommunityReplyRepository } from './repository/community-reply.repo
 import type { CommunityEventRepository } from './repository/community-event.repository';
 import type { IdempotencyService } from '../../shared/idempotency/idempotency.service';
 import type { OutboxService } from '../outbox/outbox.service';
+import type { PolicyEvaluatorService } from '../authorization/policy-evaluator.service';
 import type { OrganizationsService } from '../organizations/organizations.service';
 import type { CommunityThreadDocument } from './schemas/community-thread.schema';
 import type { CommunityReplyDocument } from './schemas/community-reply.schema';
@@ -81,6 +82,10 @@ interface MockOrganizationsService {
   getOrganizationById: jest.Mock;
 }
 
+interface MockPolicyEvaluatorService {
+  evaluate: jest.Mock;
+}
+
 describe('CommunityService', () => {
   let service: CommunityService;
   let sectionRepo: MockSectionRepo;
@@ -89,6 +94,7 @@ describe('CommunityService', () => {
   let eventRepo: MockEventRepo;
   let idempotencyService: MockIdempotencyService;
   let outboxService: MockOutboxService;
+  let policyEvaluator: MockPolicyEvaluatorService;
   let organizationsService: MockOrganizationsService;
 
   const orgId = new Types.ObjectId();
@@ -137,6 +143,11 @@ describe('CommunityService', () => {
     outboxService = {
       publish: jest.fn().mockResolvedValue(undefined),
     };
+    // По умолчанию — без гранта 'manage': тесты не про модерацию не должны
+    // случайно получать права модератора просто по совпадению организации.
+    policyEvaluator = {
+      evaluate: jest.fn().mockResolvedValue(false),
+    };
     // По умолчанию — как позиция без профиля/новая организация: buildAuthorSnapshot
     // должен откатиться на DEFAULT_AUTHOR_SNAPSHOT, не бросить и не подставить выдумку.
     organizationsService = {
@@ -152,6 +163,7 @@ describe('CommunityService', () => {
       eventRepo as unknown as CommunityEventRepository,
       idempotencyService as unknown as IdempotencyService,
       outboxService as unknown as OutboxService,
+      policyEvaluator as unknown as PolicyEvaluatorService,
       organizationsService as unknown as OrganizationsService,
     );
   });
@@ -225,25 +237,33 @@ describe('CommunityService', () => {
 
   describe('threads', () => {
     it('возвращает пагинированный список тем', async () => {
+      // N-10: caller не проверен под MLS — findPaginated получает
+      // excludeTypes:['exchange'], этот тест не про биржу.
       const paginated = { items: [], total: 0, page: 1, pageSize: 20, hasMore: false };
       threadRepo.findPaginated.mockResolvedValue(paginated);
 
-      const result = await service.listThreads({ page: 1, pageSize: 20 });
+      const result = await service.listThreads({ page: 1, pageSize: 20 }, orgId);
       expect(result.items).toEqual([]);
-      expect(threadRepo.findPaginated).toHaveBeenCalledWith({}, 'active', 1, 20);
+      expect(threadRepo.findPaginated).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeTypes: ['exchange'] }),
+        'active',
+        1,
+        20,
+      );
     });
 
     it('получает тему по id и инкрементирует просмотры', async () => {
       const mockThread = {
         threadId: 'thread-1',
         title: 'Test',
+        type: 'discussion',
         authorIdentityId: identityId,
         authorPositionId: positionId,
         organizationId: orgId,
       } as CommunityThreadDocument;
       threadRepo.findById.mockResolvedValue(mockThread);
 
-      const result = await service.getThread('thread-1');
+      const result = await service.getThread('thread-1', orgId);
       expect(result.id).toBe('thread-1');
       expect(threadRepo.incrementViews).toHaveBeenCalledWith('thread-1');
     });
@@ -251,9 +271,70 @@ describe('CommunityService', () => {
     it('выбрасывает NOT_FOUND, если тема не найдена', async () => {
       threadRepo.findById.mockResolvedValue(null);
 
-      await expect(service.getThread('thread-missing')).rejects.toMatchObject({
+      await expect(service.getThread('thread-missing', orgId)).rejects.toMatchObject({
         code: ErrorCode.NOT_FOUND,
       });
+    });
+
+    // ─── N-10: биржа MLS видна только проверенным агентствам/риэлторам ──────────
+
+    it('скрывает биржевую тему от неверифицированной организации (NOT_FOUND, не FORBIDDEN)', async () => {
+      const mockThread = {
+        threadId: 'ex-1',
+        type: 'exchange',
+        organizationId: new Types.ObjectId(),
+      } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      organizationsService.getOrganizationById.mockResolvedValue({ type: 'agency', mlsVerified: false });
+
+      await expect(service.getThread('ex-1', orgId)).rejects.toMatchObject({
+        code: ErrorCode.NOT_FOUND,
+      });
+    });
+
+    it('скрывает биржевую тему от застройщика, даже если бы у него был mlsVerified:true', async () => {
+      const mockThread = {
+        threadId: 'ex-1',
+        type: 'exchange',
+        organizationId: new Types.ObjectId(),
+      } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      organizationsService.getOrganizationById.mockResolvedValue({ type: 'developer', mlsVerified: true });
+
+      await expect(service.getThread('ex-1', orgId)).rejects.toMatchObject({
+        code: ErrorCode.NOT_FOUND,
+      });
+    });
+
+    it('показывает биржевую тему верифицированному агентству', async () => {
+      const mockThread = { threadId: 'ex-1', type: 'exchange', organizationId: orgId } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      organizationsService.getOrganizationById.mockResolvedValue({ type: 'agency', mlsVerified: true });
+
+      const result = await service.getThread('ex-1', orgId);
+      expect(result.id).toBe('ex-1');
+    });
+
+    it('createThread отклоняет заявку биржи от неверифицированной организации', async () => {
+      sectionRepo.findById.mockResolvedValue({ sectionId: 'exchange', name: 'Биржа' });
+      organizationsService.getOrganizationById.mockResolvedValue({ type: 'agency', mlsVerified: false });
+
+      await expect(
+        service.createThread({
+          organizationId: orgId,
+          positionId,
+          identityId,
+          idempotencyKey: 'ex-key',
+          data: {
+            type: 'exchange',
+            sectionId: 'exchange',
+            title: 'T',
+            excerpt: 'E',
+            body: 'B',
+          },
+        }),
+      ).rejects.toMatchObject({ code: ErrorCode.FORBIDDEN });
+      expect(threadRepo.create).not.toHaveBeenCalled();
     });
 
     it('создаёт тему, проверяет идемпотентность и публикует Outbox событие', async () => {
@@ -468,8 +549,9 @@ describe('CommunityService', () => {
       threadRepo.findById.mockResolvedValue(mockThread);
       threadRepo.update.mockResolvedValue({ ...mockThread, title: 'Updated' });
 
-      const result = await service.updateThread('t-1', identityId, orgId, { title: 'Updated' });
+      const result = await service.updateThread('t-1', identityId, orgId, positionId, { title: 'Updated' });
       expect(result.title).toBe('Updated');
+      expect(policyEvaluator.evaluate).not.toHaveBeenCalled();
     });
 
     it('запрещает редактировать чужую тему не-модератору', async () => {
@@ -481,10 +563,66 @@ describe('CommunityService', () => {
       threadRepo.findById.mockResolvedValue(mockThread);
 
       await expect(
-        service.updateThread('t-1', identityId, orgId, { title: 'Hacked' }),
+        service.updateThread('t-1', identityId, orgId, positionId, { title: 'Hacked' }),
       ).rejects.toMatchObject({
         code: ErrorCode.FORBIDDEN,
       });
+    });
+
+    /**
+     * ИСПРАВЛЕНО 13.09.2026 (найдено ревью): раньше совпадения organizationId
+     * было достаточно — сотрудник с одним лишь правом community_thread.create
+     * мог редактировать чужие темы коллег по своей же организации. Теперь
+     * сервис отдельно спрашивает PolicyEvaluatorService про грант 'manage'.
+     */
+    it('запрещает редактировать чужую тему коллеге по организации БЕЗ гранта manage', async () => {
+      const mockThread = {
+        threadId: 't-1',
+        authorIdentityId: new Types.ObjectId(),
+        organizationId: orgId,
+      } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      policyEvaluator.evaluate.mockResolvedValue(false);
+
+      await expect(
+        service.updateThread('t-1', identityId, orgId, positionId, { title: 'Hacked' }),
+      ).rejects.toMatchObject({
+        code: ErrorCode.FORBIDDEN,
+      });
+      expect(policyEvaluator.evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({ resource: 'community_thread', action: 'manage', subjectId: positionId }),
+      );
+    });
+
+    it('разрешает редактировать чужую тему коллеге по организации С грантом manage', async () => {
+      const mockThread = {
+        threadId: 't-1',
+        authorIdentityId: new Types.ObjectId(),
+        organizationId: orgId,
+      } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      threadRepo.update.mockResolvedValue({ ...mockThread, title: 'Moderated' });
+      policyEvaluator.evaluate.mockResolvedValue(true);
+
+      const result = await service.updateThread('t-1', identityId, orgId, positionId, { title: 'Moderated' });
+      expect(result.title).toBe('Moderated');
+    });
+
+    it('НЕ даёт грант manage в чужой организации спасти редактирование её темы', async () => {
+      const mockThread = {
+        threadId: 't-1',
+        authorIdentityId: new Types.ObjectId(),
+        organizationId: new Types.ObjectId(),
+      } as CommunityThreadDocument;
+      threadRepo.findById.mockResolvedValue(mockThread);
+      policyEvaluator.evaluate.mockResolvedValue(true);
+
+      await expect(
+        service.updateThread('t-1', identityId, orgId, positionId, { title: 'Hacked' }),
+      ).rejects.toMatchObject({
+        code: ErrorCode.FORBIDDEN,
+      });
+      expect(policyEvaluator.evaluate).not.toHaveBeenCalled();
     });
 
     it('переключает реакцию темы', async () => {

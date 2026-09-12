@@ -72,7 +72,9 @@ describe('Community: очистка выдуманного засева при �
       new CommunityThreadRepository(ThreadModel),
       new CommunityReplyRepository(ReplyModel),
       new CommunityEventRepository(EventModel),
-      // Засев не пишет ни идемпотентность, ни outbox, ни снимок автора.
+      // Засев не пишет ни идемпотентность, ни outbox, ни снимок автора,
+      // ни проверку granta модератора.
+      null as never,
       null as never,
       null as never,
       null as never,

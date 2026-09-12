@@ -57,15 +57,23 @@ export class CommunityController {
 
   @Get('threads')
   @RequirePermission('community_thread', 'read')
-  async listThreads(@Query() query: ListCommunityThreadsQueryDto) {
-    const data = await this.communityService.listThreads(query);
+  async listThreads(@Req() req: FastifyRequest, @Query() query: ListCommunityThreadsQueryDto) {
+    const tenantContext = requireTenantContext(req);
+    const data = await this.communityService.listThreads(
+      query,
+      new Types.ObjectId(tenantContext.organizationId),
+    );
     return { success: true, data };
   }
 
   @Get('threads/:threadId')
   @RequirePermission('community_thread', 'read')
-  async getThread(@Param('threadId') threadId: string) {
-    const data = await this.communityService.getThread(threadId);
+  async getThread(@Req() req: FastifyRequest, @Param('threadId') threadId: string) {
+    const tenantContext = requireTenantContext(req);
+    const data = await this.communityService.getThread(
+      threadId,
+      new Types.ObjectId(tenantContext.organizationId),
+    );
     return { success: true, data };
   }
 
@@ -100,16 +108,18 @@ export class CommunityController {
     @Body() dto: UpdateCommunityThreadDto,
   ) {
     const tenantContext = requireTenantContext(req);
-    // Правки контента (title/body/tags/pinned/locked) доступны автору темы
-    // всегда, а модератору — только внутри своей же организации: 'manage' —
-    // это грант на роль в организации заявителя, а не полномочие над чужим
-    // контентом на общей межорганизационной площадке (community — MLS
-    // exchange, см. domain-model.md). Сервис сверяет
-    // thread.organizationId === callerOrganizationId сам.
+    // ИСПРАВЛЕНО 13.09.2026 (найдено ревью): декоратор здесь — 'create'
+    // (база "участник площадки"), не 'manage', поэтому правку контента
+    // ЧУЖОЙ темы сервис обязан отдельно проверять по гранту 'manage' у
+    // самого actor'а, а не по одному лишь совпадению организации — иначе
+    // любой сотрудник с правом просто создавать темы мог править чужие
+    // темы коллег по организации без выданного grant'а. Автору своя тема
+    // доступна всегда, без проверки granta.
     const data = await this.communityService.updateThread(
       threadId,
       new Types.ObjectId(tenantContext.identityId),
       new Types.ObjectId(tenantContext.organizationId),
+      new Types.ObjectId(tenantContext.positionId),
       dto,
     );
     return { success: true, data };
@@ -170,10 +180,16 @@ export class CommunityController {
   @Get('threads/:threadId/replies')
   @RequirePermission('community_thread', 'read')
   async listReplies(
+    @Req() req: FastifyRequest,
     @Param('threadId') threadId: string,
     @Query() query: ListCommunityRepliesQueryDto,
   ) {
-    const data = await this.communityService.listReplies(threadId, query);
+    const tenantContext = requireTenantContext(req);
+    const data = await this.communityService.listReplies(
+      threadId,
+      query,
+      new Types.ObjectId(tenantContext.organizationId),
+    );
     return { success: true, data };
   }
 
@@ -210,10 +226,12 @@ export class CommunityController {
     @Body() dto: UpdateCommunityReplyDto,
   ) {
     const tenantContext = requireTenantContext(req);
+    // ИСПРАВЛЕНО 13.09.2026 — тот же класс проблемы, что updateThread выше.
     const data = await this.communityService.updateReply(
       replyId,
       new Types.ObjectId(tenantContext.identityId),
       new Types.ObjectId(tenantContext.organizationId),
+      new Types.ObjectId(tenantContext.positionId),
       dto,
     );
     return { success: true, data };
@@ -266,8 +284,12 @@ export class CommunityController {
 
   @Get('exchange')
   @RequirePermission('community_exchange', 'read')
-  async listExchangeDeals(@Query() query: ListCommunityThreadsQueryDto) {
-    const data = await this.communityService.listExchangeDeals(query);
+  async listExchangeDeals(@Req() req: FastifyRequest, @Query() query: ListCommunityThreadsQueryDto) {
+    const tenantContext = requireTenantContext(req);
+    const data = await this.communityService.listExchangeDeals(
+      query,
+      new Types.ObjectId(tenantContext.organizationId),
+    );
     return { success: true, data };
   }
 

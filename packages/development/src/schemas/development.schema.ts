@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
+import type { Currency } from '@baza/contracts';
 
 export type DevelopmentStatus = 'draft' | 'active' | 'archived';
 
@@ -106,6 +107,23 @@ export class DevelopmentDocument extends Document {
 
   @Prop({ type: ContactSchema, required: true })
   contact!: DevelopmentContact;
+
+  /**
+   * Владелец 11.09.2026: одна валюта на весь ЖК. Хранится здесь (а не
+   * только выводится из юнитов), потому что это единственное место, на
+   * котором два конкурентных createUnit/updateUnitPrice с разными
+   * валютами могут атомарно "столкнуться" — CAS через findOneAndUpdate на
+   * этом документе внутри транзакции, тот же принцип, что BookingLock
+   * (apps/api/src/modules/bookings/schemas/booking-lock.schema.ts):
+   * MongoDB детектирует write conflict на общем документе и повторяет
+   * проигравшую транзакцию (withTransaction retry), проигравший увидит
+   * уже установленную валюту вместо того, чтобы оба одновременно прочли
+   * "валюты ещё нет" по отдельным unit-документам, которые друг с другом
+   * не конфликтуют. Не задаётся при создании ЖК — ставится первым
+   * createUnit/updateUnitPrice, поэтому optional.
+   */
+  @Prop({ required: false, type: String })
+  currency?: Currency;
 
   /**
    * conventions.md разд.5 — optimistic concurrency. Инкрементируется при

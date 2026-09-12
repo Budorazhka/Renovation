@@ -96,11 +96,11 @@ export function RealtorProfilePage() {
               <span key={i} className="figma-realtor-badge figma-realtor-badge--top">{b}</span>
             ))}
           </div>
-          <h1 style={{ fontFamily: 'Plus Jakarta Sans', fontSize: '28px', margin: '0 0 6px' }}>{realtor.name}</h1>
-          <p style={{ margin: '0 0 10px', color: '#757575', fontSize: '15px' }}>
+          <h1 style={{ fontFamily: 'Plus Jakarta Sans', fontSize: '28px', margin: '0 0 6px', color: '#ffffff' }}>{realtor.name}</h1>
+          <p style={{ margin: '0 0 10px', color: 'rgba(255, 255, 255, 0.72)', fontSize: '15px' }}>
             {realtor.agency} · {realtor.city} · {t('realtorProfile.experience', { count: realtor.experienceYears })}
           </p>
-          <div className="figma-realtor-rating-row" style={{ fontSize: '15px' }}>
+          <div className="figma-realtor-rating-row" style={{ fontSize: '15px', color: '#ffffff' }}>
             <span className="figma-realtor-stars">★ {realtor.rating.toFixed(1)}</span>
             <span>{t('realtorProfile.reviewsDemo', { count: reviews.length })}</span>
           </div>

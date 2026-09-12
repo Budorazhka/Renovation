@@ -107,7 +107,7 @@ export function AddressAutocomplete({
           const housenumber = props.housenumber || ''
           const city = props.city || props.town || props.state || ''
           const country = props.country || 'Georgia'
-          
+
           let formattedAddress = street
           if (housenumber) {
             formattedAddress = `${street} ${housenumber}`

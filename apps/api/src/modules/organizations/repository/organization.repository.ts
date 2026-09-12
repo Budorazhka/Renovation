@@ -83,4 +83,15 @@ export class OrganizationRepository {
       .findByIdAndUpdate(id, { $set: { status } }, { new: true, session })
       .exec();
   }
+
+  /** N-10: смена флага верификации MLS-биржи (см. докстринг поля в схеме). */
+  async updateMlsVerified(
+    id: Types.ObjectId,
+    mlsVerified: boolean,
+    session?: ClientSession,
+  ): Promise<OrganizationDocument | null> {
+    return this.model
+      .findByIdAndUpdate(id, { $set: { mlsVerified } }, { new: true, session })
+      .exec();
+  }
 }

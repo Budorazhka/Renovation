@@ -69,4 +69,42 @@ export class AdminOrganizationService {
       correlationId: params.correlationId,
     });
   }
+
+  async verifyMls(
+    adminContext: AdminContext,
+    params: { id: Types.ObjectId; reason: string; correlationId?: string },
+  ) {
+    this.adminPolicyService.requireReason(params.reason);
+    await this.adminPolicyService.requireGrant({
+      adminContext,
+      resource: 'organization',
+      action: 'verify_mls',
+    });
+
+    return this.organizationsService.adminVerifyMls({
+      id: params.id,
+      reason: params.reason,
+      actorId: new Types.ObjectId(adminContext.adminAccountId),
+      correlationId: params.correlationId,
+    });
+  }
+
+  async revokeMlsVerification(
+    adminContext: AdminContext,
+    params: { id: Types.ObjectId; reason: string; correlationId?: string },
+  ) {
+    this.adminPolicyService.requireReason(params.reason);
+    await this.adminPolicyService.requireGrant({
+      adminContext,
+      resource: 'organization',
+      action: 'revoke_mls_verification',
+    });
+
+    return this.organizationsService.adminRevokeMlsVerification({
+      id: params.id,
+      reason: params.reason,
+      actorId: new Types.ObjectId(adminContext.adminAccountId),
+      correlationId: params.correlationId,
+    });
+  }
 }

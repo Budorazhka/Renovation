@@ -69,8 +69,18 @@ const CATEGORIES: CategorySpec[] = [
   },
 ]
 
-/** Фотополотно hero (`3851:56183`) — та же картинка, что в макете. */
-const HERO_PHOTO = '/figma/hero-city.jpg'
+/**
+ * Постоянный фирменный кадр: hero не зависит от случайной первой публикации.
+ * ИСПРАВЛЕНО 13.09.2026 (найдено ревью): исходный PNG весил 2.3 МБ и
+ * грузился eager — WebP-варианты по ширине сжимают его в ~17 раз
+ * (полноразмерный 1920w — 132 КБ), JPEG остаётся фолбэком для браузеров
+ * без поддержки WebP. `loading="eager"` сохранён намеренно — это LCP-кадр
+ * первого экрана, "lazy" здесь только ухудшил бы время отрисовки.
+ */
+const HERO_PHOTO_JPG = '/brand/batumi-editorial-hero.jpg'
+const HERO_PHOTO_WEBP_SRCSET = [640, 960, 1280, 1920]
+  .map((w) => `/brand/batumi-editorial-hero-${w}.webp ${w}w`)
+  .join(', ')
 
 /**
  * Три довода из `3428:55298`: иконка 139x139, заголовок 20px, текст 20px.
@@ -106,16 +116,6 @@ interface HomeData {
 }
 
 const EMPTY: HomeData = { developments: [], listings: [], rentals: [], counts: {} }
-
-/**
- * Обложка объявления. У публичной карточки ЖК фотографий нет вовсе
- * (`PublicDevelopmentCard` — slug, имя, локация, цена, состав квартир),
- * хотя макет их предполагает: отдельный пробел проекции публикации.
- */
-function coverOf(item: PublicListingCard | undefined): string | null {
-  const media = item?.media ?? []
-  return (media.find((m) => m.role === 'cover') ?? media[0])?.url ?? null
-}
 
 export function HomePage() {
   const [data, setData] = useState<HomeData>(EMPTY)
@@ -158,10 +158,6 @@ export function HomePage() {
     return () => controller.abort()
   }, [])
 
-  // Обложка первого объявления, если она есть, иначе фотография макета:
-  // пустой плиты во весь экран на главной быть не должно.
-  const heroPhoto = coverOf(data.listings[0]) ?? HERO_PHOTO
-
   return (
     <div className="home">
       {/* hero `3851:56175`: VERTICAL gap 62, center; логотип-плашка 557x180; слоган 50px */}
@@ -176,7 +172,10 @@ export function HomePage() {
         </div>
 
         <div className="home-hero__photo">
-          <img src={heroPhoto} alt="" loading="eager" />
+          <picture>
+            <source type="image/webp" srcSet={HERO_PHOTO_WEBP_SRCSET} sizes="100vw" />
+            <img src={HERO_PHOTO_JPG} alt="" loading="eager" fetchPriority="high" />
+          </picture>
         </div>
       </section>
 
