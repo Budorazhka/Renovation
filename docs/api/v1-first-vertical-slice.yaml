@@ -5386,7 +5386,8 @@ paths:
     delete:
       operationId: deleteMarketplaceSelection
       summary: Удалить подборку
-      description: Идемпотентно — удаление уже удалённой подборки возвращает `removed: false`, не ошибку.
+      description: >-
+        Идемпотентно — удаление уже удалённой подборки возвращает `removed: false`, не ошибку.
       tags: [marketplace-selections]
       parameters:
         - name: id

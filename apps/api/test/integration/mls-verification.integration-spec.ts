@@ -85,10 +85,6 @@ describe('N-10: верификация MLS — доступ к бирже (real 
     return organizationId;
   }
 
-  function idempotency(key: string) {
-    return { identityId: new Types.ObjectId(), operation: 'createCommunityThread', key, requestBody: { key } };
-  }
-
   async function createExchangeThread(organizationId: Types.ObjectId, key: string) {
     return communityService.createThread({
       organizationId,

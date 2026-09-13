@@ -1708,6 +1708,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/organizations/{organizationId}/verify-mls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Верификация MLS-биржи для агентства/риэлтора (N-10)
+         * @description Открывает доступ к бирже MLS (community type:'exchange') организации. Недоступно для организаций типа developer — они не видят биржу вне зависимости от этого флага.
+         */
+        post: operations["adminVerifyMls"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/organizations/{organizationId}/revoke-mls-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Отзыв MLS-верификации у агентства/риэлтора (N-10) */
+        post: operations["adminRevokeMlsVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/accounts": {
         parameters: {
             query?: never;
@@ -2185,6 +2222,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/marketplace/selections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Подборки покупателя (N-11)
+         * @description Требует сессии: подборка живёт на сервере у аккаунта, открывается с любого устройства и по ссылке (publicToken), не в localStorage одного браузера.
+         */
+        get: operations["listMarketplaceSelections"];
+        put?: never;
+        /**
+         * Создать подборку
+         * @description В отличие от POST /marketplace/favorites НЕ идемпотентно по построению — каждый вызов заводит новую подборку, поэтому требует Idempotency-Key.
+         */
+        post: operations["createMarketplaceSelection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/selections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Удалить подборку
+         * @description Идемпотентно — удаление уже удалённой подборки возвращает `removed: false`, не ошибку.
+         */
+        delete: operations["deleteMarketplaceSelection"];
+        options?: never;
+        head?: never;
+        /**
+         * Переименовать подборку
+         * @description Идемпотентно — повтор с тем же title приводит к тому же итогу.
+         */
+        patch: operations["renameMarketplaceSelection"];
+        trace?: never;
+    };
+    "/marketplace/selections/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Добавить объект в подборку
+         * @description Идемпотентно по построению, тот же принцип, что POST /marketplace/favorites: условный push с фильтром «элемента ещё нет» — Idempotency-Key не требуется. Существование объекта по slug не проверяется — та же причина, что у избранного.
+         */
+        post: operations["addMarketplaceSelectionItem"];
+        /**
+         * Убрать объект из подборки
+         * @description Идемпотентно — снятие уже снятого объекта возвращает тот же итог.
+         */
+        delete: operations["removeMarketplaceSelectionItem"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/marketplace/property-assets": {
         parameters: {
             query?: never;
@@ -2620,6 +2729,23 @@ export interface paths {
         };
         /** Публичный просмотр подборки клиентом по ссылке. Единственный публичный эндпоинт подборок — единственный ключ доступа это сам `token` (256 бит случайности, не хешируется на диске, см. DevSelectionDocument докстринг). Side-effect: атомарный инкремент viewCount, lastOpenedAt, и переход status sent->viewed при первом открытии. Проекция whitelist-only (не включает organizationId/createdByPositionId/leadId/ publicToken/version). */
         get: operations["getPublicSelection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/marketplace-selections/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Публичный просмотр подборки покупателя по ссылке (N-11) — тот же принцип, что GET /public/selections/{token}, но без side-effect (нет markViewed/sent->viewed: у подборки покупателя нет получателя-клиента, чей просмотр нужно отследить агенту). Проекция whitelist-only (не включает identityId/внутренний id). */
+        get: operations["getPublicMarketplaceSelection"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4290,6 +4416,9 @@ export interface components {
         FreezeOrganizationRequest: {
             reason: string;
         };
+        VerifyMlsRequest: {
+            reason: string;
+        };
         AdminOrganizationItem: {
             id: string;
             name: string;
@@ -4297,6 +4426,7 @@ export interface components {
             type: "agency" | "developer" | "independent_realtor";
             /** @enum {string} */
             status: "active" | "frozen" | "archived";
+            mlsVerified: boolean;
             /** Format: date-time */
             createdAt: string;
             positionsCount?: number;
@@ -4312,6 +4442,7 @@ export interface components {
             type: "agency" | "developer" | "independent_realtor";
             /** @enum {string} */
             status: "active" | "frozen" | "archived";
+            mlsVerified: boolean;
             /** Format: date-time */
             createdAt: string;
             positionsCount: number;
@@ -4771,6 +4902,42 @@ export interface components {
             /** @enum {string} */
             targetType: "development" | "listing";
             slug: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MarketplaceSelectionItemTarget: {
+            /** @enum {string} */
+            targetType: "development" | "listing";
+            /** @description Slug публикации — тот же, по которому карточка читается публично */
+            slug: string;
+        };
+        MarketplaceSelectionItem: {
+            /** @enum {string} */
+            targetType: "development" | "listing";
+            slug: string;
+            /** Format: date-time */
+            addedAt: string;
+        };
+        CreateMarketplaceSelectionRequest: {
+            title: string;
+        };
+        RenameMarketplaceSelectionRequest: {
+            title: string;
+        };
+        MarketplaceSelection: {
+            id: string;
+            title: string;
+            items: components["schemas"]["MarketplaceSelectionItem"][];
+            /** @description Ключ доступа к публичной ссылке GET /public/marketplace-selections/{token} */
+            publicToken: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PublicMarketplaceSelection: {
+            title: string;
+            items: components["schemas"]["MarketplaceSelectionItemTarget"][];
             /** Format: date-time */
             createdAt: string;
         };
@@ -9327,6 +9494,70 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    adminVerifyMls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyMlsRequest"];
+            };
+        };
+        responses: {
+            /** @description MLS-верификация организации включена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {boolean} */
+                        mlsVerified: true;
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    adminRevokeMlsVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyMlsRequest"];
+            };
+        };
+        responses: {
+            /** @description MLS-верификация организации отозвана */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {boolean} */
+                        mlsVerified: false;
+                    };
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
     adminListAccounts: {
         parameters: {
             query?: {
@@ -10315,6 +10546,165 @@ export interface operations {
             401: components["responses"]["Error"];
         };
     };
+    listMarketplaceSelections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список подборок, новые сверху */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceSelection"][];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    createMarketplaceSelection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMarketplaceSelectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Подборка создана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceSelection"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+        };
+    };
+    deleteMarketplaceSelection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Результат удаления */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        removed: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    renameMarketplaceSelection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameMarketplaceSelectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Подборка переименована */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceSelection"];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    addMarketplaceSelectionItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketplaceSelectionItemTarget"];
+            };
+        };
+        responses: {
+            /** @description Подборка с добавленным объектом */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceSelection"];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    removeMarketplaceSelectionItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketplaceSelectionItemTarget"];
+            };
+        };
+        responses: {
+            /** @description Подборка без удалённого объекта */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarketplaceSelection"];
+                };
+            };
+            401: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
     marketplaceListPropertyAssets: {
         parameters: {
             query?: never;
@@ -11062,6 +11452,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicSelection"];
+                };
+            };
+            /** @description NOT_FOUND — токен не существует */
+            404: components["responses"]["Error"];
+        };
+    };
+    getPublicMarketplaceSelection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Публичная проекция подборки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicMarketplaceSelection"];
                 };
             };
             /** @description NOT_FOUND — токен не существует */
