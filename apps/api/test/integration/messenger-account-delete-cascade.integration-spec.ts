@@ -1,15 +1,13 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { MessengerDialogRepository } from '../../src/modules/messenger/repository/messenger-dialog.repository';
-import { MessengerMessageRepository } from '../../src/modules/messenger/repository/messenger-message.repository';
 import {
+  MessengerDialogRepository,
+  MessengerMessageRepository,
   MessengerDialogDocument,
   MessengerDialogSchema,
-} from '../../src/modules/messenger/schemas/messenger-dialog.schema';
-import {
   MessengerMessageDocument,
   MessengerMessageSchema,
-} from '../../src/modules/messenger/schemas/messenger-message.schema';
+} from '@baza/messenger';
 
 /**
  * ИСПРАВЛЕНО 11.09.2026: MessengerService.deleteAccount удалял только сам

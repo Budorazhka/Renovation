@@ -13,8 +13,7 @@ import { AdminContextMiddleware } from '../../src/shared/admin/admin-context.mid
 import { MarketplaceAccountContextMiddleware } from '../../src/shared/marketplace-account/marketplace-account-context.middleware';
 import { AuthService } from '../../src/modules/identity/auth.service';
 import { OrganizationsService } from '../../src/modules/organizations/organizations.service';
-import { MessengerDialogRepository } from '../../src/modules/messenger/repository/messenger-dialog.repository';
-import { MessengerMessageRepository } from '../../src/modules/messenger/repository/messenger-message.repository';
+import { MessengerDialogRepository, MessengerMessageRepository } from '@baza/messenger';
 import { LeadRepository } from '../../src/modules/crm/repository/lead.repository';
 import { ContactRepository } from '../../src/modules/crm/repository/contact.repository';
 import { DealRepository } from '../../src/modules/crm/repository/deal.repository';

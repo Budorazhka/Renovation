@@ -1,10 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
-import { MessengerAccountRepository } from '../../src/modules/messenger/repository/messenger-account.repository';
-import {
-  MessengerAccountDocument,
-  MessengerAccountSchema,
-} from '../../src/modules/messenger/schemas/messenger-account.schema';
+import { MessengerAccountRepository, MessengerAccountDocument, MessengerAccountSchema } from '@baza/messenger';
 
 /**
  * ИСПРАВЛЕНО 11.09.2026: `botToken` не имел `select: false` — попадал в

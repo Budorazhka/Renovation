@@ -4,11 +4,9 @@ import {
   MessengerDialogRepository,
   decodeDialogListCursor,
   encodeDialogListCursor,
-} from '../../src/modules/messenger/repository/messenger-dialog.repository';
-import {
   MessengerDialogDocument,
   MessengerDialogSchema,
-} from '../../src/modules/messenger/schemas/messenger-dialog.schema';
+} from '@baza/messenger';
 
 /**
  * ИСПРАВЛЕНО 11.09.2026: список диалогов сортируется `{pinned: -1,
