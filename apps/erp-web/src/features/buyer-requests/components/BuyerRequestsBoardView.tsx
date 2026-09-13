@@ -212,7 +212,7 @@ export function BuyerRequestsBoardView() {
             onChange={(e) => setCityInput(e.target.value)}
             placeholder={t('buyerRequests.filters.cityPlaceholder')}
             aria-label={t('buyerRequests.filters.cityLabel')}
-            className="min-h-9 rounded-sm border border-[var(--green-border)] bg-[var(--green-card)] px-3 py-1.5 text-[16px] font-normal text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-muted)] focus:border-[color:var(--gold)]"
+            className="min-h-9 rounded-sm border border-[var(--green-border)] bg-[rgba(3,29,22,0.5)] px-3 py-1.5 text-[16px] font-normal text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-muted)] focus:border-[color:var(--gold)]"
           />
           <button
             type="submit"
@@ -339,7 +339,7 @@ function BuyerRequestCard({
     <article className={cn('rounded-[6px] p-4 shadow-[inset_0_0_0_1px_rgba(201,168,76,0.14)]', zebraClass)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span
-          className="rounded-sm px-2 py-1 text-[16px] font-normal uppercase tracking-[0.05em]"
+          className="rounded-sm px-2 py-1 text-[16px] font-normal uppercase tracking-[0.08em]"
           style={{
             color: item.dealType === 'buy' ? 'var(--gold)' : 'var(--mint, #b4ccc3)',
             background: `color-mix(in srgb, ${item.dealType === 'buy' ? 'var(--gold)' : 'var(--mint, #b4ccc3)'} 13%, transparent)`,
@@ -470,7 +470,7 @@ function ResponseForm({
         minLength={1}
         rows={3}
         disabled={submitting}
-        className="rounded-sm border border-[var(--green-border)] bg-[var(--app-bg)] px-3 py-2 text-[16px] font-normal text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-muted)] focus:border-[color:var(--gold)]"
+        className="rounded-sm border border-[var(--green-border)] bg-[rgba(3,29,22,0.5)] px-3 py-2 text-[16px] font-normal text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-muted)] focus:border-[color:var(--gold)]"
       />
       {error ? <p className="text-[16px] font-normal text-[color:var(--error,#ffb4ab)]">{error}</p> : null}
       <div className="flex items-center gap-2.5">
