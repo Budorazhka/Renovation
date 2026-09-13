@@ -10,6 +10,7 @@ interface CreateBuyerRequestData {
   propertyKind: string;
   title: string;
   comment: string;
+  phone: string;
   budgetAmount: number;
   budgetCurrency: string;
   budgetPerMonth: boolean;
@@ -46,6 +47,11 @@ export class BuyerRequestRepository {
   /** Own requests across all statuses — the only way a buyer can find the id of a request to close after leaving the create-response page. */
   async listForAuthor(authorIdentityId: Types.ObjectId): Promise<BuyerRequestDocument[]> {
     return this.model.find({ authorIdentityId }).sort({ createdAt: -1 }).limit(100).exec();
+  }
+
+  /** N-13: plain lookup for the ERP respond-flow, which needs to check status regardless of who authored the request — the board is public, not tenant-scoped, so no org filter applies here. */
+  async findById(id: Types.ObjectId): Promise<BuyerRequestDocument | null> {
+    return this.model.findById(id).exec();
   }
 
   async findByIdForAuthor(id: Types.ObjectId, authorIdentityId: Types.ObjectId): Promise<BuyerRequestDocument | null> {

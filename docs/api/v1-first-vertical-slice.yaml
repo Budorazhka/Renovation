@@ -6379,6 +6379,79 @@ paths:
           description: Жалоба уже резолюцирована (status не pending)
           $ref: '#/components/responses/Error'
 
+  /admin/realtor-reviews:
+    get:
+      operationId: adminListRealtorReviews
+      summary: >-
+        N-13: admin review queue отзывов о риэлторах — review.moderate,
+        global scope (отзыв не привязан к городу как первичному измерению, в
+        отличие от жалоб на листинги). Без явного status — очередь на
+        проверку (status:pending).
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          schema: {type: string, enum: [pending, approved, rejected]}
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {description: Отзывы в очереди модерации}
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет review.moderate
+          $ref: '#/components/responses/Error'
+
+  /admin/realtor-reviews/{reviewId}/moderate:
+    post:
+      operationId: adminModerateRealtorReview
+      summary: >-
+        Admin critical action: решение по pending-отзыву (approved/rejected),
+        reason обязателен (permission-matrix.md разд.4). Проверка "это
+        реально клиент, а не посторонний" — на модераторе (см.
+        buyer-requests-and-reviews.md): между аккаунтом покупателя на
+        маркетплейсе и CRM-карточкой клиента нет автоматической связи.
+      tags: [admin]
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reason]
+              properties:
+                decision: {type: string, enum: [approved, rejected]}
+                reason: {type: string, minLength: 10}
+      responses:
+        '200':
+          description: Отзыв промодерирован
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: {type: string}
+                  status: {type: string, enum: [approved, rejected]}
+        '400':
+          description: ADMIN_REASON_REQUIRED — reason короче 10 символов
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет review.moderate
+          $ref: '#/components/responses/Error'
+        '404':
+          description: Отзыв не найден
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Отзыв уже промодерирован (status не pending)
+          $ref: '#/components/responses/Error'
+
   /billing/subscription:
     get:
       operationId: getBillingSubscription
@@ -7823,6 +7896,26 @@ paths:
       responses:
         '200': {description: Страница опубликованных запросов}
 
+  /public/requests/{id}/reveal-phone:
+    get:
+      operationId: revealBuyerRequestPhone
+      summary: >-
+        N-13 (owner decision 14.09.2026): телефон автора запроса раскрывается
+        по явному клику, не в общем списке — тот же принцип, что
+        reveal-contact у объявлений, только в обратную сторону (телефон
+        покупателя, не организации). Rate-limit по IP.
+      security: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Телефон автора запроса}
+        '404':
+          description: Запрос не найден
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMITED
+          $ref: '#/components/responses/Error'
+
   /marketplace/requests:
     get:
       operationId: listMyBuyerRequests
@@ -7850,6 +7943,54 @@ paths:
       responses:
         '200': {description: Запрос закрыт}
 
+  /public/realtors:
+    get:
+      operationId: listPublicRealtors
+      summary: >-
+        N-13 (owner decision 14.09.2026): публичный каталог риэлторов —
+        занятые Position с клиентскими ролями (owner/director/rop/manager) в
+        организациях типа agency/independent_realtor. Телефон не входит в
+        проекцию — раскрывается отдельным reveal-эндпоинтом ниже.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - {name: city, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Страница публичных профилей риэлторов}
+
+  /public/realtors/{positionId}:
+    get:
+      operationId: getPublicRealtor
+      summary: Публичный профиль риэлтора
+      security: []
+      parameters:
+        - {name: positionId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Профиль риэлтора}
+        '404':
+          description: Риэлтор не найден
+          $ref: '#/components/responses/Error'
+
+  /public/realtors/{positionId}/reveal-phone:
+    get:
+      operationId: revealPublicRealtorPhone
+      summary: >-
+        Телефон риэлтора раскрывается по клику, не в общей проекции —
+        rate-limit по IP защищает от массового скрапинга контактов всей
+        команды агентства одним проходом по каталогу.
+      security: []
+      parameters:
+        - {name: positionId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Телефон риэлтора}
+        '404':
+          description: Риэлтор не найден или телефон не заполнен в профиле
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMITED
+          $ref: '#/components/responses/Error'
+
   /public/realtors/{positionId}/reviews:
     get:
       operationId: listApprovedRealtorReviews
@@ -7870,6 +8011,48 @@ paths:
           application/json: {schema: {type: object}}
       responses:
         '201': {description: Отзыв принят в статусе pending}
+
+  /buyer-requests/{id}/respond:
+    post:
+      operationId: respondToBuyerRequest
+      summary: >-
+        N-13: ERP-отклик организации на публичный запрос покупателя
+        (buyer_request.respond). Upsert по {buyerRequestId, organizationId}
+        — повторная отправка обновляет текст, не создаёт второй отклик.
+        Несколько организаций откликаются на один и тот же запрос независимо,
+        без эксклюзивного захвата.
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '200': {description: Отклик сохранён}
+        '400':
+          description: Запрос не в статусе published
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет buyer_request.respond
+          $ref: '#/components/responses/Error'
+        '404':
+          description: Запрос не найден
+          $ref: '#/components/responses/Error'
+
+  /buyer-requests/responses:
+    get:
+      operationId: listMyBuyerRequestResponses
+      summary: Свои отклики организации на запросы покупателей
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {description: Страница своих откликов}
 
 components:
   securitySchemes:

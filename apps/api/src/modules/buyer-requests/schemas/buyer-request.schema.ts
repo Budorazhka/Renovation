@@ -26,6 +26,16 @@ export class BuyerRequestDocument extends Document {
   @Prop({ required: true, maxlength: 4000 })
   comment!: string;
 
+  /**
+   * N-13 (owner decision 14.09.2026): раскрывается публично, но только по
+   * явному клику через GET /public/requests/:id/reveal-phone — та же
+   * причина, что revealListingContact/revealDevelopmentContact, только
+   * наоборот (телефон покупателя, не организации). Не входит в
+   * BuyerRequestView (публичный список/детали) намеренно.
+   */
+  @Prop({ required: true, maxlength: 30 })
+  phone!: string;
+
   @Prop({ required: true, min: 0 })
   budgetAmount!: number;
 

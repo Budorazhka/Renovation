@@ -100,6 +100,7 @@ describe('Community: N-08 автор темы/ответа — реальное 
       null as never,
       null as never,
       null as never,
+      null as never,
     );
 
     const idempotencyService: Pick<IdempotencyService, 'checkReplay' | 'record'> = {

@@ -179,12 +179,23 @@ export interface DefaultGrant {
  * у owner/director/rop/developer (тот же круг, что `installment_plan.*`).
  * `administrator`/`marketer` не получают — вне их круга обязанностей (тот
  * же принцип, что `booking.*`/`calendar_event.*`).
+ *
+ * `buyer_request.respond` (N-13, 13.09.2026, ERP-отклик организации на
+ * публичную доску запросов покупателя) — `organization` scope у ровно того
+ * же круга ролей, что уже имеет `lead.create` (owner/director/rop/manager/
+ * administrator/developer): отклик — это команда создания записи, а не
+ * чтение/изменение уже существующей ownerPositionId-принадлежащей сущности,
+ * поэтому own-scope здесь так же не нужен manager'у, как он не нужен ему у
+ * `lead.create` (own-scope имеет смысл только после того, как запись уже
+ * существует и у неё есть владелец). `marketer` не получает — тот же круг,
+ * что у `lead.create` (маркетинг не ведёт клиентов).
  */
 export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
   owner: [
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'lead', action: 'assign', scope: 'organization' },
     { resource: 'lead', action: 'changeStage', scope: 'organization' },
     { resource: 'lead', action: 'update', scope: 'organization' },
@@ -263,6 +274,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'lead', action: 'assign', scope: 'organization' },
     { resource: 'lead', action: 'changeStage', scope: 'organization' },
     { resource: 'lead', action: 'update', scope: 'organization' },
@@ -341,6 +353,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'lead', action: 'assign', scope: 'organization' },
     { resource: 'lead', action: 'changeStage', scope: 'organization' },
     { resource: 'lead', action: 'update', scope: 'organization' },
@@ -420,6 +433,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'own' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     // import.run (03.09.2026, POST /leads/import) — manager не имеет
     // export.run (нет доступа к bulk-выгрузке чужих данных organization-wide
     // через файл), но lead.create у него уже есть, а import — ровно тот же
@@ -487,6 +501,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'contact', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
@@ -539,6 +554,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'position', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'read', scope: 'organization' },
     { resource: 'lead', action: 'create', scope: 'organization' },
+    { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'lead', action: 'assign', scope: 'organization' },
     { resource: 'lead', action: 'changeStage', scope: 'organization' },
     { resource: 'lead', action: 'update', scope: 'organization' },

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Model, Types } from 'mongoose';
+import { ClientSession, Model, PipelineStage, Types } from 'mongoose';
 import { PositionDocument, type FixedRole } from '../schemas/position.schema';
 
 /**
@@ -138,5 +138,79 @@ export class PositionRepository {
   async setAvatarAsset(positionId: Types.ObjectId, assetId: Types.ObjectId): Promise<{ matchedCount: number }> {
     const result = await this.model.updateOne({ _id: positionId }, { $set: { avatarAssetId: assetId } }).exec();
     return { matchedCount: result.matchedCount };
+  }
+
+  /**
+   * N-13 (owner decision 14.09.2026): "риэлтор" — не отдельный флаг
+   * согласия, а сам факт наличия занятой Position в организации типа
+   * agency/independent_realtor: тип организации выбирается один раз при
+   * `POST /organizations/register`, дальше это не переключается point-in-
+   * time чекбоксом на человеке. `developer`-организации исключены всегда
+   * (тот же принцип, что CommunityService.isMlsEligible). Роли
+   * administrator/marketer исключены — им никогда не выдаётся ни один
+   * lead/deal-грант (default-role-grants.ts), это не клиентские агенты.
+   *
+   * `$lookup` вместо двух раздельных запросов: набор организаций нужного
+   * типа может быть большим, а курсорная пагинация должна идти по единому
+   * порядку _id самой Position, не по внешнему списку id организаций.
+   */
+  async listPublicRealtors(params: { cursor?: Types.ObjectId; limit: number; city?: string }): Promise<PositionDocument[]> {
+    const match: Record<string, unknown> = {
+      status: 'occupied',
+      fixedRole: { $in: ['owner', 'director', 'rop', 'manager'] },
+    };
+    if (params.cursor) match._id = { $lt: params.cursor };
+
+    // City lives on PositionProfile (a different collection) — filtering it
+    // requires its own $lookup rather than a top-level $match field, since
+    // Position itself has no city field.
+    const cityStages: PipelineStage[] = params.city
+      ? [
+          { $lookup: { from: 'position_profiles', localField: '_id', foreignField: 'positionId', as: 'profile' } },
+          { $match: { 'profile.city': params.city } },
+        ]
+      : [];
+
+    const docs = await this.model.aggregate([
+      { $match: match },
+      { $sort: { _id: -1 } },
+      {
+        $lookup: {
+          from: 'organizations',
+          let: { orgId: '$organizationId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$orgId'] }, type: { $in: ['agency', 'independent_realtor'] }, status: 'active' } },
+            { $project: { _id: 1 } },
+          ],
+          as: 'eligibleOrg',
+        },
+      },
+      { $match: { eligibleOrg: { $ne: [] } } },
+      ...cityStages,
+      { $limit: params.limit },
+      { $project: { eligibleOrg: 0, profile: 0 } },
+    ]);
+    return docs.map((doc) => this.model.hydrate(doc));
+  }
+
+  async findByIdPublicRealtor(positionId: Types.ObjectId): Promise<PositionDocument | null> {
+    const docs = await this.model.aggregate([
+      { $match: { _id: positionId, status: 'occupied', fixedRole: { $in: ['owner', 'director', 'rop', 'manager'] } } },
+      {
+        $lookup: {
+          from: 'organizations',
+          let: { orgId: '$organizationId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$orgId'] }, type: { $in: ['agency', 'independent_realtor'] }, status: 'active' } },
+            { $project: { _id: 1 } },
+          ],
+          as: 'eligibleOrg',
+        },
+      },
+      { $match: { eligibleOrg: { $ne: [] } } },
+      { $limit: 1 },
+      { $project: { eligibleOrg: 0 } },
+    ]);
+    return docs[0] ? this.model.hydrate(docs[0]) : null;
   }
 }

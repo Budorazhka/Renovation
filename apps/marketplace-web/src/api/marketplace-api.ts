@@ -7,6 +7,12 @@ import type {
   ListingCatalogueQuery,
   PublicListingCard,
   PublicListingList,
+  PublicBuyerRequestList,
+  BuyerRequestQuery,
+  PublicRealtorReview,
+  PublicRealtorProfile,
+  PublicRealtorList,
+  PublicRealtorQuery,
 } from '../types/marketplace'
 import { getStoredLanguage, en, ka, ru } from '../i18n'
 
@@ -225,6 +231,72 @@ export function createMarketplaceApi({ baseUrl, fetcher = fetch }: { baseUrl: st
         },
       )
       return parseResponse<RevealContactResponse>(response)
+    },
+
+    /** N-13: публичная доска запросов покупателей — без аутентификации, без контактов автора. */
+    async listBuyerRequests(query: BuyerRequestQuery = {}, options?: RequestOptions): Promise<PublicBuyerRequestList> {
+      const params = new URLSearchParams()
+      if (query.cursor) params.set('cursor', query.cursor)
+      if (query.dealType) params.set('dealType', query.dealType)
+      if (query.city?.trim()) params.set('city', query.city.trim())
+      if (query.propertyKind) params.set('propertyKind', query.propertyKind)
+      const suffix = params.size > 0 ? `?${params.toString()}` : ''
+      const response = await fetcher(`${apiBaseUrl}/public/requests${suffix}`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<PublicBuyerRequestList>(response)
+    },
+
+    /**
+     * Телефон автора запроса — намеренно отдельный вызов по клику, не в
+     * общем списке (owner decision 14.09.2026), rate-limited по IP.
+     */
+    async revealBuyerRequestPhone(id: string, options?: RequestOptions): Promise<{ phone: string }> {
+      const response = await fetcher(`${apiBaseUrl}/public/requests/${encodeURIComponent(id)}/reveal-phone`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<{ phone: string }>(response)
+    },
+
+    /** Только одобренные модератором отзывы — pending/rejected сюда не попадают. */
+    async listApprovedRealtorReviews(positionId: string, options?: RequestOptions): Promise<PublicRealtorReview[]> {
+      const response = await fetcher(`${apiBaseUrl}/public/realtors/${encodeURIComponent(positionId)}/reviews`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<PublicRealtorReview[]>(response)
+    },
+
+    /** N-13: публичный каталог риэлторов — без аутентификации, без телефона (см. revealRealtorPhone). */
+    async listPublicRealtors(query: PublicRealtorQuery = {}, options?: RequestOptions): Promise<PublicRealtorList> {
+      const params = new URLSearchParams()
+      if (query.cursor) params.set('cursor', query.cursor)
+      if (query.city?.trim()) params.set('city', query.city.trim())
+      const suffix = params.size > 0 ? `?${params.toString()}` : ''
+      const response = await fetcher(`${apiBaseUrl}/public/realtors${suffix}`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<PublicRealtorList>(response)
+    },
+
+    async getPublicRealtor(positionId: string, options?: RequestOptions): Promise<PublicRealtorProfile> {
+      const response = await fetcher(`${apiBaseUrl}/public/realtors/${encodeURIComponent(positionId)}`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<PublicRealtorProfile>(response)
+    },
+
+    /** Телефон риэлтора — отдельный вызов по клику (owner decision 14.09.2026), rate-limited по IP. */
+    async revealRealtorPhone(positionId: string, options?: RequestOptions): Promise<{ phone: string }> {
+      const response = await fetcher(`${apiBaseUrl}/public/realtors/${encodeURIComponent(positionId)}/reveal-phone`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<{ phone: string }>(response)
     },
   }
 }

@@ -145,6 +145,86 @@ export interface ListingCatalogueQuery {
   publisher?: string
 }
 
+/**
+ * N-13: доска запросов покупателей. `phone` намеренно отсутствует —
+ * раскрывается только по клику через отдельный reveal-эндпоинт
+ * (GET /public/requests/:id/reveal-phone), не входит в общий список.
+ */
+export interface PublicBuyerRequest {
+  id: string
+  dealType: 'buy' | 'rent'
+  city: string
+  propertyKind: string
+  title: string
+  comment: string
+  budget: { amount: number; currency: string; perMonth: boolean }
+  status: 'published' | 'closed' | 'moderated'
+  createdAt: string
+}
+
+export interface PublicBuyerRequestList {
+  items: PublicBuyerRequest[]
+  nextCursor: string | null
+}
+
+export interface BuyerRequestQuery {
+  cursor?: string
+  dealType?: 'buy' | 'rent'
+  city?: string
+  propertyKind?: string
+}
+
+export interface CreateBuyerRequestPayload {
+  dealType: 'buy' | 'rent'
+  city: string
+  propertyKind: string
+  title: string
+  comment: string
+  phone: string
+  budgetAmount: number
+  budgetCurrency: string
+  budgetPerMonth: boolean
+}
+
+/** Отзыв о риэлторе — только одобренные попадают в публичный список (GET /public/realtors/:positionId/reviews). */
+export interface PublicRealtorReview {
+  id: string
+  realtorPositionId: string
+  rating: number
+  text: string
+  createdAt: string
+}
+
+/**
+ * N-13 (owner decision 14.09.2026): "риэлтор" — занятая позиция в
+ * организации типа agency/independent_realtor, не отдельный флаг согласия.
+ * Телефон намеренно отсутствует — раскрывается по клику через отдельный
+ * reveal-эндпоинт. Рейтинг — реальный агрегат по approved-отзывам, не
+ * выдуманное число: `null`, если отзывов ещё нет.
+ */
+export interface PublicRealtorProfile {
+  id: string
+  name: string
+  fixedRole: 'owner' | 'director' | 'rop' | 'manager'
+  organizationName: string
+  organizationType: 'agency' | 'developer' | 'independent_realtor'
+  city: string | null
+  aboutMe: string | null
+  avatarUrl: string | null
+  socials: { telegram: string | null; whatsapp: string | null; instagram: string | null; website: string | null }
+  rating: { average: number; count: number } | null
+}
+
+export interface PublicRealtorList {
+  items: PublicRealtorProfile[]
+  nextCursor: string | null
+}
+
+export interface PublicRealtorQuery {
+  cursor?: string
+  city?: string
+}
+
 
 /**
  * Персональная подборка, как её видит клиент по ссылке от риэлтора.

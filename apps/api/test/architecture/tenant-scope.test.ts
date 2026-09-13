@@ -158,6 +158,18 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
   'realtor-review.repository.ts#findDuplicate':
     'N-13: проверка уникальности по {reviewerIdentityId, completedDealId, realtorPositionId} — тот же тройной ' +
     'ключ, что уникальный индекс схемы; организации здесь нет как понятия для отзыва конкретного покупателя.',
+  'realtor-review.repository.ts#listForReview':
+    'N-13: admin-очередь модерации отзывов (review.moderate, global scope) — намеренно поверх всех организаций, ' +
+    'тот же принцип, что DuplicateCandidateRepository.listForReview/complaint.repository.ts#listForReview.',
+  'realtor-review.repository.ts#getApprovedStatsByPositionIds':
+    'N-13: агрегат рейтинга для публичного каталога риэлторов — по positionIds пачкой, поверх всех организаций ' +
+    'намеренно (тот же вызывающий код уже прошёл фильтр организации-типа через PositionRepository.listPublicRealtors).',
+  'position.repository.ts#listPublicRealtors':
+    'N-13 (owner decision 14.09.2026): публичный каталог риэлторов — намеренно поверх ВСЕХ организаций типа ' +
+    'agency/independent_realtor, фильтр по типу организации через $lookup внутри самого метода, не по одной ' +
+    'organizationId вызывающего — тот же принцип, что listPublicOrganizations.',
+  'position.repository.ts#findByIdPublicRealtor':
+    'N-13: то же самое для одной позиции — публичный профиль риэлтора не имеет tenant-контекста вызывающего.',
 };
 
 const QUERY = /this\.model\.(find|findOne|findOneAndUpdate|updateOne|updateMany|deleteOne|deleteMany|countDocuments|aggregate|distinct)\b/;

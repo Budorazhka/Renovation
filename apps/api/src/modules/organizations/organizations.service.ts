@@ -5,6 +5,7 @@ import { ClientSession, Connection, Types } from 'mongoose';
 import { runInTransaction, runInTransactionOrReuse } from '../../shared/transactions/run-in-transaction';
 import { OrganizationRepository } from './repository/organization.repository';
 import { PositionRepository } from './repository/position.repository';
+import { PositionProfileRepository } from './repository/position-profile.repository';
 import { PositionAssignmentRepository } from './repository/position-assignment.repository';
 import { InvitationRepository } from './repository/invitation.repository';
 import { SessionService } from '../identity/session.service';
@@ -33,6 +34,7 @@ export class OrganizationsService {
     @InjectConnection() private readonly connection: Connection,
     private readonly organizationRepository: OrganizationRepository,
     private readonly positionRepository: PositionRepository,
+    private readonly positionProfileRepository: PositionProfileRepository,
     private readonly positionAssignmentRepository: PositionAssignmentRepository,
     private readonly invitationRepository: InvitationRepository,
     private readonly sessionService: SessionService,
@@ -107,6 +109,19 @@ export class OrganizationsService {
   }
 
   /**
+   * N-13: resolves the organization a Position belongs to, for a caller that
+   * only has a bare positionId and needs it to look up an org-scoped record
+   * elsewhere (RealtorReviewsService verifying a deal via
+   * CrmService.getDealForOrganization, which requires organizationId
+   * up front). System-actor lookup, no org filter here by definition — same
+   * principle as MessengerAccountRepository.findByIdWithToken.
+   */
+  async getPositionOrganizationId(positionId: Types.ObjectId): Promise<Types.ObjectId | null> {
+    const position = await this.positionRepository.findById(positionId);
+    return position?.organizationId ?? null;
+  }
+
+  /**
    * Публичные поля организаций пачкой: id, название, тип.
    *
    * Нужно публичному каталогу marketplace, который показывает имя застройщика
@@ -127,6 +142,27 @@ export class OrganizationsService {
     ids: Types.ObjectId[],
   ): Promise<Array<{ id: Types.ObjectId; name: string; type: OrganizationType }>> {
     return this.organizationRepository.findPublicByIds(ids);
+  }
+
+  /**
+   * N-13 (owner decision 14.09.2026): публичная доска риэлторов
+   * (PublicRealtorsService) — позиции без tenant-контекста по определению,
+   * тот же cross-module boundary принцип, что listPublicOrganizations выше
+   * (PositionRepository не экспортируется из этого модуля напрямую).
+   * Фильтрация по типу организации/роли — внутри PositionRepository
+   * .listPublicRealtors/.findByIdPublicRealtor (агрегация с $lookup).
+   */
+  async listPublicRealtorPositions(params: { cursor?: Types.ObjectId; city?: string; limit: number }): Promise<PositionDocument[]> {
+    return this.positionRepository.listPublicRealtors(params);
+  }
+
+  async getPublicRealtorPosition(positionId: Types.ObjectId): Promise<PositionDocument | null> {
+    return this.positionRepository.findByIdPublicRealtor(positionId);
+  }
+
+  /** Пачкой, тот же принцип, что listPublicOrganizations — страница риэлторов не должна стоить N запросов. */
+  async getPositionProfilesByIds(positionIds: Types.ObjectId[]) {
+    return this.positionProfileRepository.findByPositionIds(positionIds);
   }
 
   /**

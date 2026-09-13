@@ -6,6 +6,7 @@ import type {
   ActualityState,
   PublicationStatusResult,
 } from '../model/types'
+import type { PublicBuyerRequest, CreateBuyerRequestPayload } from '../../../types/marketplace'
 import { resolveApiBaseUrl } from './api-base'
 
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
@@ -232,6 +233,43 @@ export const publishingApi = {
     return request<MarketplaceSelectionEntry>(`/marketplace/selections/${encodeURIComponent(id)}/items`, {
       method: 'DELETE',
       body: JSON.stringify(target),
+    })
+  },
+
+  /**
+   * N-13: свои запросы покупателя, все статусы (единственный способ узнать
+   * id, чтобы закрыть запрос, если он потерян со страницы создания).
+   */
+  async listMyBuyerRequests(): Promise<{ items: PublicBuyerRequest[] }> {
+    return request<{ items: PublicBuyerRequest[] }>('/marketplace/requests')
+  },
+
+  async createBuyerRequest(data: CreateBuyerRequestPayload): Promise<PublicBuyerRequest> {
+    return request<PublicBuyerRequest>('/marketplace/requests', {
+      method: 'POST',
+      // Обязателен: повтор (двойной клик, ретрай) без ключа создал бы
+      // второй публичный запрос — тот же принцип, что createSelection выше.
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify(data),
+    })
+  },
+
+  async closeBuyerRequest(id: string): Promise<PublicBuyerRequest> {
+    return request<PublicBuyerRequest>(`/marketplace/requests/${encodeURIComponent(id)}/close`, {
+      method: 'PATCH',
+    })
+  },
+
+  /** Отзыв уходит в pending — не появится в публичном списке до модерации. */
+  async submitRealtorReview(data: {
+    realtorPositionId: string
+    completedDealId: string
+    rating: number
+    text: string
+  }): Promise<{ id: string; status: string }> {
+    return request<{ id: string; status: string }>('/marketplace/realtor-reviews', {
+      method: 'POST',
+      body: JSON.stringify(data),
     })
   },
 

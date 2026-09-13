@@ -30,8 +30,11 @@ Deny-by-default: отсутствие явного grant означает отк
 | `contact.read.organization` | ✓ | ✓ | ✓ | — | ✓ | — |
 | `client.reassign.organization` | ✓ | ✓ | ✓ | — | — | — |
 | `crm.stages.configure.organization` | — | — | — | — | — | — |
+| `buyer_request.respond.organization` | ✓ | ✓ | ✓ | ✓ | ✓ | — |
 
 **`crm.stages.configure.organization` — ни у кого нет по умолчанию** (`[owner decision — xlsx #108]`: «НЕТ», организации не настраивают этапы CRM самостоятельно — воронка фиксированная на уровне платформы, не per-tenant кастомизация).
+
+**`buyer_request.respond.organization`** (N-13, 13.09.2026) — ERP-отклик на публичную доску запросов покупателей (`docs/operations/buyer-requests-and-reviews.md`). Ровно тот же круг ролей, что `lead.create.organization`: отклик — команда создания записи, own-scope здесь так же не нужен, как и у создания лида. `developer` тоже получает (§1.7/1.8 круг, тот же принцип, что `lead.create`).
 
 **`lead.reassign.team` для rop**: «Напиши систему чтобы роп мог между своими передавать. Диретор все и собственник все» (`[owner decision — xlsx #115]`) — rop передаёт лид/клиента только среди менеджеров своей команды (`scope: 'team'`), director/owner — вся организация (`scope: 'organization'`).
 

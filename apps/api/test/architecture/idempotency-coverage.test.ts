@@ -225,6 +225,7 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /admin/duplicate-candidates/:duplicateCandidateId/confirm': 'условный update кандидата',
   'POST /admin/publications/:publicationId/unpublish': 'условный update (conventions.md §8)',
   'POST /admin/complaints/:complaintId/resolve': 'условный update по status:pending (CAS), повтор с уже резолюцированной жалобой — 409',
+  'POST /admin/realtor-reviews/:reviewId/moderate': 'N-13: условный update по status:pending (CAS), повтор на уже промодерированном отзыве — 409',
   'POST /admin/organizations/:organizationId/freeze': 'условный update по статусу (заморозка организации)',
   'POST /admin/organizations/:organizationId/unfreeze': 'условный update по статусу (разморозка организации)',
   'POST /admin/organizations/:organizationId/verify-mls': 'условный update по булеву флагу mlsVerified (N-10), тот же принцип, что freeze/unfreeze',
@@ -255,6 +256,7 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'PATCH /community/exchange/:threadId/status': 'смена статуса заявки биржи MLS по уникальному id треда',
   'POST /community/events/:eventId/attend': 'toggle участия в мероприятии идемпотентен по identityId',
   'PATCH /marketplace/requests/:id/close': 'N-13: условное закрытие только опубликованного запроса автора; повтор приводит к тому же закрытому состоянию',
+  'POST /buyer-requests/:id/respond': 'N-13: atomic upsert по {buyerRequestId, organizationId} — повтор обновляет тот же отклик, не создаёт второй',
   'POST /marketplace/realtor-reviews': 'N-13: уникальный индекс (reviewerIdentityId, completedDealId, realtorPositionId) блокирует повторный отзыв',
 
   // --- Подборки покупателя (N-11) ---

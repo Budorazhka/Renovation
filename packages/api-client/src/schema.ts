@@ -2788,6 +2788,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/realtor-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** N-13: admin review queue отзывов о риэлторах — review.moderate, global scope (отзыв не привязан к городу как первичному измерению, в отличие от жалоб на листинги). Без явного status — очередь на проверку (status:pending). */
+        get: operations["adminListRealtorReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/realtor-reviews/{reviewId}/moderate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin critical action: решение по pending-отзыву (approved/rejected), reason обязателен (permission-matrix.md разд.4). Проверка "это реально клиент, а не посторонний" — на модераторе (см. buyer-requests-and-reviews.md): между аккаунтом покупателя на маркетплейсе и CRM-карточкой клиента нет автоматической связи. */
+        post: operations["adminModerateRealtorReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/billing/subscription": {
         parameters: {
             query?: never;
@@ -3502,6 +3536,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/requests/{id}/reveal-phone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** N-13 (owner decision 14.09.2026): телефон автора запроса раскрывается по явному клику, не в общем списке — тот же принцип, что reveal-contact у объявлений, только в обратную сторону (телефон покупателя, не организации). Rate-limit по IP. */
+        get: operations["revealBuyerRequestPhone"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/marketplace/requests": {
         parameters: {
             query?: never;
@@ -3537,6 +3588,57 @@ export interface paths {
         patch: operations["closeBuyerRequest"];
         trace?: never;
     };
+    "/public/realtors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** N-13 (owner decision 14.09.2026): публичный каталог риэлторов — занятые Position с клиентскими ролями (owner/director/rop/manager) в организациях типа agency/independent_realtor. Телефон не входит в проекцию — раскрывается отдельным reveal-эндпоинтом ниже. */
+        get: operations["listPublicRealtors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/realtors/{positionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Публичный профиль риэлтора */
+        get: operations["getPublicRealtor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/realtors/{positionId}/reveal-phone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Телефон риэлтора раскрывается по клику, не в общей проекции — rate-limit по IP защищает от массового скрапинга контактов всей команды агентства одним проходом по каталогу. */
+        get: operations["revealPublicRealtorPhone"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/realtors/{positionId}/reviews": {
         parameters: {
             query?: never;
@@ -3565,6 +3667,40 @@ export interface paths {
         put?: never;
         /** Отправить отзыв о риэлторе на модерацию */
         post: operations["submitRealtorReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buyer-requests/{id}/respond": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** N-13: ERP-отклик организации на публичный запрос покупателя (buyer_request.respond). Upsert по {buyerRequestId, organizationId} — повторная отправка обновляет текст, не создаёт второй отклик. Несколько организаций откликаются на один и тот же запрос независимо, без эксклюзивного захвата. */
+        post: operations["respondToBuyerRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buyer-requests/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Свои отклики организации на запросы покупателей */
+        get: operations["listMyBuyerRequestResponses"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11653,6 +11789,75 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    adminListRealtorReviews: {
+        parameters: {
+            query?: {
+                status?: "pending" | "approved" | "rejected";
+                /** @description Непрозрачный cursor из предыдущего ответа; для newest принимается legacy ObjectId. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Отзывы в очереди модерации */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет review.moderate */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminModerateRealtorReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "approved" | "rejected";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Отзыв промодерирован */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @enum {string} */
+                        status: "approved" | "rejected";
+                    };
+                };
+            };
+            /** @description ADMIN_REASON_REQUIRED — reason короче 10 символов */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет review.moderate */
+            403: components["responses"]["Error"];
+            /** @description Отзыв не найден */
+            404: components["responses"]["Error"];
+            /** @description Отзыв уже промодерирован (status не pending) */
+            409: components["responses"]["Error"];
+        };
+    };
     getBillingSubscription: {
         parameters: {
             query?: never;
@@ -13116,6 +13321,30 @@ export interface operations {
             };
         };
     };
+    revealBuyerRequestPhone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Телефон автора запроса */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Запрос не найден */
+            404: components["responses"]["Error"];
+            /** @description RATE_LIMITED */
+            429: components["responses"]["Error"];
+        };
+    };
     listMyBuyerRequests: {
         parameters: {
             query?: never;
@@ -13178,6 +13407,75 @@ export interface operations {
             };
         };
     };
+    listPublicRealtors: {
+        parameters: {
+            query?: {
+                /** @description Непрозрачный cursor из предыдущего ответа; для newest принимается legacy ObjectId. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                city?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Страница публичных профилей риэлторов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPublicRealtor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Профиль риэлтора */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Риэлтор не найден */
+            404: components["responses"]["Error"];
+        };
+    };
+    revealPublicRealtorPhone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Телефон риэлтора */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Риэлтор не найден или телефон не заполнен в профиле */
+            404: components["responses"]["Error"];
+            /** @description RATE_LIMITED */
+            429: components["responses"]["Error"];
+        };
+    };
     listApprovedRealtorReviews: {
         parameters: {
             query?: never;
@@ -13213,6 +13511,60 @@ export interface operations {
         responses: {
             /** @description Отзыв принят в статусе pending */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    respondToBuyerRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    message: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Отклик сохранён */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Запрос не в статусе published */
+            400: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет buyer_request.respond */
+            403: components["responses"]["Error"];
+            /** @description Запрос не найден */
+            404: components["responses"]["Error"];
+        };
+    };
+    listMyBuyerRequestResponses: {
+        parameters: {
+            query?: {
+                /** @description Непрозрачный cursor из предыдущего ответа; для newest принимается legacy ObjectId. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Страница своих откликов */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -57,6 +57,10 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
 
   'GET /public/selections/:token': 'публичный просмотр подборки клиентом по ссылке — анонимный посетитель по определению (нет аутентификации, единственный ключ доступа это сам publicToken, 256 бит энтропии), whitelist-проекция (toPublicDevSelection) не содержит organizationId/внутренних ID',
   'GET /public/marketplace-selections/:token': 'N-11: публичный просмотр подборки покупателя по ссылке — тот же принцип, что GET /public/selections/:token выше; проекция (toPublicView) не содержит identityId/внутреннего id',
+  'GET /public/requests/:id/reveal-phone': 'N-13 (owner decision 14.09.2026): раскрытие телефона автора запроса по клику, тот же принцип, что POST /public/listings/:slug/reveal-contact — анонимный посетитель по определению; защищено IpRateLimitGuard, не проверкой прав',
+  'GET /public/realtors': 'N-13 (owner decision 14.09.2026): публичный каталог риэлторов — анонимный посетитель по определению, тот же принцип, что GET /public/developments',
+  'GET /public/realtors/:positionId': 'N-13: публичный профиль риэлтора — та же публичность, что список выше',
+  'GET /public/realtors/:positionId/reveal-phone': 'N-13: раскрытие телефона риэлтора по клику, тот же принцип, что GET /public/requests/:id/reveal-phone — защищено rate-limit по IP, не проверкой прав',
 
   'GET /billing/subscription': 'данные о текущей подписке и лимитах своей же организации; под TenantGuard, чужого не отдаёт',
   'GET /billing/plans': 'каталог доступных тарифных планов платформы; под TenantGuard',

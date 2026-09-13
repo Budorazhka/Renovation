@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsNumber, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsString, Length, MaxLength, Min } from 'class-validator';
 
 export class CreateBuyerRequestDto {
   @IsIn(['buy', 'rent'])
@@ -19,6 +19,10 @@ export class CreateBuyerRequestDto {
   @IsString()
   @MaxLength(4000)
   comment!: string;
+
+  @IsString()
+  @Length(1, 30)
+  phone!: string;
 
   @IsNumber()
   @Min(0)

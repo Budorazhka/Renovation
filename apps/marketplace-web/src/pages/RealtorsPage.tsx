@@ -1,225 +1,150 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { useSeoMetadata } from '../hooks/useSeoMetadata'
+import { useRealtorsDirectory } from '../hooks/useRealtorsDirectory'
 import { useI18n } from '../i18n'
-
-export interface RealtorItem {
-  id: string
-  name: string
-  agency: string
-  city: string
-  rating: number
-  reviewsCount: number
-  dealsCount: number
-  experienceYears: number
-  specialization: string[]
-  phone: string
-  badges: string[]
-  activeListingsCount: number
-  avatarInitials: string
-}
-
-export const MOCK_REALTORS: RealtorItem[] = [
-  {
-    id: 'realtor-1',
-    name: 'Георгий Беридзе',
-    agency: 'BAZA Premium Real Estate',
-    city: 'Батуми',
-    rating: 5.0,
-    reviewsCount: 38,
-    dealsCount: 84,
-    experienceYears: 8,
-    specialization: ['Новостройки', 'Инвестиции', 'ВНЖ'],
-    phone: '+995 599 12 34 56',
-    badges: ['ТОП-1 Батуми', 'Проверен BAZA', 'Супер-агент'],
-    activeListingsCount: 16,
-    avatarInitials: 'ГБ',
-  },
-  {
-    id: 'realtor-2',
-    name: 'Нино Цинцадзе',
-    agency: 'Batumi Seafront Living',
-    city: 'Батуми',
-    rating: 4.9,
-    reviewsCount: 29,
-    dealsCount: 57,
-    experienceYears: 6,
-    specialization: ['Вторичка', 'Апартаменты у моря'],
-    phone: '+995 599 22 33 44',
-    badges: ['Эксперт побережья', 'Проверен BAZA'],
-    activeListingsCount: 12,
-    avatarInitials: 'НЦ',
-  },
-  {
-    id: 'realtor-3',
-    name: 'Давид Кварацхелия',
-    agency: 'Tbilisi Prime Capital',
-    city: 'Тбилиси',
-    rating: 4.9,
-    reviewsCount: 44,
-    dealsCount: 92,
-    experienceYears: 10,
-    specialization: ['Коммерция', 'Виллы', 'Земля'],
-    phone: '+995 599 33 44 55',
-    badges: ['ТОП-1 Тбилиси', 'Премиум брокер'],
-    activeListingsCount: 22,
-    avatarInitials: 'ДК',
-  },
-  {
-    id: 'realtor-4',
-    name: 'Анна Макарова',
-    agency: 'Alliance Property Group',
-    city: 'Батуми',
-    rating: 4.8,
-    reviewsCount: 21,
-    dealsCount: 41,
-    experienceYears: 5,
-    specialization: ['Долгосрочная аренда', 'Новостройки'],
-    phone: '+995 599 55 66 77',
-    badges: ['Быстрый отклик'],
-    activeListingsCount: 9,
-    avatarInitials: 'АМ',
-  },
-]
+import type { PublicRealtorProfile } from '../types/marketplace'
 
 /**
- * RealtorsPage Component (Figma: Рейтинг риелторов v2 Node ID 3576:53108)
+ * RealtorsPage (Figma: Рейтинг риелторов v2, Node ID 3576:53108, MKT-SCR-014)
+ *
+ * N-13 (owner decision 14.09.2026): "риэлтор" — занятая позиция в
+ * организации типа agency/independent_realtor, реальный GET /public/realtors.
+ * Метрики из исходного демо-макета (число сделок, стаж, бейджи вида
+ * «ТОП-1 Батуми»/«Проверен BAZA») не перенесены — ни одна из них не имеет
+ * опоры в бэкенде, показывать их значило бы визуальное обещание
+ * несуществующих данных (PRODUCT.md). Единственная реальная метрика —
+ * средний рейтинг по одобренным отзывам, честно отсутствует (не «0.0»),
+ * если отзывов ещё нет.
  */
 export function RealtorsPage() {
   const { t } = useI18n()
-  const [cityFilter, setCityFilter] = useState<'all' | 'Батуми' | 'Тбилиси'>('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const cityParam = searchParams.get('city') || 'all'
+
+  const { state, loadMore, retryLoadMore } = useRealtorsDirectory({ city: cityParam === 'all' ? undefined : cityParam })
 
   useSeoMetadata({
     title: t('realtors.seoTitle'),
     description: t('realtors.seoDescription'),
   })
 
-  const filteredRealtors = MOCK_REALTORS.filter((r) => {
-    if (cityFilter !== 'all' && r.city !== cityFilter) return false
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      return (
-        r.name.toLowerCase().includes(q) ||
-        r.agency.toLowerCase().includes(q) ||
-        r.specialization.some((s) => s.toLowerCase().includes(q))
-      )
-    }
-    return true
-  })
+  function setCity(value: 'all' | 'Батуми' | 'Тбилиси') {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'all') next.delete('city')
+    else next.set('city', value)
+    setSearchParams(next)
+  }
 
   return (
     <div className="figma-realtors-page">
-      <div className="demo-notice-banner" role="note">
-        <span className="demo-notice-banner__icon" aria-hidden="true">ℹ️</span>
-        <div className="demo-notice-banner__text">
-          <strong>{t('realtors.demoTitle')}</strong> {t('realtors.demoText')}
-        </div>
-      </div>
-
       <div className="figma-realtors-header">
         <div className="figma-realtors-header__eyebrow">{t('realtors.eyebrow')}</div>
         <h1 className="figma-realtors-header__title">{t('realtors.title')}</h1>
         <p className="figma-realtors-header__subtitle">{t('realtors.subtitle')}</p>
       </div>
 
-      {/* Toolbar */}
       <div className="figma-realtors-toolbar">
-        <div className="figma-realtors-toolbar__search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="search"
-            placeholder={t('realtors.searchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label={t('realtors.searchAria')}
-          />
-        </div>
-
         <div className="figma-realtors-toolbar__tabs" role="tablist" aria-label={t('realtors.cityFilterAria')}>
-          <button
-            type="button"
-            className={`figma-realtor-tab-btn${cityFilter === 'all' ? ' is-active' : ''}`}
-            onClick={() => setCityFilter('all')}
-            role="tab"
-            aria-selected={cityFilter === 'all'}
-          >
+          <button type="button" className={`figma-realtor-tab-btn${cityParam === 'all' ? ' is-active' : ''}`} onClick={() => setCity('all')} role="tab" aria-selected={cityParam === 'all'}>
             {t('filters.allCities')}
           </button>
-          <button
-            type="button"
-            className={`figma-realtor-tab-btn${cityFilter === 'Батуми' ? ' is-active' : ''}`}
-            onClick={() => setCityFilter('Батуми')}
-            role="tab"
-            aria-selected={cityFilter === 'Батуми'}
-          >
+          <button type="button" className={`figma-realtor-tab-btn${cityParam === 'Батуми' ? ' is-active' : ''}`} onClick={() => setCity('Батуми')} role="tab" aria-selected={cityParam === 'Батуми'}>
             {t('header.cityBatumi')}
           </button>
-          <button
-            type="button"
-            className={`figma-realtor-tab-btn${cityFilter === 'Тбилиси' ? ' is-active' : ''}`}
-            onClick={() => setCityFilter('Тбилиси')}
-            role="tab"
-            aria-selected={cityFilter === 'Тбилиси'}
-          >
+          <button type="button" className={`figma-realtor-tab-btn${cityParam === 'Тбилиси' ? ' is-active' : ''}`} onClick={() => setCity('Тбилиси')} role="tab" aria-selected={cityParam === 'Тбилиси'}>
             {t('header.cityTbilisi')}
           </button>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="figma-realtors-grid" aria-label={t('realtors.gridAria')}>
-        {filteredRealtors.map((realtor) => (
-          <article key={realtor.id} className="figma-realtor-card">
-            <div className="figma-realtor-card__top">
-              <div className="figma-realtor-avatar" aria-hidden="true">
-                {realtor.avatarInitials}
-              </div>
-              <div className="figma-realtor-card__info">
-                <h2 className="figma-realtor-name">{realtor.name}</h2>
-                <span className="figma-realtor-agency">{realtor.agency} · {realtor.city}</span>
-                <div className="figma-realtor-rating-row">
-                  <span className="figma-realtor-stars" aria-hidden="true">★ {realtor.rating.toFixed(1)}</span>
-                  <span className="figma-realtor-reviews-count">{t('realtors.reviewsCount', { count: realtor.reviewsCount })}</span>
+      {state.status === 'loading' ? (
+        <div className="state-panel" role="status" aria-busy="true">
+          <p>{t('realtors.loading')}</p>
+        </div>
+      ) : null}
+
+      {state.status === 'error' ? (
+        <div className="state-panel state-panel--error">
+          <p>{state.message}</p>
+          <button type="button" className="retry-btn" onClick={state.retry}>{t('requests.retry')}</button>
+        </div>
+      ) : null}
+
+      {state.status === 'empty' ? (
+        <div className="state-panel state-panel--empty">
+          <p>{t('realtors.empty')}</p>
+        </div>
+      ) : null}
+
+      {state.status === 'ready' ? (
+        <>
+          <div className="figma-realtors-grid" aria-label={t('realtors.gridAria')}>
+            {state.items.map((realtor) => (
+              <RealtorCard key={realtor.id} realtor={realtor} t={t} />
+            ))}
+          </div>
+          {state.nextCursor ? (
+            <div className="load-more-container">
+              <button className="load-more" type="button" onClick={loadMore} disabled={state.loadingMore} aria-busy={state.loadingMore}>
+                {state.loadingMore ? t('catalogue.loadingMore') : t('catalogue.loadMore')}
+              </button>
+              {state.loadMoreError ? (
+                <div className="pagination-error-panel">
+                  <p>{state.loadMoreError}</p>
+                  <button type="button" className="retry-btn" onClick={retryLoadMore}>{t('requests.retry')}</button>
                 </div>
-              </div>
+              ) : null}
             </div>
-
-            <div className="figma-realtor-badges">
-              <span className="figma-realtor-badge figma-realtor-badge--demo">{t('realtors.demoProfile')}</span>
-              {realtor.badges.map((b, i) => (
-                <span key={i} className={`figma-realtor-badge${b.includes('ТОП') ? ' figma-realtor-badge--top' : ''}`}>
-                  {b}
-                </span>
-              ))}
-            </div>
-
-            <div className="figma-realtor-metrics-row">
-              <div>
-                <div className="figma-realtor-metric-value">{realtor.dealsCount}</div>
-                <div className="figma-realtor-metric-label">{t('realtors.dealsClosed')}</div>
-              </div>
-              <div>
-                <div className="figma-realtor-metric-value">{t('realtors.experienceYears', { count: realtor.experienceYears })}</div>
-                <div className="figma-realtor-metric-label">{t('realtors.experience')}</div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
-              <Link
-                to={`/realtors/${realtor.id}`}
-                className="figma-realtor-card__btn"
-                aria-label={t('realtors.profileAria', { name: realtor.name })}
-              >
-                {t('realtors.profileLink')}
-              </Link>
-            </div>
-          </article>
-        ))}
-      </div>
+          ) : (
+            <p className="catalogue-end-note" aria-live="polite">{t('catalogue.allShown')}</p>
+          )}
+        </>
+      ) : null}
     </div>
+  )
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  return parts.slice(0, 2).map((p) => p[0]!.toUpperCase()).join('')
+}
+
+function RealtorCard({ realtor, t }: { realtor: PublicRealtorProfile; t: (key: string, params?: Record<string, string | number>) => string }) {
+  return (
+    <article className="figma-realtor-card">
+      <div className="figma-realtor-card__top">
+        {realtor.avatarUrl ? (
+          <img className="figma-realtor-avatar" src={realtor.avatarUrl} alt="" aria-hidden="true" />
+        ) : (
+          <div className="figma-realtor-avatar" aria-hidden="true">{initials(realtor.name)}</div>
+        )}
+        <div className="figma-realtor-card__info">
+          <h2 className="figma-realtor-name">{realtor.name}</h2>
+          <span className="figma-realtor-agency">
+            {realtor.organizationName}{realtor.city ? ` · ${realtor.city}` : ''}
+          </span>
+          <div className="figma-realtor-rating-row">
+            {realtor.rating ? (
+              <>
+                <span className="figma-realtor-stars" aria-hidden="true">★ {realtor.rating.average.toFixed(1)}</span>
+                <span className="figma-realtor-reviews-count">{t('realtors.reviewsCount', { count: realtor.rating.count })}</span>
+              </>
+            ) : (
+              <span className="figma-realtor-reviews-count">{t('realtors.noReviewsYet')}</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {realtor.aboutMe ? <p className="figma-realtor-about">{realtor.aboutMe}</p> : null}
+
+      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
+        <Link to={`/realtors/${realtor.id}`} className="figma-realtor-card__btn" aria-label={t('realtors.profileAria', { name: realtor.name })}>
+          {t('realtors.profileLink')}
+        </Link>
+      </div>
+    </article>
   )
 }

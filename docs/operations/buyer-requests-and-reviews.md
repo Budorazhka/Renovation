@@ -10,16 +10,18 @@
 - `POST /api/v1/marketplace/requests` — создание запроса аккаунтом покупателя с обязательным `Idempotency-Key`;
 - `PATCH /api/v1/marketplace/requests/:id/close` — закрытие только автором, идемпотентно (см. ниже);
 - `GET /api/v1/public/realtors/:positionId/reviews` — только одобренные отзывы, с опциональным `limit`;
-- `POST /api/v1/marketplace/realtor-reviews` — отзыв авторизованного аккаунта с обязательными `realtorPositionId` и `completedDealId`.
+- `POST /api/v1/marketplace/realtor-reviews` — отзыв авторизованного аккаунта с обязательными `realtorPositionId` и `completedDealId`;
+- `POST /api/v1/buyer-requests/:id/respond` — ERP-отклик организации на запрос (`buyer_request.respond`);
+- `GET /api/v1/buyer-requests/responses` — свои отклики организации.
 
 Запросы принадлежат `identityId`, а отзывы не публикуются сразу: новый отзыв получает статус `pending`. Уникальный индекс не позволяет одному аккаунту создать второй отзыв для той же сделки и риэлтора. Контактные данные в публичной проекции отсутствуют.
 
 Это первый backend-шаг N-13, а не завершение DoD. До полной приёмки остаются:
 
-1. ERP-отклики риэлторов на запрос и назначение запроса организации;
-2. admin-очередь модерации отзывов с `review.moderate.*`, обязательной причиной и audit;
-3. CRM-проверка, что `completedDealId` действительно завершён и связан с reviewer identity и указанной Position (сейчас id сделки обязателен, а отзыв остаётся pending до модерации);
-4. подключение marketplace React-экранов к endpoint'ам и Figma visual compare.
+1. ~~ERP-отклики риэлторов на запрос и назначение запроса организации~~ — сделано 13.09, см. раздел ниже;
+2. ~~admin-очередь модерации отзывов с `review.moderate.*`, обязательной причиной и audit~~ — сделано 13.09, см. раздел ниже;
+3. ~~CRM-проверка, что `completedDealId` действительно завершён и связан с указанной Position~~ — сделано 13.09, см. раздел ниже;
+4. ~~подключение marketplace-web экранов (доска запросов, каталог/профиль риэлторов) к endpoint'ам~~ — сделано 14.09, см. разделы ниже (включая публичный каталог риэлторов, которого раньше не существовало вовсе); остаются admin-web/erp-web экраны для отдельных пунктов (модерация отзывов, ERP-отклики на запросы) — сегодня доступны только через API, Figma visual compare не проводился.
 
 ## Исправлено 13.09 (ревью первого инкремента)
 
@@ -33,3 +35,241 @@
 - **Параметр `limit` публичного списка отзывов был мёртвым** (контроллер его не передавал) — добавлен `ListRealtorReviewsDto` с `@Query()`.
 
 Проверка: focused Jest — 2 suites / **9** tests зелёные (было 3 до ревью); архитектурные стражи (tenant-scope, idempotency-coverage, authorization-coverage, openapi-route-coverage) — 4 suites / 19 tests зелёные; API lint зелёный. Полный typecheck ветки заблокирован старыми integration-import'ами Telegram, которые уже удалены текущим незакоммиченным N-12 переносом в `@baza/messenger`.
+
+## Добавлено 13.09: сделка проверяется у CRM перед созданием отзыва
+
+До этой правки `completedDealId` принимался как есть — любой `ObjectId`,
+включая случайный, чужой или сделку на стадии первого показа, давал такой же
+`pending`-отзыв, как настоящая закрытая сделка. `RealtorReviewsService.
+submit` теперь до создания отзыва проверяет:
+
+1. **Сделка существует и принадлежит той же организации, что и указанный
+   `realtorPositionId`** — через `OrganizationsService.
+   getPositionOrganizationId` (новый cross-module accessor, ADR-001: другие
+   модули не читают `PositionRepository` напрямую) resolve'ит организацию
+   риэлтора, затем `CrmService.getDealForOrganization` (тот же паттерн, что
+   уже использует `messenger`'s `link-crm`) — `NotFoundException`, если
+   позиции или сделки не существует, либо сделка чужой организации.
+2. **Сделка принадлежит именно этому риэлтору** — `Deal.ownerPositionId`
+   должен совпадать с заявленным `realtorPositionId`, иначе
+   `BadRequestException`: указать чужой `completedDealId` рядом с
+   произвольным `realtorPositionId` не выйдет.
+3. **Сделка дошла хотя бы до подписания договора** — в CRM нет отдельного
+   флага "сделка завершена" (единственная терминальная стадия воронки —
+   `closed_lost`, то есть сорвалась); стадии `showing`/`deposit` — ранние
+   переговоры, `deal`/`golden`/`check_in`/`referral` — договор подписан и
+   дальше. Отзыв о риэлторе имеет смысл только начиная со второй группы —
+   это решение продукта, закреплённое константой
+   `REVIEW_ELIGIBLE_DEAL_STAGES`, не факт из схемы.
+
+**Сознательно НЕ проверяется** (решение владельца 13.09.2026): что автор
+отзыва — тот же человек, что клиент по этой сделке в CRM. Аккаунт покупателя
+на маркетплейсе (`reviewerIdentityId`) и CRM-карточка клиента
+(`Deal.contactId`, которую риэлтор вписывает вручную — просто имя и
+телефон) сегодня никак не связаны в базе: это две независимые системы учёта
+одного и того же человека, и связать их автоматически без нового
+поля/механизма нельзя. Закрывать этот разрыв — отдельное продуктовое
+решение (например, подтверждение сделки самим покупателем по персональной
+ссылке, или сверка телефона). До этого решения последнюю проверку "это
+реально клиент, а не посторонний" выполняет модератор при рассмотрении
+pending-отзыва (admin-модерация — см. раздел ниже) — тот же принцип, что уже
+применён к рискам, требующим человеческого решения, а не кода.
+
+Юнит: `realtor-reviews.service.spec.ts` — позиция не найдена → 404, сделка
+не найдена/чужой организации → 404 (пробрасывается от `CrmService`), сделка
+чужого риэлтора → 400, каждая из ранних стадий (`showing`/`deposit`/
+`closed_lost`) → 400, каждая из зачётных стадий (`deal`/`golden`/`check_in`/
+`referral`) → отзыв создаётся. 14 тестов, все зелёные.
+
+## Добавлено 13.09: admin-очередь модерации отзывов
+
+До этой правки `pending`-отзыв не мог никуда деться: `listApproved` фильтрует
+строго `status: 'approved'`, а перевести отзыв в этот статус было нечем —
+весь блок отзывов был мёртв end-to-end. Реализовано по тому же паттерну, что
+`AdminDuplicateCandidateService`/`AdminComplaintService`:
+
+- `RealtorReviewRepository.listForReview(statuses, {cursor, limit})` — тот
+  же `_id`-курсор, что `DuplicateCandidateRepository.listForReview`;
+  `moderate(id, {decision, reason, moderatedByAdminId})` — CAS-фильтр
+  `status: 'pending'`, `modifiedCount === 0` → `ConflictException`.
+- `RealtorReviewsService.listForAdminReview`/`moderate` (сам сервис теперь
+  ещё и domain-слой для admin-очереди, ровно как `ComplaintService`) —
+  `moderate` в транзакции: читает отзыв, CAS-update, `AuditService.append`
+  (`action: 'review.moderate'`, `resource: 'review'`, `after: {status}`).
+- `AdminRealtorReviewService`/`AdminRealtorReviewController`
+  (`apps/api/src/modules/admin`) — `AdminGuard` на контроллере
+  (аутентификация), permission-проверка explicit-вызовом
+  (`AdminPolicyService.requireGrant({resource: 'review', action:
+  'moderate'})`) внутри сервиса, тот же порядок `requireReason` →
+  `requireGrant` → команда, что везде в admin-модуле.
+- `GET /admin/realtor-reviews` (без явного `status` — очередь `pending`) и
+  `POST /admin/realtor-reviews/:reviewId/moderate` (`{decision: 'approved'
+  | 'rejected', reason}`, `reason` ≥ 10 символов).
+- Грант `review.moderate` — **global scope**, не city-scoped (в отличие от
+  `complaint.resolve`): отзыв о риэлторе не привязан к городу как первичному
+  измерению. Как и у всех admin-грантов, привязка к конкретному
+  admin-аккаунту — не статичная роль, а `PermissionGrant` с
+  `subjectType: 'admin_account'`, выдаётся `AdminAccountService.
+  grantPermission` (ADR-009).
+
+Юнит: `realtor-reviews.service.spec.ts` (`listForAdminReview` — дефолт на
+pending, limit+1 → nextCursor; `moderate` — отзыв не найден → 404, уже
+промодерирован → 409 без перезаписи, approve → CAS-update + аудит с
+`action: 'review.moderate'`); `admin-realtor-review.service.spec.ts` —
+`requireGrant`/`requireReason` вызываются перед командой, `cursor`
+конвертируется в `ObjectId`.
+
+**Не сделано этим проходом:** экран в admin-web (сейчас модерация доступна
+только через API) — пункт 4 плана выше.
+
+## Добавлено 13.09: ERP-отклики организаций на запрос покупателя
+
+До этой правки доска запросов была read-only для организаций — публичный
+`GET /public/requests` отдавал полный текст запроса, но откликнуться было
+нечем: последний пункт открытого плана N-13.
+
+- `BuyerRequestResponseDocument` (`buyer_request_responses`) —
+  `{buyerRequestId, organizationId, respondedByPositionId, message}`.
+  Уникальный индекс `{buyerRequestId, organizationId}` — не журнал
+  переговоров, а текущее состояние "чем эта организация предлагает помочь";
+  `BuyerRequestResponseRepository.upsert` атомарно создаёт-или-обновляет
+  запись по этой паре, повторная отправка формы правит текст, не плодит
+  второй отклик и не гоняется за уникальным индексом через
+  check-then-insert (тот же класс гонки, что уже находили и чинили у
+  отзывов, — здесь исключён конструктивно).
+- **Много организаций откликаются на один и тот же запрос независимо, без
+  эксклюзивного захвата** — решение по аналогии с ответами на бирже MLS
+  community-модуля (`CommunityReplyDocument`): плоский many-to-one, каждый
+  отклик атрибутирован своей организацией, никто не блокирует запрос для
+  других. Явного "назначения запроса организации" как отдельного состояния
+  на самой заявке не заведено — сам факт наличия отклика и есть эта связь.
+- Отвечать можно только на `published`-запрос — `BuyerRequestsService.
+  respond` читает запрос через новый `BuyerRequestRepository.findById`
+  (публичная доска не имеет организации-владельца, фильтровать здесь не по
+  чему) и отклоняет `closed`/`moderated` заявки `BadRequestException`.
+- `POST /buyer-requests/:id/respond` и `GET /buyer-requests/responses`
+  (`ErpBuyerRequestsController`) — `TenantGuard`+`PermissionGuard`, право
+  `buyer_request.respond` (organization scope, тот же круг ролей, что
+  `lead.create`: owner/director/rop/manager/administrator/developer,
+  `marketer` не получает). Один грант и на отклик, и на чтение своих
+  откликов — тот же принцип экономии, что у `community_reply` (отдельного
+  read-гранта нет там, где видимость и так own-scope по вызывающему).
+- Идемпотентность обеспечена самим upsert'ом (`POST .../respond` в реестре
+  исключений idempotency-coverage), отдельный `Idempotency-Key` не нужен.
+
+**Сознательно НЕ входит в этот backend-инкремент** (см. пункт 4 плана
+выше): создание CRM Lead из отклика. `CrmService.createLead` требует
+`contactId` либо `requesterPhone`/`requesterName` — у запроса покупателя
+есть только `authorIdentityId` (маркетплейс-аккаунт), контактных данных
+(телефон/имя) заявка не содержит вовсе, автоматически завести полноценный
+лид не из чего. Тот же разрыв, что уже описан у отзывов: связка
+"маркетплейс-identity ↔ CRM-контакт" не существует в базе как понятие.
+Видимость отклика самому покупателю (кто откликнулся на его запрос) тоже
+не входит — по той же логике, что у отзывов и подборок: сначала backend
+для стороны, которая действует, экран и вторая сторона — отдельным шагом.
+
+Юнит: `buyer-requests.service.spec.ts` (`respond` — запрос не найден → 404,
+`closed`/`moderated` → 400, `published` → upsert; `listMyResponses` —
+limit+1 → nextCursor); `erp-buyer-requests.controller.spec.ts`
+(`tenantContext` пробрасывается в organizationId/respondedByPositionId,
+cursor конвертируется в ObjectId). 6 новых тестов, все зелёные.
+
+## Добавлено 14.09: доска запросов на marketplace-web подключена к реальному API
+
+`RequestsPage.tsx` (`/requests`, MKT-SCR-016, фрейм `2287:35159`) был
+демо-страницей: 7 захардкоженных карточек, фильтрация только на клиенте,
+кнопки «Позвонить»/«Написать» вели к телефону автора, которого в API нет.
+Полностью переписана на реальные вызовы:
+
+- `GET /public/requests` через новый хук `useBuyerRequestsBoard` (тот же
+  паттерн, что `useListingsCatalogue`: cursor-пагинация, `AbortController`
+  против гонки при быстрой смене фильтра, отдельные `loading`/`empty`/
+  `error`/`ready` состояния).
+- `POST /marketplace/requests` — создание запроса с `Idempotency-Key`;
+  401/403 от бэкенда (гость без сессии) показывает предложение войти, а не
+  фиктивный успех — тот же паттерн, что `SelectionsPage.requiresAuth`.
+- `GET /public/requests/:id/reveal-phone` — телефон автора запрашивается по
+  клику на кнопку «Показать телефон», не приходит в общем списке.
+
+**Часть фильтров макета вырезана, а не подделана**: свободный поиск,
+множественный выбор типа недвижимости чекбоксами и фильтр «Актуальность»
+(по дате) не имеют опоры в `GET /public/requests` (только один
+`dealType`/`city`/`propertyKind` за раз, без full-text search и без
+фильтра по дате). Оставлять их означало бы либо фильтровать только уже
+загруженную страницу (на следующей странице «показать ещё» появились бы
+неотфильтрованные карточки), либо визуально обещать функциональность, для
+которой нет API (PRODUCT.md: «никаких визуальных обещаний функций, которых
+нет в API»). Тип недвижимости сведён к одиночному select вместо
+чекбоксов — ровно то, что поддерживает `propertyKind`.
+
+Тесты: `tests/requestsBoard.test.tsx` переписан на моки `marketplaceApi`/
+`publishingApi` (было — проверка захардкоженных данных), 8 тестов: рендер
+из API, refetch при смене фильтра, empty/error состояния с retry, реальное
+раскрытие телефона по клику, успешное создание запроса, честный
+login-prompt вместо фейкового успеха при 401, закрытие диалога по Escape.
+
+## Добавлено 14.09: публичный каталог риэлторов (снят блокер 14.09) + подключение экранов
+
+Блокер из предыдущей ревизии этого документа ("нет публичного бэкенда для
+каталога/профиля риэлторов") снят решением владельца 14.09.2026: кто есть
+"риэлтор" в публичном каталоге определяется не отдельным
+согласием/самообслуживанием профиля, а тем, что уже выбрано при
+регистрации организации — `type: 'agency' | 'developer' |
+'independent_realtor'` в `POST /organizations/register`. Отдельного флага
+`isPublic`/consent на `PositionProfile` не заводилось — он избыточен, раз
+поле уже есть.
+
+Критерий публичности (`PositionRepository.listPublicRealtors`/
+`findByIdPublicRealtor`): позиция `status: 'occupied'`, `fixedRole` в
+`owner | director | rop | manager` (те же клиентские роли, что получают
+lead/deal-гранты — `administrator`/`marketer` их не получают и в каталог
+не попадают), организация — `type` в `agency | independent_realtor` и
+`status: 'active'` (`developer`-организации исключены целиком, `mlsVerified`
+как гейт не используется). Публичная проекция берёт только
+маркетинговые поля `PositionProfile` (`city`, `aboutMe`, соцсети, аватар
+через `MediaService`); HR-поля (`hireDate`, `birthDate`, `department`,
+`skills`) в проекцию не попадают.
+
+Новые публичные маршруты (`apps/api/src/modules/public-realtors`):
+
+- `GET /public/realtors` — список, cursor-пагинация, опциональный `city`;
+- `GET /public/realtors/:positionId` — карточка (404, если не найден или
+  не проходит критерий выше);
+- `GET /public/realtors/:positionId/reveal-phone` — телефон по клику,
+  тот же паттерн, что у `reveal-phone` запросов покупателей (`IpRateLimitGuard`
+  + `@RateLimit`, без побочного эффекта в CRM — в отличие от
+  `revealListingContact`, здесь не создаётся Lead).
+
+Средний рейтинг считается по одобренным отзывам
+(`RealtorReviewRepository.getApprovedStatsByPositionIds`, `$group`+`$avg`)
+и подмешивается в профиль тем же сервисом.
+
+`RealtorsPage.tsx`/`RealtorProfilePage.tsx` полностью переписаны на эти
+эндпоинты (было: `MOCK_REALTORS`/`MOCK_REVIEWS`, фейковая форма отзыва,
+`demo-notice-banner`). Метрики исходного демо-макета (число закрытых
+сделок, стаж, бейджи «ТОП-1 Батуми»/«Проверен BAZA») не перенесены — ни у
+одной нет опоры в бэкенде; единственная реальная метрика (средний рейтинг)
+честно отсутствует, если отзывов ещё нет, вместо показа «0.0». Свободный
+поиск и фильтр по типу недвижимости из макета тоже вырезаны — как и у
+доски запросов, `GET /public/realtors` их не поддерживает.
+
+Форма добавления отзыва по-прежнему требует вручную ввести
+`completedDealId` («код сделки от риелтора») — это тот же разрыв
+"маркетплейс-identity ↔ CRM-контакт", что описан выше у откликов на
+запросы: у покупателя нет автоматического способа узнать id своей сделки
+в CRM. Поле честно подписано, а не скрыто.
+
+Юнит: `position.repository.spec.ts` (+5 тестов на критерий
+публичности/cursor/city), `realtor-review.repository.spec.ts` (новый
+файл, 2 теста на `getApprovedStatsByPositionIds`), `public-realtors.
+service.spec.ts` (новый файл: композиция профиля, аватар, 404, reveal-phone).
+Архитектурные стражи (`tenant-scope`, `authorization-coverage`,
+`openapi-route-coverage`, остальные 4) — 7/7 зелёные; полный `@baza/api` —
+116 test suites / 1256 тестов зелёные. `tests/realtorsRating.test.tsx`
+переписан на моки `marketplaceApi`/`publishingApi` (было — проверка
+захардкоженных демо-данных), 9 тестов: рендер каталога из API, refetch по
+городу, honest empty/no-reviews-yet состояния, переход в профиль и
+реальные отзывы, честный 404 вместо фейкового профиля, раскрытие телефона
+по клику, отправка отзыва с pending-сообщением, login-prompt при 401.
+Полный `apps/marketplace-web` — 36 test files / 195 тестов зелёные,
+production build проходит.

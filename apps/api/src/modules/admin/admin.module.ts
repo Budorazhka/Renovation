@@ -16,6 +16,8 @@ import { AdminDuplicateCandidateService } from './admin-duplicate-candidate.serv
 import { AdminDuplicateCandidateController } from './admin-duplicate-candidate.controller';
 import { AdminComplaintService } from './admin-complaint.service';
 import { AdminComplaintController } from './admin-complaint.controller';
+import { AdminRealtorReviewService } from './admin-realtor-review.service';
+import { AdminRealtorReviewController } from './admin-realtor-review.controller';
 import { AdminOrganizationService } from './admin-organization.service';
 import { AdminOrganizationController } from './admin-organization.controller';
 import { AdminBillingController } from './admin-billing.controller';
@@ -27,6 +29,7 @@ import { AuditModule } from '../audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { BillingModule } from '../billing/billing.module';
+import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module';
 
 /**
  * PermissionGrantRepository НЕ импортируется/регистрируется здесь напрямую
@@ -58,6 +61,7 @@ import { BillingModule } from '../billing/billing.module';
     IdentityModule,
     OrganizationsModule,
     BillingModule,
+    RealtorReviewsModule,
   ],
   controllers: [
     AdminPublicationController,
@@ -66,6 +70,7 @@ import { BillingModule } from '../billing/billing.module';
     AdminAuditController,
     AdminDuplicateCandidateController,
     AdminComplaintController,
+    AdminRealtorReviewController,
     AdminOrganizationController,
     AdminBillingController,
     AdminBillingPlansController,
@@ -78,6 +83,7 @@ import { BillingModule } from '../billing/billing.module';
     AdminAuditService,
     AdminDuplicateCandidateService,
     AdminComplaintService,
+    AdminRealtorReviewService,
     AdminOrganizationService,
   ],
   exports: [AdminAccountRepository],

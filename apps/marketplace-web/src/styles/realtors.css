@@ -177,6 +177,14 @@
   color: var(--color-main, #1BA800);
   border: 2px solid var(--color-main, #1BA800);
   flex-shrink: 0;
+  object-fit: cover;
+}
+
+.figma-realtor-about {
+  margin: 4px 0 0;
+  color: var(--color-dark-text-muted, #757575);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .figma-realtor-card__info {

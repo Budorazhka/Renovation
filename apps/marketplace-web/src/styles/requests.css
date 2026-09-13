@@ -658,6 +658,12 @@ legend.bz-rq-group__title {
   color: var(--rq-green);
 }
 
+.bz-rq-card__reveal-error {
+  color: #b3261e;
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
 /* Низ карточки `2287:34257`: линия, пары «подпись — значение», кнопки. */
 .bz-rq-card__foot {
   display: flex;
@@ -853,6 +859,11 @@ legend.bz-rq-field__label {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 6px;
+}
+
+.bz-rq-form__error {
+  color: #b3261e;
+  font-size: 14px;
 }
 
 .bz-rq-dialog__done {
