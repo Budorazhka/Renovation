@@ -1,5 +1,6 @@
 import type {
   PublicSelection,
+  PublicMarketplaceSelection,
   CatalogueQuery,
   PublicDevelopmentCard,
   PublicDevelopmentList,
@@ -111,6 +112,22 @@ export function createMarketplaceApi({ baseUrl, fetcher = fetch }: { baseUrl: st
         signal: options?.signal,
       })
       return parseResponse<PublicSelection>(response)
+    },
+
+    /**
+     * Подборка покупателя по ссылке (N-11) — «открывается по ссылке» из
+     * решения владельца, тот же принцип, что getPublicSelection выше, но
+     * без аутентификации владельца и без сохранённого признака просмотра.
+     */
+    async getPublicMarketplaceSelection(
+      token: string,
+      options?: RequestOptions,
+    ): Promise<PublicMarketplaceSelection> {
+      const response = await fetcher(`${apiBaseUrl}/public/marketplace-selections/${encodeURIComponent(token)}`, {
+        headers: { Accept: 'application/json' },
+        signal: options?.signal,
+      })
+      return parseResponse<PublicMarketplaceSelection>(response)
     },
 
     async listDevelopments(query: CatalogueQuery = {}, options?: RequestOptions): Promise<PublicDevelopmentList> {

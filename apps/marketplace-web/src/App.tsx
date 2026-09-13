@@ -34,6 +34,7 @@ import { MyPropertiesPage } from './pages/MyPropertiesPage'
 import { FavoritesPage } from './pages/FavoritesPage'
 import { SelectionsPage } from './pages/SelectionsPage'
 import { SelectionDetailPage } from './pages/SelectionDetailPage'
+import { MySelectionDetailPage } from './pages/MySelectionDetailPage'
 import { RequestsPage } from './pages/RequestsPage'
 import { HomePage } from './pages/HomePage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -53,6 +54,7 @@ import './styles/requests.css'
 import './styles/home.css'
 // Шапка и подвал: подключаются последними, чтобы не проигрывать старым правилам.
 import './styles/chrome.css'
+import './styles/visual-upgrade.css'
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import { I18nProvider, useI18n } from './i18n'
 import type {
@@ -806,6 +808,7 @@ export default function App() {
           <Route path="/account/favorites" element={<Shell><RequireAuth><FavoritesPage /></RequireAuth></Shell>} />
           <Route path="/selections" element={<Shell><SelectionsPage /></Shell>} />
           <Route path="/selections/:slug" element={<Shell><SelectionDetailPage /></Shell>} />
+          <Route path="/my-selection/:token" element={<Shell><MySelectionDetailPage /></Shell>} />
           <Route path="/requests" element={<Shell><RequestsPage /></Shell>} />
           <Route path="/account/properties" element={<Shell><RequireAuth><MyPropertiesPage /></RequireAuth></Shell>} />
           <Route

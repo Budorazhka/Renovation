@@ -3,76 +3,10 @@ import { Link } from 'react-router-dom'
 import { useSeoMetadata } from '../hooks/useSeoMetadata'
 import { BuildingPlaceholder } from '../components/DevelopmentCard'
 import { publishingApi, PublishingApiError, type FavoriteEntry } from '../features/publishing/api/publishing-api'
-import { marketplaceApi } from '../api/marketplace-api'
-import { listingAddress, listingPrice, listingTitle, developmentAddress, developmentTitle } from '../lib/format'
+import { resolveMarketplaceTarget, type ResolvedMarketplaceTarget } from '../lib/resolveMarketplaceTarget'
 import { useI18n } from '../i18n'
-import type { Translate } from '../i18n'
 
-export interface FavoriteItem {
-  id: string
-  slug: string
-  targetType: 'development' | 'listing'
-  title: string
-  dealType: 'sale' | 'rent_short' | 'rent_long'
-  propertyType: string
-  price: string
-  pricePerSqm?: string
-  address: string
-  city: string
-  rooms: number
-  area: number
-  floor: number
-  imageUrl?: string
-}
-
-
-/**
- * Запись избранного -> карточка страницы.
- *
- * Карточки дочитываются публичными эндпоинтами каталога по slug: избранное
- * хранит только ссылку, а не копию объекта, поэтому цена и адрес здесь всегда
- * те же, что в каталоге, и разойтись с ним не могут.
- */
-async function resolveFavorite(entry: FavoriteEntry, t?: Translate): Promise<FavoriteItem | null> {
-  try {
-    if (entry.targetType === 'listing') {
-      const card = await marketplaceApi.getListing(entry.slug)
-      return {
-        id: `listing:${entry.slug}`,
-        slug: entry.slug,
-        targetType: 'listing',
-        title: listingTitle(card, t),
-        dealType: card.dealType ?? 'sale',
-        propertyType: card.propertyType ?? '',
-        price: listingPrice(card, t),
-        address: listingAddress(card, t),
-        city: card.location?.city ?? '',
-        rooms: card.characteristics?.rooms ?? 0,
-        area: card.characteristics?.area ?? 0,
-        floor: card.characteristics?.floor ?? 0,
-      }
-    }
-    const card = await marketplaceApi.getDevelopment(entry.slug)
-    return {
-      id: `development:${entry.slug}`,
-      slug: entry.slug,
-      targetType: 'development',
-      title: developmentTitle(card, t),
-      dealType: 'sale',
-      propertyType: card.classType ?? '',
-      price: '',
-      address: developmentAddress(card, t),
-      city: card.location?.city ?? '',
-      rooms: 0,
-      area: 0,
-      floor: 0,
-    }
-  } catch {
-    // Объект снят с публикации или удалён: пропускаем его, а не роняем всю
-    // страницу. Запись избранного при этом остаётся — объект может вернуться.
-    return null
-  }
-}
+export type FavoriteItem = ResolvedMarketplaceTarget
 
 export function FavoritesPage() {
   const { t } = useI18n()
@@ -83,6 +17,7 @@ export function FavoritesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [sortOrder, setSortOrder] = useState<'default' | 'price_asc' | 'price_desc'>('default')
   const [isCreatedSelectionOpen, setIsCreatedSelectionOpen] = useState(false)
+  const [isCreatingSelection, setIsCreatingSelection] = useState(false)
 
   useSeoMetadata({
     title: t('favorites.seoTitle'),
@@ -93,7 +28,7 @@ export function FavoritesPage() {
     setIsLoading(true)
     try {
       const entries = await publishingApi.listFavorites()
-      const resolved = await Promise.all(entries.map((entry) => resolveFavorite(entry, t)))
+      const resolved = await Promise.all(entries.map((entry) => resolveMarketplaceTarget(entry, t)))
       setFavorites(resolved.filter((item): item is FavoriteItem => item !== null))
       setRequiresAuth(false)
     } catch (error) {
@@ -126,8 +61,27 @@ export function FavoritesPage() {
   }
 
   const handleCreateSelection = () => {
-    setIsCreatedSelectionOpen(true)
-    setTimeout(() => setIsCreatedSelectionOpen(false), 3000)
+    if (favorites.length === 0 || isCreatingSelection) return
+    setIsCreatingSelection(true)
+    void (async () => {
+      try {
+        const created = await publishingApi.createSelection(t('favorites.selectionDefaultTitle'))
+        // Идёт последовательно, не Promise.all: addSelectionItem пишет в тот же
+        // документ (условный push) — параллельные запросы к одной подборке
+        // не портят данные, но и не выигрывают у последовательного пути ничего,
+        // а порядок объектов в подборке остаётся предсказуемым (как в избранном).
+        for (const item of favorites) {
+          await publishingApi.addSelectionItem(created.id, { targetType: item.targetType, slug: item.slug })
+        }
+        setIsCreatedSelectionOpen(true)
+        setTimeout(() => setIsCreatedSelectionOpen(false), 3000)
+      } catch {
+        // Не удалось — молчаливо не показываем «✓ создана», честнее ничего не
+        // сказать, чем соврать об успехе.
+      } finally {
+        setIsCreatingSelection(false)
+      }
+    })()
   }
 
   const filtered = favorites
@@ -182,6 +136,7 @@ export function FavoritesPage() {
             type="button"
             className="figma-fav-create-btn"
             onClick={handleCreateSelection}
+            disabled={isCreatingSelection}
             data-testid="create-selection-btn"
           >
             {isCreatedSelectionOpen ? t('favorites.selectionCreated') : t('favorites.createSelection')}

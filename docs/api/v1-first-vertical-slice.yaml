@@ -5309,6 +5309,162 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
 
+  /marketplace/selections:
+    get:
+      operationId: listMarketplaceSelections
+      summary: Подборки покупателя (N-11)
+      description: >-
+        Требует сессии: подборка живёт на сервере у аккаунта, открывается с любого устройства и по
+        ссылке (publicToken), не в localStorage одного браузера.
+      tags: [marketplace-selections]
+      responses:
+        '200':
+          description: Список подборок, новые сверху
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketplaceSelection'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createMarketplaceSelection
+      summary: Создать подборку
+      description: >-
+        В отличие от POST /marketplace/favorites НЕ идемпотентно по построению — каждый вызов
+        заводит новую подборку, поэтому требует Idempotency-Key.
+      tags: [marketplace-selections]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMarketplaceSelectionRequest'
+      responses:
+        '201':
+          description: Подборка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceSelection'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+
+  /marketplace/selections/{id}:
+    patch:
+      operationId: renameMarketplaceSelection
+      summary: Переименовать подборку
+      description: Идемпотентно — повтор с тем же title приводит к тому же итогу.
+      tags: [marketplace-selections]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameMarketplaceSelectionRequest'
+      responses:
+        '200':
+          description: Подборка переименована
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceSelection'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteMarketplaceSelection
+      summary: Удалить подборку
+      description: Идемпотентно — удаление уже удалённой подборки возвращает `removed: false`, не ошибку.
+      tags: [marketplace-selections]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Результат удаления
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removed]
+                properties:
+                  removed: {type: boolean}
+        '401':
+          $ref: '#/components/responses/Error'
+
+  /marketplace/selections/{id}/items:
+    post:
+      operationId: addMarketplaceSelectionItem
+      summary: Добавить объект в подборку
+      description: >-
+        Идемпотентно по построению, тот же принцип, что POST /marketplace/favorites: условный push с
+        фильтром «элемента ещё нет» — Idempotency-Key не требуется. Существование объекта по slug не
+        проверяется — та же причина, что у избранного.
+      tags: [marketplace-selections]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceSelectionItemTarget'
+      responses:
+        '200':
+          description: Подборка с добавленным объектом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceSelection'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: removeMarketplaceSelectionItem
+      summary: Убрать объект из подборки
+      description: Идемпотентно — снятие уже снятого объекта возвращает тот же итог.
+      tags: [marketplace-selections]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarketplaceSelectionItemTarget'
+      responses:
+        '200':
+          description: Подборка без удалённого объекта
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketplaceSelection'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /marketplace/property-assets:
     post:
       operationId: marketplaceCreatePropertyAsset
@@ -6114,6 +6270,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicSelection'
+        '404':
+          description: NOT_FOUND — токен не существует
+          $ref: '#/components/responses/Error'
+
+  /public/marketplace-selections/{token}:
+    get:
+      operationId: getPublicMarketplaceSelection
+      summary: >
+        Публичный просмотр подборки покупателя по ссылке (N-11) — тот же принцип, что
+        GET /public/selections/{token}, но без side-effect (нет markViewed/sent->viewed: у подборки
+        покупателя нет получателя-клиента, чей просмотр нужно отследить агенту). Проекция
+        whitelist-only (не включает identityId/внутренний id).
+      tags: [public-marketplace-selections]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Публичная проекция подборки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicMarketplaceSelection'
         '404':
           description: NOT_FOUND — токен не существует
           $ref: '#/components/responses/Error'
@@ -9607,6 +9789,64 @@ components:
       properties:
         targetType: {type: string, enum: [development, listing]}
         slug: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    MarketplaceSelectionItemTarget:
+      type: object
+      required: [targetType, slug]
+      properties:
+        targetType: {type: string, enum: [development, listing]}
+        slug:
+          type: string
+          maxLength: 200
+          pattern: '^[a-z0-9-]+$'
+          description: Slug публикации — тот же, по которому карточка читается публично
+
+    MarketplaceSelectionItem:
+      type: object
+      required: [targetType, slug, addedAt]
+      properties:
+        targetType: {type: string, enum: [development, listing]}
+        slug: {type: string}
+        addedAt: {type: string, format: date-time}
+
+    CreateMarketplaceSelectionRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+
+    RenameMarketplaceSelectionRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+
+    MarketplaceSelection:
+      type: object
+      required: [id, title, items, publicToken, createdAt, updatedAt]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceSelectionItem'
+        publicToken:
+          type: string
+          description: Ключ доступа к публичной ссылке GET /public/marketplace-selections/{token}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+
+    PublicMarketplaceSelection:
+      type: object
+      required: [title, items, createdAt]
+      properties:
+        title: {type: string}
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketplaceSelectionItemTarget'
         createdAt: {type: string, format: date-time}
     ErpMeResponse:
       type: object

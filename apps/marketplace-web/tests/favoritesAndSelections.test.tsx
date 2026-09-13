@@ -1,11 +1,12 @@
 /** @vitest-environment jsdom */
 import React from 'react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { FavoritesPage } from '../src/pages/FavoritesPage'
 import { SelectionsPage } from '../src/pages/SelectionsPage'
 import { SelectionDetailPage } from '../src/pages/SelectionDetailPage'
+import { MySelectionDetailPage } from '../src/pages/MySelectionDetailPage'
 import { marketplaceApi } from '../src/api/marketplace-api'
 import { publishingApi, PublishingApiError } from '../src/features/publishing/api/publishing-api'
 
@@ -19,6 +20,12 @@ vi.mock('../src/features/publishing/api/publishing-api', async () => {
       listFavorites: vi.fn(),
       addFavorite: vi.fn(),
       removeFavorite: vi.fn(),
+      listSelections: vi.fn(),
+      createSelection: vi.fn(),
+      renameSelection: vi.fn(),
+      deleteSelection: vi.fn(),
+      addSelectionItem: vi.fn(),
+      removeSelectionItem: vi.fn(),
     },
   }
 })
@@ -26,6 +33,7 @@ vi.mock('../src/features/publishing/api/publishing-api', async () => {
 vi.mock('../src/api/marketplace-api', () => ({
   marketplaceApi: {
     getPublicSelection: vi.fn(),
+    getPublicMarketplaceSelection: vi.fn(),
     listDevelopments: vi.fn(),
     listListings: vi.fn(),
     getDevelopment: vi.fn(),
@@ -216,79 +224,189 @@ describe('Favorites & Selections Acceptance (MKT-SCR-017, MKT-SCR-018)', () => {
   })
 
   /**
-   * INITIAL_COLLECTIONS (захардкоженные "$85 000", "Orbi City" и т.п.) убран
-   * 10.09.2026: backend для личных подборок покупателя не существует
-   * (apps/api/src/modules/selections — CRM-подборки агента, не для
-   * marketplace-покупателя), а фейковые подборки приживались в localStorage
-   * как настоящие. По умолчанию список честно пуст.
+   * N-11 (roadmap-2026-09.md, решение владельца 07.09.2026): подборки
+   * покупателя переехали в localStorage-модели на сервер, у аккаунта —
+   * открываются с любого устройства и по ссылке. До этой работы backend для
+   * личных подборок покупателя не существовал вовсе (проверено 10.09.2026):
+   * apps/api/src/modules/selections — CRM-подборки агента, organization-
+   * scoped, не для marketplace-покупателя.
    */
   describe('Управление подборками клиента (SelectionsPage)', () => {
-    beforeEach(() => {
-      localStorage.clear()
-    })
+    const ENTRY = {
+      id: 'sel-1',
+      title: 'Для семьи',
+      items: [],
+      publicToken: 'token-abc',
+      createdAt: '2026-09-01T10:00:00.000Z',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+    }
 
-    it('по умолчанию показывает честное пустое состояние, без захардкоженных подборок', () => {
+    it('по умолчанию показывает честное пустое состояние, без захардкоженных подборок', async () => {
+      ;(publishingApi.listSelections as any).mockResolvedValue([])
+
       render(
         <MemoryRouter>
           <SelectionsPage />
         </MemoryRouter>,
       )
 
-      expect(screen.getByText(/У вас пока нет созданных подборок/)).toBeDefined()
+      expect(await screen.findByText(/У вас пока нет созданных подборок/)).toBeDefined()
       expect(screen.queryByText(/Orbi City/)).toBeNull()
-      expect(screen.queryByText('$85 000')).toBeNull()
-      expect(localStorage.getItem('baza:marketplace:selections')).toBeNull()
     })
 
-    it('создает новую подборку и сохраняет её в localStorage', () => {
+    it('гостю предлагает войти, а не пустой список', async () => {
+      ;(publishingApi.listSelections as any).mockRejectedValue(new PublishingApiError('unauthorized', 401))
+
       render(
         <MemoryRouter>
           <SelectionsPage />
         </MemoryRouter>,
       )
 
-      const createBtn = screen.getByTestId('new-collection-btn')
-      fireEvent.click(createBtn)
-
-      expect(screen.getByDisplayValue(/Новая подборка/)).toBeDefined()
-      const saved = JSON.parse(localStorage.getItem('baza:marketplace:selections') || '[]')
-      expect(saved.length).toBeGreaterThanOrEqual(1)
-      expect(saved[0].title).toContain('Новая подборка')
+      expect(await screen.findByText(/Подборки хранятся в вашем аккаунте/)).toBeDefined()
+      expect(screen.getByRole('link', { name: 'Войти' }).getAttribute('href')).toContain('/auth/login')
     })
 
-    it('редактирует название подборки и обновляет localStorage', () => {
+    it('создаёт новую подборку через сервер', async () => {
+      ;(publishingApi.listSelections as any).mockResolvedValue([])
+      ;(publishingApi.createSelection as any).mockResolvedValue({
+        id: 'sel-new',
+        title: 'Новая подборка (1)',
+        items: [],
+        publicToken: 'token-new',
+        createdAt: '2026-09-01T10:00:00.000Z',
+        updatedAt: '2026-09-01T10:00:00.000Z',
+      })
+
       render(
         <MemoryRouter>
           <SelectionsPage />
         </MemoryRouter>,
       )
 
-      // Список пуст по умолчанию (честный empty state) — сначала создаём
-      // подборку сами, а не полагаемся на захардкоженные фикстуры.
+      await screen.findByText(/У вас пока нет созданных подборок/)
       fireEvent.click(screen.getByTestId('new-collection-btn'))
-      const inputs = screen.getAllByRole('textbox', { name: /Название подборки/i })
-      fireEvent.change(inputs[0], { target: { value: 'Обновленное название' } })
 
-      expect(screen.getByDisplayValue('Обновленное название')).toBeDefined()
-      const saved = JSON.parse(localStorage.getItem('baza:marketplace:selections') || '[]')
-      expect(saved[0].title).toBe('Обновленное название')
+      expect(await screen.findByDisplayValue(/Новая подборка/)).toBeDefined()
+      expect(publishingApi.createSelection).toHaveBeenCalledWith(expect.stringContaining('Новая подборка'))
     })
 
-    it('удаляет подборку и обновляет localStorage', () => {
+    it('переименование сохраняется на сервере по blur, не на каждую букву', async () => {
+      ;(publishingApi.listSelections as any).mockResolvedValue([ENTRY])
+      ;(publishingApi.renameSelection as any).mockResolvedValue({ ...ENTRY, title: 'Обновлённое название' })
+
       render(
         <MemoryRouter>
           <SelectionsPage />
         </MemoryRouter>,
       )
 
-      fireEvent.click(screen.getByTestId('new-collection-btn'))
-      fireEvent.click(screen.getByTestId('new-collection-btn'))
-      const deleteButtons = screen.getAllByTitle('Удалить подборку')
-      const countBefore = deleteButtons.length
-      fireEvent.click(deleteButtons[0])
+      const input = await screen.findByDisplayValue('Для семьи')
+      fireEvent.change(input, { target: { value: 'Обновлённое название' } })
+      expect(publishingApi.renameSelection).not.toHaveBeenCalled()
 
-      const saved = JSON.parse(localStorage.getItem('baza:marketplace:selections') || '[]')
-      expect(saved.length).toBe(countBefore - 1)
+      fireEvent.blur(input)
+      await waitFor(() => {
+        expect(publishingApi.renameSelection).toHaveBeenCalledWith('sel-1', 'Обновлённое название')
+      })
+    })
+
+    it('удаление уходит на сервер', async () => {
+      ;(publishingApi.listSelections as any).mockResolvedValue([ENTRY])
+      ;(publishingApi.deleteSelection as any).mockResolvedValue({ removed: true })
+
+      render(
+        <MemoryRouter>
+          <SelectionsPage />
+        </MemoryRouter>,
+      )
+
+      await screen.findByDisplayValue('Для семьи')
+      fireEvent.click(screen.getByTitle('Удалить подборку'))
+
+      expect(publishingApi.deleteSelection).toHaveBeenCalledWith('sel-1')
+      await waitFor(() => {
+        expect(screen.queryByDisplayValue('Для семьи')).toBeNull()
+      })
+    })
+
+    it('ссылка «Витрина» ведёт на новый маршрут /my-selection/:token, не на /selections/:slug', async () => {
+      ;(publishingApi.listSelections as any).mockResolvedValue([ENTRY])
+
+      render(
+        <MemoryRouter>
+          <SelectionsPage />
+        </MemoryRouter>,
+      )
+
+      await screen.findByDisplayValue('Для семьи')
+      const showcaseLink = screen.getByRole('link', { name: /Витрина/ })
+      expect(showcaseLink.getAttribute('href')).toBe('/my-selection/token-abc')
+    })
+  })
+
+  /**
+   * N-11: страница подборки покупателя по публичной ссылке — отдельная от
+   * SelectionDetailPage (агентские CRM-подборки) во избежание коллизии
+   * маршрутов /selections/:slug.
+   */
+  describe('Подборка покупателя по ссылке (MySelectionDetailPage, N-11)', () => {
+    function renderMySelection() {
+      return render(
+        <MemoryRouter initialEntries={['/my-selection/token-abc']}>
+          <Routes>
+            <Route path="/my-selection/:token" element={<MySelectionDetailPage />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+    }
+
+    it('показывает объекты подборки, дочитанные публичным каталогом', async () => {
+      ;(marketplaceApi.getPublicMarketplaceSelection as any).mockResolvedValue({
+        title: 'Для семьи',
+        items: [{ targetType: 'listing', slug: 'kvartira-more' }],
+        createdAt: '2026-09-01T10:00:00.000Z',
+      })
+      ;(marketplaceApi.getListing as any).mockResolvedValue({
+        slug: 'kvartira-more',
+        dealType: 'sale',
+        propertyType: 'apartment',
+        price: { amountMinorUnits: 8_500_000, currency: 'USD' },
+        characteristics: { rooms: 2, area: 65, floor: 12, totalFloors: 24 },
+        location: { city: 'Батуми', address: 'ул. Химшиашвили, 15' },
+      })
+
+      renderMySelection()
+
+      expect(await screen.findByRole('heading', { level: 1, name: 'Для семьи' })).toBeDefined()
+      expect(await screen.findByText(/Химшиашвили/)).toBeDefined()
+      expect(marketplaceApi.getPublicMarketplaceSelection).toHaveBeenCalledWith(
+        'token-abc',
+        expect.anything(),
+      )
+    })
+
+    it('устаревшая ссылка честно говорит об этом', async () => {
+      const notFound = Object.assign(new Error('not found'), { status: 404 })
+      ;(marketplaceApi.getPublicMarketplaceSelection as any).mockRejectedValue(notFound)
+
+      renderMySelection()
+
+      expect(await screen.findByText(/Подборка не найдена/)).toBeDefined()
+    })
+
+    it('снятый с публикации объект пропускается, страница не падает', async () => {
+      ;(marketplaceApi.getPublicMarketplaceSelection as any).mockResolvedValue({
+        title: 'Для семьи',
+        items: [{ targetType: 'listing', slug: 'ghost' }],
+        createdAt: '2026-09-01T10:00:00.000Z',
+      })
+      ;(marketplaceApi.getListing as any).mockRejectedValue(new Error('404'))
+
+      renderMySelection()
+
+      expect(await screen.findByRole('heading', { level: 1, name: 'Для семьи' })).toBeDefined()
+      expect(await screen.findByText(/В этой подборке пока нет объектов/)).toBeDefined()
     })
   })
 })

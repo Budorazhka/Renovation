@@ -49,6 +49,21 @@ export interface FavoriteEntry {
   createdAt: string
 }
 
+export interface MarketplaceSelectionItem {
+  targetType: FavoriteTargetType
+  slug: string
+  addedAt: string
+}
+
+export interface MarketplaceSelectionEntry {
+  id: string
+  title: string
+  items: MarketplaceSelectionItem[]
+  publicToken: string
+  createdAt: string
+  updatedAt: string
+}
+
 export class PublishingApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
@@ -162,6 +177,59 @@ export const publishingApi = {
 
   async removeFavorite(target: { targetType: FavoriteTargetType; slug: string }): Promise<{ removed: boolean }> {
     return request<{ removed: boolean }>('/marketplace/favorites', {
+      method: 'DELETE',
+      body: JSON.stringify(target),
+    })
+  },
+
+  /**
+   * Подборки текущего покупателя (N-11). Живут на сервере у аккаунта —
+   * открываются с любого устройства и по ссылке (publicToken), не только
+   * в браузере, где были созданы.
+   */
+  async listSelections(): Promise<MarketplaceSelectionEntry[]> {
+    return request<MarketplaceSelectionEntry[]>('/marketplace/selections')
+  },
+
+  async createSelection(title: string): Promise<MarketplaceSelectionEntry> {
+    return request<MarketplaceSelectionEntry>('/marketplace/selections', {
+      method: 'POST',
+      // Обязателен: в отличие от избранного создание НЕ идемпотентно по
+      // построению — без ключа повтор (двойной клик) завёл бы вторую
+      // пустую подборку.
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ title }),
+    })
+  },
+
+  async renameSelection(id: string, title: string): Promise<MarketplaceSelectionEntry> {
+    return request<MarketplaceSelectionEntry>(`/marketplace/selections/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    })
+  },
+
+  async deleteSelection(id: string): Promise<{ removed: boolean }> {
+    return request<{ removed: boolean }>(`/marketplace/selections/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  async addSelectionItem(
+    id: string,
+    target: { targetType: FavoriteTargetType; slug: string },
+  ): Promise<MarketplaceSelectionEntry> {
+    return request<MarketplaceSelectionEntry>(`/marketplace/selections/${encodeURIComponent(id)}/items`, {
+      method: 'POST',
+      body: JSON.stringify(target),
+    })
+  },
+
+  async removeSelectionItem(
+    id: string,
+    target: { targetType: FavoriteTargetType; slug: string },
+  ): Promise<MarketplaceSelectionEntry> {
+    return request<MarketplaceSelectionEntry>(`/marketplace/selections/${encodeURIComponent(id)}/items`, {
       method: 'DELETE',
       body: JSON.stringify(target),
     })

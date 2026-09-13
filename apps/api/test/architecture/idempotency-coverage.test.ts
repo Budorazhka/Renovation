@@ -58,6 +58,9 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
   'POST /admin/organizations/:organizationId/billing/activate':
     'ручная активация/продление тарифа — повтор (ретрай/двойной клик) продлил бы подписку дважды и задвоил бы запись в billing ledger',
   'POST /developments/:developmentId/installment-plans': 'создание плана рассрочки — дубль создал бы дублирующий план',
+  'POST /marketplace/selections':
+    'N-11: создаёт новую подборку покупателя — в отличие от favorites/add это НЕ upsert, повтор ' +
+    '(двойной клик) завёл бы вторую пустую подборку',
   'PATCH /developments/:developmentId/installment-plans/:id': 'обновление плана рассрочки с Idempotency-Key и expectedVersion',
   'DELETE /developments/:developmentId/installment-plans/:id': 'удаление плана рассрочки с Idempotency-Key и expectedVersion',
   'POST /selections': 'дубль подборки для клиента — повтор формы создал бы вторую подборку с той же публичной ссылкой-намерением',
@@ -246,6 +249,14 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'PATCH /community/replies/:replyId/accept': 'принятие ответа как решения идемпотентно перезаписывает isBest',
   'PATCH /community/exchange/:threadId/status': 'смена статуса заявки биржи MLS по уникальному id треда',
   'POST /community/events/:eventId/attend': 'toggle участия в мероприятии идемпотентен по identityId',
+
+  // --- Подборки покупателя (N-11) ---
+  'PATCH /marketplace/selections/:id': 'переименование — повтор с тем же title приводит к тому же итогу',
+  'DELETE /marketplace/selections/:id': 'удаление уже удалённой подборки — тот же итог, не ошибка',
+  'POST /marketplace/selections/:id/items':
+    'добавление элемента идемпотентно по построению: условный push с фильтром "элемента ещё нет", ' +
+    'тот же принцип, что POST /marketplace/favorites',
+  'DELETE /marketplace/selections/:id/items': 'снятие уже снятого элемента — тот же итог, не ошибка',
 };
 
 /** Сколько записей помечено `ПРОБЕЛ:`. Рост числа обязан быть осознанным. */

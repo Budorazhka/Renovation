@@ -105,6 +105,19 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
   'favorite.repository.ts#remove':
     'То же: удаление всегда идёт по паре identityId + slug из сессии вызывающего, чужую запись этот фильтр ' +
     'достать не может.',
+  'marketplace-selection.repository.ts#listForIdentity':
+    'Подборка покупателя (N-11) принадлежит человеку, не организации — тот же принцип, что ' +
+    'favorite.repository.ts#listForIdentity выше.',
+  'marketplace-selection.repository.ts#findByIdForIdentity':
+    'То же: фильтр {_id, identityId} из сессии вызывающего, чужую подборку так не достать.',
+  'marketplace-selection.repository.ts#rename':
+    'То же: findOneAndUpdate по {_id, identityId} — переименовать чужую подборку этот фильтр не позволяет.',
+  'marketplace-selection.repository.ts#remove':
+    'То же: удаление всегда идёт по паре {_id, identityId} из сессии вызывающего.',
+  'marketplace-selection.repository.ts#findByPublicToken':
+    'ПУБЛИЧНЫЙ путь — единственный ключ доступа это сам publicToken (256 бит энтропии), тот же принцип, ' +
+    'что DevSelectionRepository.markViewedByPublicToken: у анонимного посетителя ссылки нет ни ' +
+    'organizationId, ни identityId вообще.',
   'complaint.repository.ts#findById':
     'Скоуп проверяется вызывающим (ComplaintService/AdminComplaintService) — admin-резолюция сверяет ' +
     'complaint.scopeCity против грантов complaint.resolve.city(X), не organizationId ответчика.',

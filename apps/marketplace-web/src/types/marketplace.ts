@@ -181,3 +181,20 @@ export interface PublicSelection {
   sentAt?: string
   viewCount: number
 }
+
+/**
+ * N-11: подборка покупателя по публичной ссылке. В отличие от PublicSelection
+ * (агентская, CRM-подборка) элемент — только тип и slug: карточка
+ * дочитывается публичными эндпоинтами каталога, тот же принцип, что
+ * FavoriteEntry.
+ */
+export interface PublicMarketplaceSelectionItem {
+  targetType: 'development' | 'listing'
+  slug: string
+}
+
+export interface PublicMarketplaceSelection {
+  title: string
+  items: PublicMarketplaceSelectionItem[]
+  createdAt: string
+}

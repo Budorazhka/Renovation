@@ -19,6 +19,7 @@ import { PropertyAssetsModule } from './modules/property-assets/property-assets.
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { SelectionsModule } from './modules/selections/selections.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
+import { MarketplaceSelectionsModule } from './modules/marketplace-selections/marketplace-selections.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { MessengerModule } from './modules/messenger/messenger.module';
 import { LmsModule } from './modules/lms/lms.module';
@@ -57,6 +58,7 @@ import { CommunityModule } from './modules/community/community.module';
     BookingsModule,
     SelectionsModule,
     FavoritesModule,
+    MarketplaceSelectionsModule,
     BillingModule,
     MessengerModule,
     LmsModule,
