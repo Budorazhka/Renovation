@@ -189,6 +189,21 @@ export interface DefaultGrant {
  * `lead.create` (own-scope имеет смысл только после того, как запись уже
  * существует и у неё есть владелец). `marketer` не получает — тот же круг,
  * что у `lead.create` (маркетинг не ведёт клиентов).
+ *
+ * `client.reassign` у `developer` (14.09.2026) — permission-matrix.md разд.1
+ * помечал сверку разделов 1.1–1.6 для `developer` открытым пунктом с
+ * 11.09.2026; сверка нашла один реальный пробел: `developer` имел
+ * organization-wide `deal.edit`/`deal.read`/`deal.changeStage` и управляет
+ * командой (`position.create`/`assign_occupant`/`vacate`), но не имел
+ * `client.reassign` — единственного гранта, которым `PATCH /deals/:id/
+ * reassign` (deal.controller.ts) переносит сделку на другую Position. Без
+ * него у developer-организации не было способа передать сделки
+ * освободившегося сотрудника кому-то ещё, хотя D-07 (27.08.2026) прямо
+ * требовал "тот же набор, что у agency owner", а owner/director/rop этот
+ * грант уже имели (permission-matrix.md разд.1.1). Остальные разделы 1.1–1.6
+ * при той же построчной сверке совпали с owner-уровнем корректно, включая
+ * намеренное отсутствие `manual_ledger.read` (разд.1.5: owner-only по
+ * дизайну, не пробел).
  */
 export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
   owner: [
@@ -569,6 +584,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'deal', action: 'edit', scope: 'organization' },
     { resource: 'deal', action: 'changeStage', scope: 'organization' },
     { resource: 'task', action: 'reassign', scope: 'organization' },
+    { resource: 'client', action: 'reassign', scope: 'organization' },
     { resource: 'calendar_event', action: 'read', scope: 'organization' },
     { resource: 'calendar_event', action: 'create', scope: 'organization' },
     { resource: 'calendar_event', action: 'update', scope: 'organization' },

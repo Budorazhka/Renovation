@@ -20,4 +20,32 @@ describe('DEFAULT_ROLE_GRANTS', () => {
       scope: 'organization',
     });
   });
+
+  /**
+   * Сверка permission-matrix.md разд.1.1–1.6 vs код (14.09.2026, открытый
+   * пункт с 11.09.2026): D-07 требует у `developer` "тот же набор, что у
+   * agency owner" — client.reassign (PATCH /deals/:id/reassign) был
+   * пропущен при первом заведении роли. Регрессия на будущее: если кто-то
+   * снова добавит owner organization-wide право без синхронизации с
+   * developer, этот тест должен упасть.
+   */
+  it.each(['owner', 'director', 'rop', 'developer'] as const)(
+    'роль %s включает client.reassign (scope organization)',
+    (role) => {
+      expect(DEFAULT_ROLE_GRANTS[role]).toContainEqual({
+        resource: 'client',
+        action: 'reassign',
+        scope: 'organization',
+      });
+    },
+  );
+
+  it.each(['manager', 'administrator', 'marketer'] as const)(
+    'роль %s НЕ включает client.reassign (permission-matrix.md разд.1.1)',
+    (role) => {
+      expect(DEFAULT_ROLE_GRANTS[role]).not.toContainEqual(
+        expect.objectContaining({ resource: 'client', action: 'reassign' }),
+      );
+    },
+  );
 });
