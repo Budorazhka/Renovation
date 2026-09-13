@@ -5514,10 +5514,12 @@ export interface components {
             fileName?: string;
             mimeType?: string;
         };
+        /** @description expectedVersion — conventions.md разд.5 optimistic concurrency (диалог, не привязываемый лид/сделка/контакт). */
         LinkMessengerDialogCrmRequest: {
             leadId?: string;
             contactId?: string;
             dealId?: string;
+            expectedVersion: number;
         };
         CreateTaskFromMessengerDialogRequest: {
             title: string;
@@ -12323,6 +12325,8 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
         };
     };
     createTaskFromMessengerDialog: {

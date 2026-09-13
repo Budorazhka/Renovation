@@ -222,10 +222,9 @@ assetId). На настоящей MongoDB (тот же файл, что оста
 1. Транспорт: Telegram закрыт 13.09 ([telegram-transport](telegram-transport.md),
    N-12) — подключение бота с проверкой токена, вебхук, реальная отправка и
    приём. Выбор провайдера WhatsApp остаётся решением владельца.
-2. `link-crm` проверяет только принадлежность организации (см. фикс выше), но
-   не own-scope конкретной записи (лид/сделка, назначенные другому менеджеру,
-   всё ещё привязываются) и не принимает `expectedVersion` — запись
-   перезаписывается последним вызовом без проверки версии.
+2. ~~`link-crm` проверяет только принадлежность организации..., но не
+   own-scope конкретной записи... и не принимает `expectedVersion`~~ —
+   закрыто 14.09.2026, см. раздел ниже.
 3. Вложения: `assetId` проверяется на принадлежность организации (см. фикс
    выше), но `url` (вложение без `assetId`, внешняя ссылка) остаётся любой
    строкой без валидации — сейчас ничего её не скачивает и не проксирует на
@@ -284,3 +283,56 @@ organizationId и accountId, не типовая гарантия):
 диалоги и сообщения удалённого аккаунта пропадают, диалог другого аккаунта
 той же организации и диалог того же `accountId` в чужой организации не
 затрагиваются.
+
+## Исправлено 14.09: `link-crm` — own-scope конкретной записи и `expectedVersion`
+
+Закрывает п.2 "Что открыто" выше. До этой правки `linkDialogToCrm` проверял
+только принадлежность лида/контакта/сделки организации вызывающего — этого
+хватало против подбора чужого `ObjectId`, но не против того, что manager с
+`messenger_dialog.link_crm` scope `own` (default-role-grants.ts) привязывал
+диалог к лиду/сделке/контакту **другого** менеджера той же организации:
+own-scope самого гранта проверялся только для диалога (`assertDialogOwnership`),
+не для привязываемой записи.
+
+- `MessengerController.linkDialogToCrm` передаёт уже вычисленный
+  `assignedPositionId` (own-position или `undefined` для organization/global
+  scope, `ownerFilterForAction`) третьим аргументом в
+  `CrmService.getLeadForOrganization`/`getContactForOrganization`/
+  `getDealForOrganization` — тот же паттерн, что `LeadController.
+  changeStage` → `CrmService.changeLeadStage` → `LeadRepository.
+  findByIdForOrganization(ownerPositionId)`.
+- `getLeadForOrganization` уже принимала `ownerPositionId` (просто не
+  вызывалась с ним отсюда). `getDealForOrganization` и
+  `getContactForOrganization` — новые опциональные параметры:
+  `getDealForOrganization` прокидывает его в уже существующий параметр
+  `DealRepository.findByIdForOrganization`; `getContactForOrganization`
+  получила ту же transitive-scope логику, что уже была в `getContact`
+  (own-лиды вызывающей Position → `distinctContactIdsForOwner` →
+  `ContactRepository.findByIdForOrganizationScoped`), поскольку у Contact
+  нет собственного `ownerPositionId`.
+- `expectedVersion` (обязательное поле `LinkDialogCrmDto`, целиком новый
+  эндпоинт-потребитель — фронтенда для него ещё нет ни в одном приложении,
+  так что сделать поле обязательным сразу безопасно) проверяется дважды:
+  явно при чтении диалога (`dialog.version !== expectedVersion` →
+  `ConflictException`, до похода в CRM-модуль — не тратим проверки лида/
+  сделки/контакта на заведомо устаревший запрос) и атомарно в самом
+  update'е (`MessengerDialogRepository.linkCrm` теперь CAS: `{_id,
+  organizationId, version: expectedVersion}` в фильтре, `null` в ответе —
+  конкурентный вызов между чтением и записью, тот же класс гонки, что уже
+  закрыт у Lead `changeStageWithVersionCheck`). Сообщение об ошибке — тот
+  же текст, что везде в кодовой базе: "Dialog was modified by another
+  request — refresh and retry".
+
+`docs/api/v1-first-vertical-slice.yaml`: `LinkMessengerDialogCrmRequest`
+получил обязательный `expectedVersion`, маршрут — `409 VERSION_CONFLICT`.
+`packages/api-client/src/schema.ts` перегенерирован, `check:stale` зелёный.
+
+Юнит: `messenger.service.spec.ts` — own-scope прокидывается в вызовы
+`crmService` (assertion на третий аргумент), несовпадение `expectedVersion`
+даёт `ConflictException` до похода в CRM-модуль, CAS-промах на `linkCrm`
+даёт `ConflictException` и не пишет аудит. Own-scope фильтрация в
+репозиториях (Lead/Deal/Contact) уже была покрыта их собственными
+юнит-тестами до этой правки — здесь добавлена только проверка, что
+`assignedPositionId` реально доходит до них. Полный `@baza/api` — 116 test
+suites / 1266 тестов зелёные, архитектурные стражи (7 suites / 32 теста)
+зелёные.

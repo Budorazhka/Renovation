@@ -6903,6 +6903,9 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
 
   /messenger/dialogs/{dialogId}/create-task:
     post:
@@ -10652,10 +10655,13 @@ components:
 
     LinkMessengerDialogCrmRequest:
       type: object
+      required: [expectedVersion]
+      description: "expectedVersion — conventions.md разд.5 optimistic concurrency (диалог, не привязываемый лид/сделка/контакт)."
       properties:
         leadId: {type: string}
         contactId: {type: string}
         dealId: {type: string}
+        expectedVersion: {type: integer, minimum: 0}
 
     CreateTaskFromMessengerDialogRequest:
       type: object

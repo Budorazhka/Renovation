@@ -350,6 +350,11 @@ export class MessengerController {
     const tenantContext = requireTenantContext(req);
     // Тот же resource, что у getDialog/listDialogs — messenger_dialog.link_crm
     // own-scope у manager (default-role-grants.ts), в отличие от send выше.
+    // Передаётся и в саму привязку диалога (assertDialogOwnership), и в
+    // проверку лида/контакта/сделки (own-scope конкретной записи,
+    // messenger-skeleton.md, закрыто 14.09.2026) — до этого сужалась только
+    // принадлежность организации, manager с own-scope мог привязать диалог
+    // к лиду/сделке чужого менеджера той же организации.
     const assignedPositionId = await this.ownerFilterForAction(tenantContext.positionId, 'link_crm');
     return this.messengerService.linkDialogToCrm({
       organizationId: new Types.ObjectId(tenantContext.organizationId),
@@ -358,6 +363,7 @@ export class MessengerController {
       leadId: dto.leadId ? new Types.ObjectId(dto.leadId) : undefined,
       contactId: dto.contactId ? new Types.ObjectId(dto.contactId) : undefined,
       dealId: dto.dealId ? new Types.ObjectId(dto.dealId) : undefined,
+      expectedVersion: dto.expectedVersion,
       actorIdentityId: new Types.ObjectId(tenantContext.identityId),
       correlationId: req.correlationId ?? '',
     });

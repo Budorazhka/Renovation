@@ -149,6 +149,10 @@ export class LinkDialogCrmDto {
   @IsOptional()
   @IsMongoId()
   dealId?: string;
+
+  @IsInt()
+  @Min(0)
+  expectedVersion!: number;
 }
 
 export class CreateTaskFromDialogDto {

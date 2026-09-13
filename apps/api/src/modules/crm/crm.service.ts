@@ -422,11 +422,21 @@ export class CrmService {
     return lead;
   }
 
+  /**
+   * `ownerPositionId` — та же own-scope узость, что у getContact
+   * (contactId разрешён, только если он связан хотя бы с одним "своим"
+   * лидом вызывающей Position) — добавлено 14.09.2026 вместе с
+   * getDealForOrganization ниже, см. её докстринг.
+   */
   async getContactForOrganization(
     contactId: Types.ObjectId,
     organizationId: Types.ObjectId,
+    ownerPositionId?: Types.ObjectId,
   ): Promise<ContactDocument> {
-    const contact = await this.contactRepository.findByIdForOrganization(contactId, organizationId);
+    const contactIds = ownerPositionId
+      ? await this.leadRepository.distinctContactIdsForOwner(organizationId, ownerPositionId)
+      : undefined;
+    const contact = await this.contactRepository.findByIdForOrganizationScoped(contactId, organizationId, contactIds);
     if (!contact) {
       throw new NotFoundException('Contact not found');
     }
@@ -440,12 +450,19 @@ export class CrmService {
    * есть, без проверки, что запись вообще существует в организации
    * вызывающего — диалог можно было привязать к CRM-записи чужой
    * организации).
+   *
+   * `ownerPositionId` добавлен 14.09.2026 (закрывает own-scope пробел из
+   * messenger-skeleton.md "Что открыто" п.2): без него manager с
+   * `messenger_dialog.link_crm` scope `own` мог привязать диалог к сделке,
+   * назначенной другому менеджеру той же организации — сама сделка не
+   * своя, но проверка смотрела только на организацию.
    */
   async getDealForOrganization(
     dealId: Types.ObjectId,
     organizationId: Types.ObjectId,
+    ownerPositionId?: Types.ObjectId,
   ): Promise<DealDocument> {
-    const deal = await this.dealRepository.findByIdForOrganization(dealId, organizationId);
+    const deal = await this.dealRepository.findByIdForOrganization(dealId, organizationId, ownerPositionId);
     if (!deal) {
       throw new NotFoundException('Deal not found');
     }

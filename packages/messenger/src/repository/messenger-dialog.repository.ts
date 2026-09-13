@@ -256,9 +256,18 @@ export class MessengerDialogRepository {
     ).exec();
   }
 
+  /**
+   * `expectedVersion` — CAS-фильтр (14.09.2026, messenger-skeleton.md
+   * "Что открыто" п.2): без него конкурентные вызовы link-crm перезаписывали
+   * друг друга без обнаружения конфликта, тот же класс гонки, что уже
+   * закрыт у Lead (changeStageWithVersionCheck). `null` здесь означает
+   * либо диалог не найден, либо version уже другая — вызывающий сервис
+   * различает эти случаи сам (findByIdForOrganization уже отработал выше).
+   */
   async linkCrm(
     dialogId: Types.ObjectId,
     organizationId: Types.ObjectId,
+    expectedVersion: number,
     links: { leadId?: Types.ObjectId; contactId?: Types.ObjectId; dealId?: Types.ObjectId },
     session?: ClientSession,
   ): Promise<MessengerDialogDocument | null> {
@@ -268,7 +277,7 @@ export class MessengerDialogRepository {
     if (links.dealId !== undefined) setFields.dealId = links.dealId;
 
     return this.model.findOneAndUpdate(
-      { _id: dialogId, organizationId },
+      { _id: dialogId, organizationId, version: expectedVersion },
       { $set: setFields, $inc: { version: 1 } },
       { new: true, session },
     ).exec();

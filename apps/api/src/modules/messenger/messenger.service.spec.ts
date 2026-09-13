@@ -563,6 +563,7 @@ describe('MessengerService', () => {
         externalChatId: 'chat-99',
         name: 'Иван Клиент',
         assignedPositionId,
+        version: 0,
       });
     }
 
@@ -649,6 +650,7 @@ describe('MessengerService', () => {
           dialogId,
           assignedPositionId: otherPositionId,
           leadId: new Types.ObjectId(),
+          expectedVersion: 0,
           actorIdentityId: new Types.ObjectId(),
           correlationId: 'cor-link',
         }),
@@ -676,13 +678,16 @@ describe('MessengerService', () => {
     });
   });
 
-  describe('linkDialogToCrm: leadId/contactId/dealId проверяются на существование и принадлежность организации', () => {
+  describe('linkDialogToCrm: leadId/contactId/dealId проверяются на существование, принадлежность организации и own-scope', () => {
     // ИСПРАВЛЕНО 11.09.2026: раньше leadId/contactId/dealId писались в
     // dialogRepository.linkCrm как есть, без единой проверки — диалог
     // можно было привязать к CRM-записи чужой организации, подобрав
-    // произвольный ObjectId. Own-scope конкретной записи (например лида,
-    // назначенного другому менеджеру) сюда намеренно не входит — это
-    // отдельный вопрос, см. messenger-skeleton.md.
+    // произвольный ObjectId.
+    // ИСПРАВЛЕНО 14.09.2026 (messenger-skeleton.md "Что открыто" п.2):
+    // own-scope конкретной записи (лид/сделка/контакт, назначенные другому
+    // менеджеру) теперь тоже проверяется — assignedPositionId прокидывается
+    // в getLeadForOrganization/getContactForOrganization/
+    // getDealForOrganization третьим аргументом.
     const orgId = new Types.ObjectId();
     const dialogId = new Types.ObjectId();
     const ownerPositionId = new Types.ObjectId();
@@ -695,6 +700,7 @@ describe('MessengerService', () => {
         externalChatId: 'chat-77',
         name: 'Мария Клиент',
         assignedPositionId: ownerPositionId,
+        version: 0,
       });
 
       crmService.getLeadForOrganization = jest.fn();
@@ -711,6 +717,7 @@ describe('MessengerService', () => {
           dialogId,
           assignedPositionId: ownerPositionId,
           leadId: new Types.ObjectId(),
+          expectedVersion: 0,
           actorIdentityId: new Types.ObjectId(),
           correlationId: 'cor-link-lead',
         }),
@@ -729,6 +736,7 @@ describe('MessengerService', () => {
           dialogId,
           assignedPositionId: ownerPositionId,
           contactId: new Types.ObjectId(),
+          expectedVersion: 0,
           actorIdentityId: new Types.ObjectId(),
           correlationId: 'cor-link-contact',
         }),
@@ -745,11 +753,78 @@ describe('MessengerService', () => {
           dialogId,
           assignedPositionId: ownerPositionId,
           dealId: new Types.ObjectId(),
+          expectedVersion: 0,
           actorIdentityId: new Types.ObjectId(),
           correlationId: 'cor-link-deal',
         }),
       ).rejects.toThrow('Deal not found');
       expect(dialogRepo.linkCrm).not.toHaveBeenCalled();
+    });
+
+    it('own-scope: лид/контакт/сделка чужой позиции (та же организация) — NotFoundException, тот же принцип, что у changeLeadStage', async () => {
+      // Здесь достаточно проверить, что assignedPositionId реально
+      // прокидывается вызовам crmService — сама фильтрация по
+      // ownerPositionId уже покрыта тестами LeadRepository/DealRepository/
+      // ContactRepository (findByIdForOrganization(Scoped)).
+      (crmService.getLeadForOrganization as jest.Mock).mockRejectedValue(new NotFoundException('Lead not found'));
+      const leadId = new Types.ObjectId();
+
+      await expect(
+        service.linkDialogToCrm({
+          organizationId: orgId,
+          dialogId,
+          assignedPositionId: ownerPositionId,
+          leadId,
+          expectedVersion: 0,
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'cor-link-own-scope',
+        }),
+      ).rejects.toThrow('Lead not found');
+      expect(crmService.getLeadForOrganization).toHaveBeenCalledWith(leadId, orgId, ownerPositionId);
+    });
+
+    it('expectedVersion не совпадает с версией диалога — ConflictException, ни одна проверка CRM-записей не вызывается', async () => {
+      (dialogRepo.findByIdForOrganization as jest.Mock).mockResolvedValue({
+        _id: dialogId,
+        organizationId: orgId,
+        platform: 'telegram',
+        externalChatId: 'chat-77',
+        name: 'Мария Клиент',
+        assignedPositionId: ownerPositionId,
+        version: 3,
+      });
+
+      await expect(
+        service.linkDialogToCrm({
+          organizationId: orgId,
+          dialogId,
+          assignedPositionId: ownerPositionId,
+          leadId: new Types.ObjectId(),
+          expectedVersion: 1,
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'cor-link-stale',
+        }),
+      ).rejects.toThrow('Dialog was modified by another request');
+      expect(crmService.getLeadForOrganization).not.toHaveBeenCalled();
+      expect(dialogRepo.linkCrm).not.toHaveBeenCalled();
+    });
+
+    it('CAS-промах на linkCrm (конкурентный вызов между чтением и записью) — ConflictException, аудит не пишется', async () => {
+      (crmService.getLeadForOrganization as jest.Mock).mockResolvedValue({ _id: new Types.ObjectId() } as never);
+      (dialogRepo.linkCrm as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.linkDialogToCrm({
+          organizationId: orgId,
+          dialogId,
+          assignedPositionId: ownerPositionId,
+          leadId: new Types.ObjectId(),
+          expectedVersion: 0,
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'cor-link-cas-miss',
+        }),
+      ).rejects.toThrow('Dialog was modified by another request');
+      expect(auditService.append).not.toHaveBeenCalled();
     });
 
     it('свои leadId/contactId/dealId — проходят проверку, привязка выполняется', async () => {
@@ -769,6 +844,7 @@ describe('MessengerService', () => {
         assignedPositionId: ownerPositionId,
         unreadCount: 0,
         pinned: false,
+        version: 1,
         leadId,
         contactId,
         dealId,
@@ -781,13 +857,15 @@ describe('MessengerService', () => {
         leadId,
         contactId,
         dealId,
+        expectedVersion: 0,
         actorIdentityId: new Types.ObjectId(),
         correlationId: 'cor-link-ok',
       });
 
-      expect(crmService.getLeadForOrganization).toHaveBeenCalledWith(leadId, orgId);
-      expect(crmService.getContactForOrganization).toHaveBeenCalledWith(contactId, orgId);
-      expect(crmService.getDealForOrganization).toHaveBeenCalledWith(dealId, orgId);
+      expect(crmService.getLeadForOrganization).toHaveBeenCalledWith(leadId, orgId, ownerPositionId);
+      expect(crmService.getContactForOrganization).toHaveBeenCalledWith(contactId, orgId, ownerPositionId);
+      expect(crmService.getDealForOrganization).toHaveBeenCalledWith(dealId, orgId, ownerPositionId);
+      expect(dialogRepo.linkCrm).toHaveBeenCalledWith(dialogId, orgId, 0, { leadId, contactId, dealId }, expect.anything());
       expect(res.leadId).toBe(leadId.toString());
       expect(res.contactId).toBe(contactId.toString());
       expect(res.dealId).toBe(dealId.toString());

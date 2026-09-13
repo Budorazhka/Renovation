@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -775,6 +775,7 @@ export class MessengerService {
     leadId?: Types.ObjectId;
     contactId?: Types.ObjectId;
     dealId?: Types.ObjectId;
+    expectedVersion: number;
     actorIdentityId: Types.ObjectId;
     correlationId: string;
   }): Promise<MessengerDialogReadModel> {
@@ -784,30 +785,44 @@ export class MessengerService {
         throw new NotFoundException('Диалог не найден');
       }
       this.assertDialogOwnership(dialog, params.assignedPositionId);
+      if ((dialog.version ?? 0) !== params.expectedVersion) {
+        throw new ConflictException('Dialog was modified by another request — refresh and retry');
+      }
 
       // Без этих проверок leadId/contactId/dealId писались в диалог как
       // есть, без подтверждения, что запись вообще существует и
       // принадлежит организации вызывающего (11.09.2026): диалог можно
       // было привязать к CRM-записи чужой организации, подобрав чужой
-      // ObjectId. Own-scope конкретной записи (например лида,
-      // назначенного другому менеджеру) сюда намеренно не входит — это
-      // отдельный, ещё не закрытый вопрос, см. messenger-skeleton.md.
+      // ObjectId. `assignedPositionId` (14.09.2026, закрывает
+      // messenger-skeleton.md "Что открыто" п.2) сужает и эту проверку до
+      // own-scope конкретной записи: manager с own-scope grant на
+      // link_crm не может привязать диалог к лиду/сделке/контакту,
+      // назначенным другому менеджеру той же организации — `undefined`
+      // для organization/global scope (owner/director/rop) оставляет
+      // проверку на уровне всей организации, как раньше.
       if (params.leadId) {
-        await this.crmService.getLeadForOrganization(params.leadId, params.organizationId);
+        await this.crmService.getLeadForOrganization(params.leadId, params.organizationId, params.assignedPositionId);
       }
       if (params.contactId) {
-        await this.crmService.getContactForOrganization(params.contactId, params.organizationId);
+        await this.crmService.getContactForOrganization(params.contactId, params.organizationId, params.assignedPositionId);
       }
       if (params.dealId) {
-        await this.crmService.getDealForOrganization(params.dealId, params.organizationId);
+        await this.crmService.getDealForOrganization(params.dealId, params.organizationId, params.assignedPositionId);
       }
 
       const updated = await this.dialogRepository.linkCrm(
         params.dialogId,
         params.organizationId,
+        params.expectedVersion,
         { leadId: params.leadId, contactId: params.contactId, dealId: params.dealId },
         session,
       );
+      if (!updated) {
+        // CAS-промах: между чтением диалога выше и этим update'ом версия
+        // успела измениться (конкурентный вызов) — тот же принцип, что
+        // changeStageWithVersionCheck у Lead.
+        throw new ConflictException('Dialog was modified by another request — refresh and retry');
+      }
 
       await this.auditService.append(
         {
@@ -822,7 +837,7 @@ export class MessengerService {
         session,
       );
 
-      return toDialogReadModel(updated!);
+      return toDialogReadModel(updated);
     });
   }
 
