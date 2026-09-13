@@ -189,6 +189,29 @@ describe('createAdminApi', () => {
     expect(result).toEqual({ id: 'dup1', status: 'confirmed_duplicate' })
   })
 
+  it('listRealtorReviews builds query params for status, cursor, and limit', async () => {
+    const fetcher = vi.fn(async () => jsonResponse({ items: [], nextCursor: null }))
+    const api = createAdminApi({ baseUrl: 'https://api.example.test/api/v1', fetcher })
+
+    await api.listRealtorReviews({ status: 'pending', cursor: 'c3', limit: 20 })
+
+    const [url] = fetcher.mock.calls[0]!
+    expect(url).toBe('https://api.example.test/api/v1/admin/realtor-reviews?status=pending&cursor=c3&limit=20')
+  })
+
+  it('moderateRealtorReview posts decision and reason to correct reviewId path', async () => {
+    const fetcher = vi.fn(async () => jsonResponse({ id: 'review1', status: 'approved' }))
+    const api = createAdminApi({ baseUrl: 'https://api.example.test/api/v1', fetcher })
+
+    const result = await api.moderateRealtorReview('review1', { decision: 'approved', reason: 'сделка подтверждена в CRM' })
+
+    const [url, init] = fetcher.mock.calls[0]!
+    expect(url).toBe('https://api.example.test/api/v1/admin/realtor-reviews/review1/moderate')
+    expect(init).toMatchObject({ method: 'POST' })
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ decision: 'approved', reason: 'сделка подтверждена в CRM' })
+    expect(result).toEqual({ id: 'review1', status: 'approved' })
+  })
+
   it('listOrganizations builds query params for type, status, search, cursor, and limit', async () => {
     const fetcher = vi.fn(async () => jsonResponse({ items: [], nextCursor: null }))
     const api = createAdminApi({ baseUrl: 'https://api.example.test/api/v1', fetcher })

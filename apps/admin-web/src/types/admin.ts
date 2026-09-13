@@ -154,6 +154,37 @@ export interface ResolveComplaintResult {
   status: 'resolved_upheld' | 'resolved_dismissed'
 }
 
+// Realtor Reviews (N-13)
+export type RealtorReviewStatus = 'pending' | 'approved' | 'rejected'
+
+export interface AdminRealtorReviewListItem {
+  id: string
+  status: RealtorReviewStatus
+  realtorPositionId: string
+  reviewerIdentityId: string
+  completedDealId: string
+  rating: number
+  text: string
+  createdAt: string
+  moderationReason: string | null
+}
+
+export interface AdminRealtorReviewList {
+  items: AdminRealtorReviewListItem[]
+  nextCursor: string | null
+}
+
+export interface AdminRealtorReviewListQuery {
+  status?: RealtorReviewStatus
+  cursor?: string
+  limit?: number
+}
+
+export interface ModerateRealtorReviewResult {
+  id: string
+  status: 'approved' | 'rejected'
+}
+
 // Duplicate Candidates
 export type DuplicateCandidateStatus = 'detected' | 'confirmed_duplicate' | 'override_not_duplicate'
 

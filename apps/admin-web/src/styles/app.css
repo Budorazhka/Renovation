@@ -260,7 +260,8 @@ button.danger {
   border: 1px solid var(--line);
 }
 
-.status-pill--published {
+.status-pill--published,
+.status-pill--approved {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -281,7 +282,8 @@ button.danger {
   background: var(--warn-bg);
 }
 
-.status-pill--resolved_dismissed {
+.status-pill--resolved_dismissed,
+.status-pill--rejected {
   border-color: var(--line);
   color: var(--ink-soft);
 }

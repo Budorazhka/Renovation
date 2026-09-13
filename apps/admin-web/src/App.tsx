@@ -6,6 +6,7 @@ import { LoginPage } from './pages/LoginPage'
 import { PublicationsPage } from './pages/PublicationsPage'
 import { ComplaintsPage } from './pages/ComplaintsPage'
 import { DuplicateCandidatesPage } from './pages/DuplicateCandidatesPage'
+import { RealtorReviewsPage } from './pages/RealtorReviewsPage'
 import { AccountsPage } from './pages/AccountsPage'
 import { AuditPage } from './pages/AuditPage'
 import { OrganizationsPage } from './pages/OrganizationsPage'
@@ -38,6 +39,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Link to="/organizations">Организации</Link>
             <Link to="/complaints">Жалобы</Link>
             <Link to="/duplicate-candidates">Дубликаты</Link>
+            <Link to="/realtor-reviews">Отзывы</Link>
             <Link to="/audit">Журнал аудита</Link>
             {isSuperAdmin ? <Link to="/accounts">Аккаунты</Link> : null}
             <span className="session-role">{isSuperAdmin ? 'super_admin' : 'admin'}</span>
@@ -86,6 +88,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <DuplicateCandidatesPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/realtor-reviews"
+          element={
+            <RequireAdmin>
+              <RealtorReviewsPage />
             </RequireAdmin>
           }
         />

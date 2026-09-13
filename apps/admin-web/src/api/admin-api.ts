@@ -14,9 +14,12 @@ import type {
   AdminOrganizationListQuery,
   AdminPublicationList,
   AdminPublicationListQuery,
+  AdminRealtorReviewList,
+  AdminRealtorReviewListQuery,
   ConfirmDuplicateResult,
   DeactivateReactivateResult,
   FreezeOrganizationResult,
+  ModerateRealtorReviewResult,
   OrganizationSubscription,
   PermissionGrant,
   PermissionScope,
@@ -151,6 +154,25 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
       return request(`/admin/duplicate-candidates/${encodeURIComponent(duplicateCandidateId)}/confirm`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
+      })
+    },
+
+    async listRealtorReviews(query: AdminRealtorReviewListQuery = {}): Promise<AdminRealtorReviewList> {
+      const params = new URLSearchParams()
+      if (query.status) params.set('status', query.status)
+      if (query.cursor) params.set('cursor', query.cursor)
+      if (query.limit) params.set('limit', String(query.limit))
+      const suffix = params.size > 0 ? `?${params.toString()}` : ''
+      return request(`/admin/realtor-reviews${suffix}`)
+    },
+
+    async moderateRealtorReview(
+      reviewId: string,
+      params: { decision: 'approved' | 'rejected'; reason: string },
+    ): Promise<ModerateRealtorReviewResult> {
+      return request(`/admin/realtor-reviews/${encodeURIComponent(reviewId)}/moderate`, {
+        method: 'POST',
+        body: JSON.stringify(params),
       })
     },
 

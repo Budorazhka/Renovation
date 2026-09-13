@@ -58,6 +58,16 @@ export function duplicateCandidateStatusLabel(status: string): string {
   return DUPLICATE_CANDIDATE_STATUS_LABELS[status] ?? status
 }
 
+const REALTOR_REVIEW_STATUS_LABELS: Record<string, string> = {
+  pending: 'Ожидает проверки',
+  approved: 'Одобрен',
+  rejected: 'Отклонён',
+}
+
+export function realtorReviewStatusLabel(status: string): string {
+  return REALTOR_REVIEW_STATUS_LABELS[status] ?? status
+}
+
 const ORGANIZATION_TYPE_LABELS: Record<string, string> = {
   agency: 'Агентство',
   developer: 'Застройщик',
