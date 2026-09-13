@@ -13,11 +13,9 @@ import { Type } from 'class-transformer';
 import {
   MESSENGER_PLATFORMS,
   type MessengerPlatform,
-} from '../schemas/messenger-account.schema';
-import {
   MESSAGE_TYPES,
   type MessageType,
-} from '../schemas/messenger-message.schema';
+} from '@baza/messenger';
 
 export class AddTelegramBotAccountDto {
   @IsString()

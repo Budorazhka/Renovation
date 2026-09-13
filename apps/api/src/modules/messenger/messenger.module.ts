@@ -1,19 +1,27 @@
-﻿import { Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { MessengerAccountDocument, MessengerAccountSchema } from './schemas/messenger-account.schema';
-import { MessengerDialogDocument, MessengerDialogSchema } from './schemas/messenger-dialog.schema';
-import { MessengerMessageDocument, MessengerMessageSchema } from './schemas/messenger-message.schema';
-import { MessengerAccountRepository } from './repository/messenger-account.repository';
-import { MessengerDialogRepository } from './repository/messenger-dialog.repository';
-import { MessengerMessageRepository } from './repository/messenger-message.repository';
+import {
+  MessengerAccountDocument,
+  MessengerAccountSchema,
+  MessengerDialogDocument,
+  MessengerDialogSchema,
+  MessengerMessageDocument,
+  MessengerMessageSchema,
+  MessengerAccountRepository,
+  MessengerDialogRepository,
+  MessengerMessageRepository,
+  TelegramBotClient,
+} from '@baza/messenger';
 import { MessengerService } from './messenger.service';
 import { MessengerController } from './messenger.controller';
+import { TelegramWebhookController } from './telegram-webhook.controller';
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { AuditModule } from '../audit/audit.module';
 import { OutboxModule } from '../outbox/outbox.module';
 import { CrmModule } from '../crm/crm.module';
 import { MediaModule } from '../media/media.module';
 import { IdempotencyModule } from '../../shared/idempotency/idempotency.module';
+import { RateLimitModule } from '../../shared/rate-limit/rate-limit.module';
 
 @Module({
   imports: [
@@ -28,12 +36,16 @@ import { IdempotencyModule } from '../../shared/idempotency/idempotency.module';
     CrmModule,
     MediaModule,
     IdempotencyModule,
+    RateLimitModule,
   ],
-  controllers: [MessengerController],
+  // N-12: TelegramWebhookController — публичный (без TenantGuard/PermissionGuard),
+  // принимает входящие апдейты от Telegram по /public/messenger/telegram/:accountId.
+  controllers: [MessengerController, TelegramWebhookController],
   providers: [
     MessengerAccountRepository,
     MessengerDialogRepository,
     MessengerMessageRepository,
+    TelegramBotClient,
     MessengerService,
   ],
   exports: [MessengerService],

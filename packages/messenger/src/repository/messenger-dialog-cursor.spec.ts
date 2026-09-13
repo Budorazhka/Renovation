@@ -11,7 +11,7 @@ import { decodeDialogListCursor, encodeDialogListCursor } from './messenger-dial
  * дублировал их. Round-trip кодека проверяется здесь (чистые функции, без
  * Mongo); что построенный по курсору Mongo-запрос действительно не теряет
  * и не дублирует диалоги — доказано на настоящей MongoDB, см.
- * test/integration/messenger-dialogs-pagination.integration-spec.ts.
+ * apps/api/test/integration/messenger-dialogs-pagination.integration-spec.ts.
  */
 describe('encodeDialogListCursor / decodeDialogListCursor', () => {
   it('round-trip: закреплённый диалог с реальным lastMessage', () => {

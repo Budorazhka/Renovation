@@ -24,6 +24,8 @@ import { BillingModule } from './modules/billing/billing.module';
 import { MessengerModule } from './modules/messenger/messenger.module';
 import { LmsModule } from './modules/lms/lms.module';
 import { CommunityModule } from './modules/community/community.module';
+import { BuyerRequestsModule } from './modules/buyer-requests/buyer-requests.module';
+import { RealtorReviewsModule } from './modules/realtor-reviews/realtor-reviews.module';
 
 @Module({
   imports: [
@@ -63,6 +65,8 @@ import { CommunityModule } from './modules/community/community.module';
     MessengerModule,
     LmsModule,
     CommunityModule,
+    BuyerRequestsModule,
+    RealtorReviewsModule,
   ],
   controllers: [HealthController],
   // TenantContextMiddleware/AdminContextMiddleware явно зарегистрированы

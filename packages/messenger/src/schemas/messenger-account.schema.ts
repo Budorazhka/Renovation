@@ -1,4 +1,4 @@
-﻿import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 export type MessengerPlatform = 'telegram' | 'whatsapp';
@@ -12,6 +12,14 @@ export const MESSENGER_AUTH_STATUSES: readonly MessengerAuthStatus[] = ['pending
 /**
  * Server-side storage for external messaging accounts (Telegram bot, WhatsApp).
  * Tokens and credentials are kept strictly on the backend (never leaked to browser).
+ *
+ * N-12 (roadmap-2026-09.md): живёт в `@baza/messenger` (не в `apps/api`),
+ * тот же принцип, что `@baza/media-storage` (докстринг MediaStorageService)
+ * — и API-процесс (подключение бота, отправка), и worker-процесс (реальная
+ * отправка через Telegram Bot API после ответа провайдера) обращаются к
+ * ОДНОЙ и той же коллекции `messenger_accounts`, а worker структурно не
+ * может импортировать `apps/api/src/modules/messenger/*` (отдельный
+ * деплой, свой package.json, нет edge зависимости).
  */
 @Schema({ collection: 'messenger_accounts', timestamps: true })
 export class MessengerAccountDocument extends Document {
@@ -36,19 +44,24 @@ export class MessengerAccountDocument extends Document {
    * Secret token for Telegram Bot API or session identifier.
    * Never returned in public read models.
    *
-   * ИСПРАВЛЕНО 11.09.2026: `select: false` — тот же принцип, что
-   * `Identity.passwordHash`/`legacyPasswordHash`. Раньше поле попадало в
-   * ЛЮБОЙ `find()`/`findOne()` по умолчанию: `toAccountReadModel` его и так
-   * не отдавал наружу (проверено — единственное место, что читает
-   * документ), но структурной защиты не было — любой будущий код, забывший
-   * это учесть, дамп базы или лог документа целиком утекли бы токеном.
-   * Ничего в кодовой базе `.botToken` с уже загруженного документа не
-   * читает (транспорта нет — токен нигде не используется для реальных
-   * вызовов), поэтому `select: false` ничего не ломает; когда транспорт
-   * появится, вызывающий код запросит его явно через `.select('+botToken')`.
+   * `select: false` — тот же принцип, что `Identity.passwordHash`/
+   * `legacyPasswordHash`. Вызывающий код (getMe-верификация при подключении,
+   * worker-хендлер реальной отправки) запрашивает поле явно через
+   * `.select('+botToken')`.
    */
   @Prop({ required: false, trim: true, select: false })
   botToken?: string;
+
+  /**
+   * N-12: секрет вебхука Telegram (`secret_token` в `setWebhook`), которым
+   * подписан заголовок `X-Telegram-Bot-Api-Secret-Token` в каждом входящем
+   * апдейте — единственная проверка подлинности вебхука (сам путь публичный,
+   * без TenantGuard/PermissionGuard, см. TelegramWebhookController). 256 бит
+   * энтропии, `select: false` по тому же принципу, что `botToken` выше:
+   * читается явно только контроллером вебхука.
+   */
+  @Prop({ required: false, trim: true, select: false })
+  webhookSecret?: string;
 
   @Prop({ required: false, trim: true })
   telegramBotUsername?: string;

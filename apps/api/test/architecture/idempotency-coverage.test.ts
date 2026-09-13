@@ -79,6 +79,7 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
   'POST /lms/courses': 'создание обучающего курса — повтор создал бы дубликат курса',
   'POST /community/threads': 'создание темы форума — повтор создал бы дубликат обсуждения',
   'POST /community/threads/:threadId/replies': 'создание ответа в треде — повтор создал бы дублирующий ответ',
+  'POST /marketplace/requests': 'N-13: создание запроса требует Idempotency-Key, повтор не должен создать второй публичный запрос',
 };
 
 /**
@@ -211,6 +212,10 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /public/listings/:slug/reveal-contact': 'своя запись идемпотентности',
   'POST /public/listings/:slug/complaints':
     'анонимная non-critical подача, защищена IpRateLimitGuard; повторная отправка создаёт вторую запись pending-жалобы, но не искажает CRM-отчётность (в отличие от leads/deals/tasks) — admin резолюцирует каждую независимо, дубль не вводит в заблуждение о состоянии listing',
+  'POST /public/messenger/telegram/:accountId':
+    'вызывающий — серверы Telegram, не наш аутентифицированный клиент, Idempotency-Key header не оттуда взять; ' +
+    'естественная идемпотентность через findByExternalMessageId (дедуп по {dialogId, externalMessageId}, ' +
+    'MessengerService.handleTelegramUpdate) — at-least-once повтор апдейта не создаёт дублирующее сообщение',
 
   // --- Админ ---
   'POST /admin/accounts/:adminAccountId/deactivate': 'условный update по статусу',
@@ -249,6 +254,8 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'PATCH /community/replies/:replyId/accept': 'принятие ответа как решения идемпотентно перезаписывает isBest',
   'PATCH /community/exchange/:threadId/status': 'смена статуса заявки биржи MLS по уникальному id треда',
   'POST /community/events/:eventId/attend': 'toggle участия в мероприятии идемпотентен по identityId',
+  'PATCH /marketplace/requests/:id/close': 'N-13: условное закрытие только опубликованного запроса автора; повтор приводит к тому же закрытому состоянию',
+  'POST /marketplace/realtor-reviews': 'N-13: уникальный индекс (reviewerIdentityId, completedDealId, realtorPositionId) блокирует повторный отзыв',
 
   // --- Подборки покупателя (N-11) ---
   'PATCH /marketplace/selections/:id': 'переименование — повтор с тем же title приводит к тому же итогу',

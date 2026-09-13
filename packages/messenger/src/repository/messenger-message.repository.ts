@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import {
@@ -52,6 +52,33 @@ export class MessengerMessageRepository {
     return doc!;
   }
 
+  /**
+   * N-12, worker-хендлер: system actor, без organizationId-фильтра (тот же
+   * принцип, что MessengerAccountRepository.findByIdWithToken) — читается
+   * ПЕРЕД реальной отправкой ровно для того, чтобы проверить, не отправлено
+   * ли сообщение уже (см. EventHandler docstring: at-least-once доставка
+   * outbox обязывает каждый handler быть безопасным к повторному вызову).
+   */
+  async findById(id: Types.ObjectId, session?: ClientSession): Promise<MessengerMessageDocument | null> {
+    return this.model.findById(id).session(session ?? null).exec();
+  }
+
+  /**
+   * N-12, входящий вебхук: Telegram может доставить один и тот же апдейт
+   * повторно (собственная retry-логика провайдера при неответе/таймауте) —
+   * дедуп по (dialogId, externalMessageId) ДО создания, а не полагание на
+   * уникальный индекс (composite unique на этой паре не заведён — сообщения
+   * без externalMessageId, исходящие 'queued', valid и не должны падать на
+   * дубле null).
+   */
+  async findByExternalMessageId(
+    dialogId: Types.ObjectId,
+    externalMessageId: string,
+    session?: ClientSession,
+  ): Promise<MessengerMessageDocument | null> {
+    return this.model.findOne({ dialogId, externalMessageId }).session(session ?? null).exec();
+  }
+
   async listForDialog(filter: ListMessagesFilter): Promise<MessengerMessageDocument[]> {
     const query: Record<string, unknown> = {
       organizationId: filter.organizationId,
@@ -66,6 +93,34 @@ export class MessengerMessageRepository {
       .find(query)
       .sort({ sentAt: -1, _id: -1 })
       .limit(filter.limit)
+      .exec();
+  }
+
+  /**
+   * N-12: `queued` -> `sent` после подтверждения Telegram Bot API.
+   * Условие `status: 'queued'` в фильтре — атомарный CAS: конкурентный
+   * повторный вызов (at-least-once outbox delivery) на уже помеченном
+   * сообщении просто ничего не находит, а не перезаписывает
+   * `externalMessageId` вторым (тем же) значением поверх первого.
+   */
+  async markSent(
+    id: Types.ObjectId,
+    externalMessageId: string,
+    session?: ClientSession,
+  ): Promise<MessengerMessageDocument | null> {
+    return this.model
+      .findOneAndUpdate(
+        { _id: id, status: 'queued' },
+        { $set: { status: 'sent', externalMessageId } },
+        { new: true, session },
+      )
+      .exec();
+  }
+
+  /** N-12: постоянная ошибка отправки — терминальный статус, не вечный `queued`. */
+  async markFailed(id: Types.ObjectId, session?: ClientSession): Promise<MessengerMessageDocument | null> {
+    return this.model
+      .findOneAndUpdate({ _id: id, status: 'queued' }, { $set: { status: 'failed' } }, { new: true, session })
       .exec();
   }
 

@@ -138,6 +138,26 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
     'Системный сид базовых материалов платформы (isSystem: true, organizationId: null) — выполняется при старте модуля.',
   'lms-course.repository.ts#seedSystemCoursesIfEmpty':
     'Системный сид базовых курсов платформы (isSystem: true, organizationId: null) — выполняется при старте модуля.',
+  'messenger-message.repository.ts#findByExternalMessageId':
+    'N-12: дедуп входящих Telegram-апдейтов при at-least-once доставке — ключ поиска {dialogId, ' +
+    'externalMessageId}, dialogId уже найден/создан в той же транзакции по organizationId из аккаунта.',
+  'buyer-request.repository.ts#listPublic':
+    'N-13: публичная доска — запрос покупателя принадлежит его личному identityId (аккаунт покупателя ' +
+    'маркетплейса), не организации; тот же принцип, что favorite.repository.ts#listForIdentity.',
+  'buyer-request.repository.ts#listForAuthor':
+    'N-13: список своих запросов покупателя — фильтр {authorIdentityId} из сессии вызывающего, тот же принцип, ' +
+    'что marketplace-selection.repository.ts#listForIdentity.',
+  'buyer-request.repository.ts#findByIdForAuthor':
+    'N-13: фильтр {_id, authorIdentityId} из сессии вызывающего — чужой запрос так не достать.',
+  'buyer-request.repository.ts#close':
+    'N-13: CAS-закрытие фильтром {_id, authorIdentityId, status: published} — тот же принцип, что ' +
+    'marketplace-selection.repository.ts#rename.',
+  'realtor-review.repository.ts#listApproved':
+    'N-13: публичный список одобренных отзывов о риэлторе — realtorPositionId, не организация автора отзыва ' +
+    'или организация риэлтора; отзыв принадлежит связке покупатель-риэлтор-сделка, не тенанту.',
+  'realtor-review.repository.ts#findDuplicate':
+    'N-13: проверка уникальности по {reviewerIdentityId, completedDealId, realtorPositionId} — тот же тройной ' +
+    'ключ, что уникальный индекс схемы; организации здесь нет как понятия для отзыва конкретного покупателя.',
 };
 
 const QUERY = /this\.model\.(find|findOne|findOneAndUpdate|updateOne|updateMany|deleteOne|deleteMany|countDocuments|aggregate|distinct)\b/;

@@ -1,5 +1,9 @@
 # Messenger: каркас диалогов без транспорта (этап 10, не начат по DoD)
 
+> 13.09.2026: транспорт для Telegram закрыт, см.
+> [telegram-transport](telegram-transport.md) (N-12). Остальное содержимое
+> файла — снапшот состояния на 11.09, сохранён как история.
+
 Дата: 11.09.2026. Код — `80534a3` (10.09), коммит подписан «production-grade»;
 честные статусы и own-scope на запись — N-02 и отдельный проход (11.09).
 Статус: каркас. Модель диалогов, прав и привязки к CRM есть. Сообщения никуда не
@@ -25,15 +29,20 @@
 provider credentials», модель доставки, in-app и Telegram-уведомления, realtime.
 Ничего из этого нет:
 
-- `MessengerMessageSent` стоит в `ACKNOWLEDGED_ONLY_EVENT_TYPES` воркера
-  (`apps/worker/src/handlers/handlers.module.ts`): событие подтверждается без
+- `MessengerMessageSent` стоял в `ACKNOWLEDGED_ONLY_EVENT_TYPES` воркера
+  (`apps/worker/src/handlers/handlers.module.ts`): событие подтверждалось без
   исполнения. До 11.09 сообщение при этом сразу получало `status: 'sent'`:
-  система говорила «отправлено», хотя отправки не было. Исправлено, см. ниже.
-- Входящих нет: вебхуков нет, `dialogRepository.create` не вызывается ни одним
-  путём. Диалог в системе появиться не может.
-- Токен бота не проверяется через Telegram, у WhatsApp учётных данных нет вовсе.
-  До 11.09 аккаунт при этом сразу получал `authStatus: 'authenticated'` и
-  `lastSyncAt`. Исправлено, см. ниже.
+  система говорила «отправлено», хотя отправки не было. Исправлено 11.09
+  (честный статус), реальная отправка через Telegram — 13.09, см.
+  [telegram-transport](telegram-transport.md) (N-12).
+- Входящих не было: вебхуков не было, `dialogRepository.create` не вызывался
+  ни одним путём. Закрыто 13.09 для Telegram, см.
+  [telegram-transport](telegram-transport.md) (N-12).
+- Токен бота не проверялся через Telegram, у WhatsApp учётных данных нет
+  вовсе. До 11.09 аккаунт при этом сразу получал `authStatus: 'authenticated'`
+  и `lastSyncAt`. Честный статус исправлен 11.09, проверка токена у Telegram —
+  13.09, см. [telegram-transport](telegram-transport.md) (N-12). WhatsApp
+  остаётся не поддержан.
 - ERP-экран чатов (`apps/erp-web/src/pages/modules/ChatsPage.tsx`) ходит в старый
   отдельный сервис через `messengerApi.ts` и `MESSENGERS_API_URL`. Новый API к
   интерфейсу не подключён.
@@ -210,8 +219,9 @@ assetId). На настоящей MongoDB (тот же файл, что оста
 
 ## Что открыто
 
-1. Транспорт: подключение Telegram Bot API и выбор провайдера WhatsApp —
-   решение владельца, затем вебхуки, доставка, повторы.
+1. Транспорт: Telegram закрыт 13.09 ([telegram-transport](telegram-transport.md),
+   N-12) — подключение бота с проверкой токена, вебхук, реальная отправка и
+   приём. Выбор провайдера WhatsApp остаётся решением владельца.
 2. `link-crm` проверяет только принадлежность организации (см. фикс выше), но
    не own-scope конкретной записи (лид/сделка, назначенные другому менеджеру,
    всё ещё привязываются) и не принимает `expectedVersion` — запись

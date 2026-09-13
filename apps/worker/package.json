@@ -17,6 +17,7 @@
     "@baza/development": "workspace:*",
     "@baza/domain-events": "workspace:*",
     "@baza/media-storage": "workspace:*",
+    "@baza/messenger": "workspace:*",
     "@baza/property-assets": "workspace:*",
     "@baza/publication": "workspace:*",
     "@baza/tenant-scope": "workspace:*",

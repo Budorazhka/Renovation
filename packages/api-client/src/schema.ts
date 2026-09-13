@@ -3078,6 +3078,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/messenger/telegram/{accountId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** N-12: приём входящих апдейтов Telegram Bot API. Вызывающий — серверы Telegram, не аутентифицированный клиент платформы: подлинность подтверждает секрет вебхука в заголовке X-Telegram-Bot-Api-Secret-Token (сверяется внутри сервиса, не guard'ом), не проверка прав. Неверный секрет или неизвестный accountId обрабатываются молча (без побочных эффектов), всегда отвечает 200 — Telegram трактует не-2xx как "не доставлено" и повторяет апдейт. Естественная идемпотентность — дедуп по {dialogId, externalMessageId}. */
+        post: operations["receiveTelegramWebhookUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/lms/items": {
         parameters: {
             query?: never;
@@ -3462,6 +3479,92 @@ export interface paths {
         get: operations["getCommunityLeaderboard"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Публичная доска запросов покупателей */
+        get: operations["listPublicBuyerRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Свои запросы покупателя (все статусы) */
+        get: operations["listMyBuyerRequests"];
+        put?: never;
+        /** Создать запрос покупателя */
+        post: operations["createBuyerRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/requests/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Закрыть свой запрос покупателя */
+        patch: operations["closeBuyerRequest"];
+        trace?: never;
+    };
+    "/public/realtors/{positionId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Одобренные отзывы о риэлторе */
+        get: operations["listApprovedRealtorReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/realtor-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Отправить отзыв о риэлторе на модерацию */
+        post: operations["submitRealtorReview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12050,6 +12153,37 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    receiveTelegramWebhookUpdate: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Telegram-Bot-Api-Secret-Token"?: string;
+            };
+            path: {
+                accountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Апдейт принят (либо реально обработан, либо молча отброшен) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        ok: true;
+                    };
+                };
+            };
+        };
+    };
     listLmsItems: {
         parameters: {
             query?: {
@@ -12957,6 +13091,133 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+        };
+    };
+    listPublicBuyerRequests: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                dealType?: "buy" | "rent";
+                city?: string;
+                propertyKind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Страница опубликованных запросов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMyBuyerRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список своих запросов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createBuyerRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Запрос создан */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    closeBuyerRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Запрос закрыт */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listApprovedRealtorReviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список одобренных отзывов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    submitRealtorReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Отзыв принят в статусе pending */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
 }

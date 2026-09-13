@@ -28,9 +28,19 @@ import {
   MarketplacePublicationSchema,
   MarketplacePublicationRepository,
 } from '@baza/publication';
+import {
+  MessengerAccountDocument,
+  MessengerAccountSchema,
+  MessengerAccountRepository,
+  MessengerMessageDocument,
+  MessengerMessageSchema,
+  MessengerMessageRepository,
+  TelegramBotClient,
+} from '@baza/messenger';
 import { OutboxModule } from '../outbox/outbox.module';
 import { EventHandlerRegistry } from '../outbox/event-handler.registry';
 import { MediaVerifiedHandler } from './media-verified.handler';
+import { MessengerMessageSentHandler } from './messenger-message-sent.handler';
 import { PositionOccupantAssignedHandler } from './position-occupant-assigned.handler';
 import { PublicationRequestedHandler } from './publication-requested.handler';
 import { UnitPriceChangedHandler } from './unit-price-changed.handler';
@@ -61,7 +71,6 @@ export const ACKNOWLEDGED_ONLY_EVENT_TYPES = [
   // менеджера) — будущая задача уведомлений; освобождение юнита уже сделано
   // в API той же транзакцией и приходит отдельным UnitStatusChanged.
   'BookingExpired',
-  'MessengerMessageSent',
   'LmsCourseCompleted',
   'CommunityThreadCreated',
   'CommunityReplyCreated',
@@ -85,6 +94,8 @@ export const ACKNOWLEDGED_ONLY_EVENT_TYPES = [
       { name: PropertyAssetDocument.name, schema: PropertyAssetSchema },
       { name: ListingDocument.name, schema: ListingSchema },
       { name: MarketplacePublicationDocument.name, schema: MarketplacePublicationSchema },
+      { name: MessengerAccountDocument.name, schema: MessengerAccountSchema },
+      { name: MessengerMessageDocument.name, schema: MessengerMessageSchema },
     ]),
   ],
   providers: [
@@ -98,6 +109,9 @@ export const ACKNOWLEDGED_ONLY_EVENT_TYPES = [
     PropertyAssetRepository,
     ListingRepository,
     MarketplacePublicationRepository,
+    MessengerAccountRepository,
+    MessengerMessageRepository,
+    TelegramBotClient,
     MediaVerifiedHandler,
     PositionOccupantAssignedHandler,
     PublicationRequestedHandler,
@@ -107,6 +121,7 @@ export const ACKNOWLEDGED_ONLY_EVENT_TYPES = [
     BookingCancelledHandler,
     BookingConfirmedHandler,
     BookingExtendedHandler,
+    MessengerMessageSentHandler,
     AcknowledgedEventHandler,
   ],
 })
@@ -122,6 +137,7 @@ export class HandlersModule implements OnModuleInit {
     private readonly bookingCancelledHandler: BookingCancelledHandler,
     private readonly bookingConfirmedHandler: BookingConfirmedHandler,
     private readonly bookingExtendedHandler: BookingExtendedHandler,
+    private readonly messengerMessageSentHandler: MessengerMessageSentHandler,
     private readonly acknowledgedEventHandler: AcknowledgedEventHandler,
   ) {}
 
@@ -135,6 +151,7 @@ export class HandlersModule implements OnModuleInit {
     this.registry.register('BookingCancelled', this.bookingCancelledHandler);
     this.registry.register('BookingConfirmed', this.bookingConfirmedHandler);
     this.registry.register('BookingExtended', this.bookingExtendedHandler);
+    this.registry.register('MessengerMessageSent', this.messengerMessageSentHandler);
 
     for (const eventType of ACKNOWLEDGED_ONLY_EVENT_TYPES) {
       this.registry.register(eventType, this.acknowledgedEventHandler);

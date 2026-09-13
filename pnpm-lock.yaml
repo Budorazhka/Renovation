@@ -75,6 +75,9 @@ importers:
       '@baza/media-storage':
         specifier: workspace:*
         version: link:../../packages/media-storage
+      '@baza/messenger':
+        specifier: workspace:*
+        version: link:../../packages/messenger
       '@baza/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -555,6 +558,9 @@ importers:
       '@baza/media-storage':
         specifier: workspace:*
         version: link:../../packages/media-storage
+      '@baza/messenger':
+        specifier: workspace:*
+        version: link:../../packages/messenger
       '@baza/property-assets':
         specifier: workspace:*
         version: link:../../packages/property-assets
@@ -781,6 +787,43 @@ importers:
       '@nestjs/config':
         specifier: ^4.0.4
         version: 4.0.4(@nestjs/common@11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(rxjs@7.8.2)
+      '@nestjs/mongoose':
+        specifier: ^11.0.4
+        version: 11.0.4(@nestjs/common@11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.2.3(@nestjs/common@11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(mongoose@8.24.4(supports-color@10.2.2))(rxjs@7.8.2)
+      mongoose:
+        specifier: ^8.9.0
+        version: 8.24.4(supports-color@10.2.2)
+    devDependencies:
+      '@baza/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@baza/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/jest':
+        specifier: ^29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      eslint:
+        specifier: ^9.17.0
+        version: 9.39.5(jiti@2.7.0)(supports-color@10.2.2)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.20.1)(supports-color@10.2.2)(ts-node@10.9.2(@types/node@22.20.1)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.2.5
+        version: 29.4.12(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@29.7.0(supports-color@10.2.2))(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@29.7.0)(jest@29.7.0(@types/node@22.20.1)(supports-color@10.2.2))(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/messenger:
+    dependencies:
+      '@nestjs/common':
+        specifier: ^11.2.3
+        version: 11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2)
       '@nestjs/mongoose':
         specifier: ^11.0.4
         version: 11.0.4(@nestjs/common@11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.2.3(@nestjs/common@11.2.3(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(mongoose@8.24.4(supports-color@10.2.2))(rxjs@7.8.2)

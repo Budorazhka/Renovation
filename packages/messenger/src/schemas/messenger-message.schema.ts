@@ -1,20 +1,24 @@
-﻿import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type MessageAuthor = 'client' | 'agent';
 export type MessageType = 'text' | 'photo' | 'video' | 'document' | 'audio';
 /**
- * `queued` — сообщение принято платформой, но в канал не отправлено. До
- * 11.09.2026 исходящее сразу получало `sent`, хотя транспорта нет:
- * MessengerMessageSent воркер только подтверждает (ACKNOWLEDGED_ONLY_EVENT_TYPES).
- * `sent` должен ставить будущий транспорт после ответа провайдера (Telegram
- * Bot API, WhatsApp), не API в момент приёма.
+ * `queued` — сообщение принято платформой, но в канал ещё не отправлено.
+ * `sent` — воркер (`MessengerMessageSentHandler`, N-12) получил
+ * подтверждение от Telegram Bot API (`message_id` в ответе), `externalMessageId`
+ * заполнен. `failed` — постоянная ошибка провайдера (бот заблокирован,
+ * chat_id не существует, WhatsApp пока не поддержан вообще) — не будет
+ * дозакрыта повтором, честный терминальный статус вместо вечного `queued`.
+ * `delivered`/`read` — подтверждение доставки/прочтения от клиента (пока
+ * ставится эвристически: любое входящее сообщение клиента переводит
+ * предыдущие исходящие; настоящих delivery receipt от Telegram Bot API нет).
  */
-export type MessageStatus = 'queued' | 'sent' | 'delivered' | 'read';
+export type MessageStatus = 'queued' | 'sent' | 'failed' | 'delivered' | 'read';
 
 export const MESSAGE_AUTHORS: readonly MessageAuthor[] = ['client', 'agent'] as const;
 export const MESSAGE_TYPES: readonly MessageType[] = ['text', 'photo', 'video', 'document', 'audio'] as const;
-export const MESSAGE_STATUSES: readonly MessageStatus[] = ['queued', 'sent', 'delivered', 'read'] as const;
+export const MESSAGE_STATUSES: readonly MessageStatus[] = ['queued', 'sent', 'failed', 'delivered', 'read'] as const;
 
 export interface MessageMedia {
   assetId?: Types.ObjectId;

@@ -50,6 +50,8 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
   'POST /public/developments/:slug/reveal-contact': 'публичное раскрытие контакта: анонимный посетитель по определению; защищено rate-limit и своей идемпотентностью',
   'POST /public/listings/:slug/reveal-contact': 'то же для листинга: анонимное раскрытие контакта, rate-limit и собственная запись идемпотентности',
   'POST /public/listings/:slug/complaints': 'ADMIN-OPS-001: подача жалобы анонимным посетителем по определению (жалоба сама по себе не даёт прав ни над чем); защищено IpRateLimitGuard',
+  'GET /public/requests': 'N-13: публичная доска запросов; отдаёт только published-проекцию без identityId',
+  'GET /public/realtors/:positionId/reviews': 'N-13: публичный список только одобренных отзывов, без reviewer identity и внутренних полей',
 
   'GET /leads/stage-definitions': 'справочник стадий воронки по продуктам — статичные метаданные, не данные лидов; под TenantGuard, требует только валидную tenant-сессию, без специального права',
 
@@ -58,6 +60,8 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
 
   'GET /billing/subscription': 'данные о текущей подписке и лимитах своей же организации; под TenantGuard, чужого не отдаёт',
   'GET /billing/plans': 'каталог доступных тарифных планов платформы; под TenantGuard',
+
+  'POST /public/messenger/telegram/:accountId': 'N-12: вызывающий — серверы Telegram, не наш аутентифицированный клиент; подлинность подтверждает секрет вебхука (сверяется внутри MessengerService.handleTelegramUpdate), не проверка прав; защищено рейт-лимитом по IP',
 };
 
 function listControllers(dir: string): string[] {

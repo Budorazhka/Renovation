@@ -6864,6 +6864,50 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /public/messenger/telegram/{accountId}:
+    post:
+      operationId: receiveTelegramWebhookUpdate
+      summary: >-
+        N-12: приём входящих апдейтов Telegram Bot API. Вызывающий — серверы
+        Telegram, не аутентифицированный клиент платформы: подлинность
+        подтверждает секрет вебхука в заголовке
+        X-Telegram-Bot-Api-Secret-Token (сверяется внутри сервиса, не
+        guard'ом), не проверка прав. Неверный секрет или неизвестный
+        accountId обрабатываются молча (без побочных эффектов), всегда
+        отвечает 200 — Telegram трактует не-2xx как "не доставлено" и
+        повторяет апдейт. Естественная идемпотентность — дедуп по
+        {dialogId, externalMessageId}.
+      tags: [messenger]
+      security: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: X-Telegram-Bot-Api-Secret-Token
+          in: header
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: >-
+                Telegram Update — узкий срез читается сервисом (только
+                message.text), полная схема Telegram Bot API много шире.
+      responses:
+        '200':
+          description: Апдейт принят (либо реально обработан, либо молча отброшен)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: {type: boolean, enum: [true]}
+
   /lms/items:
     get:
       operationId: listLmsItems
@@ -7765,6 +7809,67 @@ paths:
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
+
+  /public/requests:
+    get:
+      operationId: listPublicBuyerRequests
+      summary: Публичная доска запросов покупателей
+      security: []
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: dealType, in: query, schema: {type: string, enum: [buy, rent]}}
+        - {name: city, in: query, schema: {type: string}}
+        - {name: propertyKind, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Страница опубликованных запросов}
+
+  /marketplace/requests:
+    get:
+      operationId: listMyBuyerRequests
+      summary: Свои запросы покупателя (все статусы)
+      responses:
+        '200': {description: Список своих запросов}
+    post:
+      operationId: createBuyerRequest
+      summary: Создать запрос покупателя
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {type: object}}
+      responses:
+        '201': {description: Запрос создан}
+
+  /marketplace/requests/{id}/close:
+    patch:
+      operationId: closeBuyerRequest
+      summary: Закрыть свой запрос покупателя
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Запрос закрыт}
+
+  /public/realtors/{positionId}/reviews:
+    get:
+      operationId: listApprovedRealtorReviews
+      summary: Одобренные отзывы о риэлторе
+      security: []
+      parameters:
+        - {name: positionId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Список одобренных отзывов}
+
+  /marketplace/realtor-reviews:
+    post:
+      operationId: submitRealtorReview
+      summary: Отправить отзыв о риэлторе на модерацию
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {type: object}}
+      responses:
+        '201': {description: Отзыв принят в статусе pending}
 
 components:
   securitySchemes:

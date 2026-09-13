@@ -1,11 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { MessengerService } from './messenger.service';
-import { MessengerAccountRepository } from './repository/messenger-account.repository';
-import { MessengerDialogRepository } from './repository/messenger-dialog.repository';
-import { MessengerMessageRepository } from './repository/messenger-message.repository';
+import {
+  MessengerAccountRepository,
+  MessengerDialogRepository,
+  MessengerMessageRepository,
+  TelegramBotClient,
+  TelegramApiError,
+} from '@baza/messenger';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { CrmService } from '../crm/crm.service';
@@ -22,6 +27,8 @@ describe('MessengerService', () => {
   let crmService: jest.Mocked<Partial<CrmService>>;
   let mediaService: jest.Mocked<Partial<MediaService>>;
   let idempotencyService: jest.Mocked<Partial<IdempotencyService>>;
+  let telegramBotClient: jest.Mocked<Partial<TelegramBotClient>>;
+  let configService: jest.Mocked<Partial<ConfigService>>;
 
   const fakeSession = {
     withTransaction: jest.fn().mockImplementation((cb) => cb(fakeSession as never)),
@@ -37,6 +44,8 @@ describe('MessengerService', () => {
       create: jest.fn(),
       listForOrganization: jest.fn(),
       findByIdForOrganization: jest.fn(),
+      findByIdWithToken: jest.fn().mockResolvedValue(null),
+      findByIdWithWebhookSecret: jest.fn(),
       deleteForOrganization: jest.fn(),
     };
 
@@ -54,6 +63,7 @@ describe('MessengerService', () => {
 
     messageRepo = {
       create: jest.fn(),
+      findByExternalMessageId: jest.fn(),
       listForDialog: jest.fn(),
       markDeliveredOrRead: jest.fn(),
       deleteByDialogIds: jest.fn().mockResolvedValue(0),
@@ -80,6 +90,17 @@ describe('MessengerService', () => {
       checkReplay: jest.fn().mockResolvedValue(null),
     };
 
+    telegramBotClient = {
+      getMe: jest.fn().mockResolvedValue({ id: 1, isBot: true, username: 'sales_bot', firstName: 'Sales' }),
+      setWebhook: jest.fn().mockResolvedValue(undefined),
+      deleteWebhook: jest.fn().mockResolvedValue(undefined),
+      sendMessage: jest.fn(),
+    };
+
+    configService = {
+      getOrThrow: jest.fn().mockReturnValue('https://api.baza.sale'),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MessengerService,
@@ -92,6 +113,8 @@ describe('MessengerService', () => {
         { provide: CrmService, useValue: crmService },
         { provide: MediaService, useValue: mediaService },
         { provide: IdempotencyService, useValue: idempotencyService },
+        { provide: TelegramBotClient, useValue: telegramBotClient },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -269,6 +292,7 @@ describe('MessengerService', () => {
     const fakeDialog = {
       _id: dialogId,
       organizationId: orgId,
+      accountId: new Types.ObjectId(),
       platform: 'telegram',
       externalChatId: 'chat-99',
     };
@@ -315,6 +339,7 @@ describe('MessengerService', () => {
     (dialogRepo.findByIdForOrganization as jest.Mock).mockResolvedValue({
       _id: dialogId,
       organizationId: orgId,
+      accountId: new Types.ObjectId(),
       platform: 'telegram',
       externalChatId: 'chat-99',
     });
@@ -352,6 +377,7 @@ describe('MessengerService', () => {
       (dialogRepo.findByIdForOrganization as jest.Mock).mockResolvedValue({
         _id: dialogId,
         organizationId: orgId,
+        accountId: new Types.ObjectId(),
         platform: 'telegram',
         externalChatId: 'chat-77',
       });
@@ -532,6 +558,7 @@ describe('MessengerService', () => {
       (dialogRepo.findByIdForOrganization as jest.Mock).mockResolvedValue({
         _id: dialogId,
         organizationId: orgId,
+        accountId: new Types.ObjectId(),
         platform: 'telegram',
         externalChatId: 'chat-99',
         name: 'Иван Клиент',
@@ -764,6 +791,205 @@ describe('MessengerService', () => {
       expect(res.leadId).toBe(leadId.toString());
       expect(res.contactId).toBe(contactId.toString());
       expect(res.dealId).toBe(dealId.toString());
+    });
+  });
+
+  describe('addTelegramBot: верификация у Telegram (N-12)', () => {
+    it('невалидный токен (getMe бросает TelegramApiError) — BadRequestException, аккаунт не создаётся', async () => {
+      (telegramBotClient.getMe as jest.Mock).mockRejectedValue(new TelegramApiError('Unauthorized', 401, true));
+
+      await expect(
+        service.addTelegramBot({
+          organizationId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          name: 'Sales Bot',
+          botToken: 'invalid-token',
+          correlationId: 'cor-bad-token',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(accountRepo.create).not.toHaveBeenCalled();
+      expect(telegramBotClient.setWebhook).not.toHaveBeenCalled();
+    });
+
+    it('токен верный, но setWebhook падает — BadRequestException, аккаунт не создаётся', async () => {
+      (telegramBotClient.setWebhook as jest.Mock).mockRejectedValue(
+        new TelegramApiError('Bad webhook URL', 400, true),
+      );
+
+      await expect(
+        service.addTelegramBot({
+          organizationId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          name: 'Sales Bot',
+          botToken: '12345:token',
+          correlationId: 'cor-bad-webhook',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(accountRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('успешная верификация — аккаунт создаётся сразу authenticated, с telegramBotUsername и webhookSecret', async () => {
+      (accountRepo.create as jest.Mock).mockImplementation(async (params: Record<string, unknown>) => ({
+        _id: new Types.ObjectId(),
+        ...params,
+        createdAt: new Date(),
+      }));
+
+      const result = await service.addTelegramBot({
+        organizationId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        name: 'Sales Bot',
+        botToken: '12345:token',
+        correlationId: 'cor-ok',
+      });
+
+      expect(telegramBotClient.getMe).toHaveBeenCalledWith('12345:token');
+      expect(telegramBotClient.setWebhook).toHaveBeenCalledWith(
+        '12345:token',
+        expect.stringContaining('/api/v1/public/messenger/telegram/'),
+        expect.any(String),
+      );
+      expect(accountRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authStatus: 'authenticated',
+          telegramBotUsername: 'sales_bot',
+          webhookSecret: expect.any(String),
+        }),
+        fakeSession,
+      );
+      expect(result.authStatus).toBe('authenticated');
+    });
+  });
+
+  describe('handleTelegramUpdate: входящее сообщение возвращается в диалог (N-12)', () => {
+    const accountId = new Types.ObjectId();
+    const orgId = new Types.ObjectId();
+    const webhookSecret = 'a'.repeat(64);
+
+    function textUpdate(overrides: Partial<{ chatId: number; messageId: number; text: string }> = {}) {
+      return {
+        update_id: 1,
+        message: {
+          message_id: overrides.messageId ?? 501,
+          date: 1_700_000_000,
+          chat: { id: overrides.chatId ?? 555, type: 'private' },
+          from: { id: 999, is_bot: false, first_name: 'Иван', username: 'ivan_client' },
+          text: overrides.text ?? 'Здравствуйте, интересует квартира',
+        },
+      };
+    }
+
+    it('неверный секрет — молча ничего не делает (не создаёт ни диалог, ни сообщение)', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue({
+        _id: accountId,
+        organizationId: orgId,
+        platform: 'telegram',
+        webhookSecret,
+      });
+
+      await service.handleTelegramUpdate({ accountId, secretToken: 'wrong-secret', update: textUpdate() });
+
+      expect(dialogRepo.findByExternalChatId).not.toHaveBeenCalled();
+      expect(messageRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('неизвестный accountId — молча ничего не делает', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue(null);
+
+      await service.handleTelegramUpdate({ accountId, secretToken: webhookSecret, update: textUpdate() });
+
+      expect(dialogRepo.findByExternalChatId).not.toHaveBeenCalled();
+    });
+
+    it('апдейт без message.text (фото/стикер) — игнорируется', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue({
+        _id: accountId,
+        organizationId: orgId,
+        platform: 'telegram',
+        webhookSecret,
+      });
+
+      await service.handleTelegramUpdate({
+        accountId,
+        secretToken: webhookSecret,
+        update: { update_id: 2 },
+      });
+
+      expect(dialogRepo.findByExternalChatId).not.toHaveBeenCalled();
+    });
+
+    it('новый chat — создаёт диалог и сообщение, увеличивает unreadCount', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue({
+        _id: accountId,
+        organizationId: orgId,
+        platform: 'telegram',
+        webhookSecret,
+      });
+      (dialogRepo.findByExternalChatId as jest.Mock).mockResolvedValue(null);
+      const newDialogId = new Types.ObjectId();
+      (dialogRepo.create as jest.Mock).mockResolvedValue({ _id: newDialogId });
+      (messageRepo.findByExternalMessageId as jest.Mock).mockResolvedValue(null);
+
+      await service.handleTelegramUpdate({ accountId, secretToken: webhookSecret, update: textUpdate() });
+
+      expect(dialogRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: orgId,
+          accountId,
+          externalChatId: '555',
+          name: 'Иван',
+          clientHandle: '@ivan_client',
+        }),
+        fakeSession,
+      );
+      expect(messageRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: orgId,
+          dialogId: newDialogId,
+          author: 'client',
+          externalMessageId: '501',
+          text: 'Здравствуйте, интересует квартира',
+        }),
+        fakeSession,
+      );
+      expect(dialogRepo.updateLastMessage).toHaveBeenCalledWith(newDialogId, orgId, expect.any(Object), true, fakeSession);
+    });
+
+    it('существующий chat — переиспользует диалог, не создаёт новый', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue({
+        _id: accountId,
+        organizationId: orgId,
+        platform: 'telegram',
+        webhookSecret,
+      });
+      const existingDialogId = new Types.ObjectId();
+      (dialogRepo.findByExternalChatId as jest.Mock).mockResolvedValue({ _id: existingDialogId });
+      (messageRepo.findByExternalMessageId as jest.Mock).mockResolvedValue(null);
+
+      await service.handleTelegramUpdate({ accountId, secretToken: webhookSecret, update: textUpdate() });
+
+      expect(dialogRepo.create).not.toHaveBeenCalled();
+      expect(messageRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ dialogId: existingDialogId }),
+        fakeSession,
+      );
+    });
+
+    it('повторная доставка того же апдейта (тот же externalMessageId) — не дублирует сообщение', async () => {
+      (accountRepo.findByIdWithWebhookSecret as jest.Mock).mockResolvedValue({
+        _id: accountId,
+        organizationId: orgId,
+        platform: 'telegram',
+        webhookSecret,
+      });
+      const existingDialogId = new Types.ObjectId();
+      (dialogRepo.findByExternalChatId as jest.Mock).mockResolvedValue({ _id: existingDialogId });
+      (messageRepo.findByExternalMessageId as jest.Mock).mockResolvedValue({ _id: new Types.ObjectId() });
+
+      await service.handleTelegramUpdate({ accountId, secretToken: webhookSecret, update: textUpdate() });
+
+      expect(messageRepo.create).not.toHaveBeenCalled();
+      expect(dialogRepo.updateLastMessage).not.toHaveBeenCalled();
     });
   });
 });

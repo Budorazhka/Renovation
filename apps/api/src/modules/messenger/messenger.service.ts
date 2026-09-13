@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Connection, Types } from 'mongoose';
 import { runInTransaction } from '../../shared/transactions/run-in-transaction';
 import { AuditService } from '../audit/audit.service';
@@ -7,26 +9,23 @@ import { OutboxService } from '../outbox/outbox.service';
 import { CrmService } from '../crm/crm.service';
 import { MediaService } from '../media/media.service';
 import { IdempotencyService } from '../../shared/idempotency/idempotency.service';
-import { MessengerAccountRepository } from './repository/messenger-account.repository';
 import {
+  MessengerAccountRepository,
   MessengerDialogRepository,
+  MessengerMessageRepository,
   decodeDialogListCursor,
   encodeDialogListCursor,
-} from './repository/messenger-dialog.repository';
-import { MessengerMessageRepository } from './repository/messenger-message.repository';
-import type {
-  MessengerAccountDocument,
-  MessengerPlatform,
-} from './schemas/messenger-account.schema';
-import type {
-  MessengerDialogDocument,
-  DialogLastMessage,
-} from './schemas/messenger-dialog.schema';
-import type {
-  MessengerMessageDocument,
-  MessageType,
-  MessageMedia,
-} from './schemas/messenger-message.schema';
+  TelegramBotClient,
+  TelegramApiError,
+  type MessengerAccountDocument,
+  type MessengerPlatform,
+  type MessengerDialogDocument,
+  type DialogLastMessage,
+  type MessengerMessageDocument,
+  type MessageType,
+  type MessageMedia,
+} from '@baza/messenger';
+import type { TelegramUpdate } from './telegram-update.types';
 
 export interface MessengerAccountReadModel {
   id: string;
@@ -99,6 +98,20 @@ export interface MessengerMessageReadModel {
     mimeType: string | null;
     fileName: string | null;
   } | null;
+}
+
+/**
+ * N-12: сравнение `X-Telegram-Bot-Api-Secret-Token` с сохранённым секретом.
+ * `timingSafeEqual` требует буферы одинаковой длины — иначе бросает, а не
+ * возвращает false, поэтому длины сверяются заранее (несовпадение длины —
+ * тоже "неверный секрет", не повод упасть с 500).
+ */
+function isValidWebhookSecret(received: string | undefined, expected: string): boolean {
+  if (!received) return false;
+  const receivedBuf = Buffer.from(received, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  if (receivedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(receivedBuf, expectedBuf);
 }
 
 function toAccountReadModel(doc: MessengerAccountDocument): MessengerAccountReadModel {
@@ -176,6 +189,8 @@ function toMessageReadModel(doc: MessengerMessageDocument): MessengerMessageRead
 
 @Injectable()
 export class MessengerService {
+  private readonly logger = new Logger(MessengerService.name);
+
   constructor(
     @InjectConnection() private readonly connection: Connection,
     private readonly accountRepository: MessengerAccountRepository,
@@ -186,7 +201,14 @@ export class MessengerService {
     private readonly crmService: CrmService,
     private readonly mediaService: MediaService,
     private readonly idempotencyService: IdempotencyService,
+    private readonly telegramBotClient: TelegramBotClient,
+    private readonly configService: ConfigService,
   ) {}
+
+  /** 256 бит энтропии — тот же принцип и то же обоснование, что publicToken у dev-selections. */
+  private generateWebhookSecret(): string {
+    return randomBytes(32).toString('hex');
+  }
 
   async listAccounts(
     organizationId: Types.ObjectId,
@@ -196,6 +218,22 @@ export class MessengerService {
     return docs.map(toAccountReadModel);
   }
 
+  /**
+   * N-12 (roadmap-2026-09.md): токен проверяется у самого Telegram (`getMe`)
+   * ДО сохранения аккаунта — раньше `POST /messenger/accounts/telegram/bot`
+   * принимал любую строку 10-120 символов и сразу отвечал успехом, аккаунт
+   * навсегда оставался `pending` (messenger-skeleton.md, открытый пункт 1).
+   *
+   * `getMe`/`setWebhook` — сетевые вызовы, оба выполняются ДО открытия
+   * транзакции (тот же принцип, что pre-transaction проверки существования
+   * в DevelopmentsService/CommunityService: сеть не должна держать открытой
+   * Mongo-транзакцию). `accountId` генерируется заранее (`new Types.
+   * ObjectId()`, валидный приём для Mongoose — id не обязан приходить из
+   * insert), чтобы webhook URL (со включённым accountId) можно было
+   * зарегистрировать в Telegram до самой записи: невалидный токен или сбой
+   * setWebhook не должен создавать "недобот" — при ошибке ничего не
+   * сохраняется вовсе.
+   */
   async addTelegramBot(params: {
     organizationId: Types.ObjectId;
     actorIdentityId: Types.ObjectId;
@@ -206,15 +244,44 @@ export class MessengerService {
     idempotencyKey?: string;
     idempotencyRequestBody?: Record<string, unknown>;
   }): Promise<MessengerAccountReadModel> {
+    let verified: { username?: string };
+    try {
+      verified = await this.telegramBotClient.getMe(params.botToken);
+    } catch (error) {
+      if (error instanceof TelegramApiError) {
+        throw new BadRequestException(`Не удалось подключить бота: ${error.message}`);
+      }
+      throw error;
+    }
+
+    const accountId = new Types.ObjectId();
+    const webhookSecret = this.generateWebhookSecret();
+    const webhookBaseUrl = this.configService.getOrThrow<string>('TELEGRAM_WEBHOOK_BASE_URL').replace(/\/+$/, '');
+    const webhookUrl = `${webhookBaseUrl}/api/v1/public/messenger/telegram/${accountId.toString()}`;
+
+    try {
+      await this.telegramBotClient.setWebhook(params.botToken, webhookUrl, webhookSecret);
+    } catch (error) {
+      if (error instanceof TelegramApiError) {
+        throw new BadRequestException(`Токен верный, но не удалось зарегистрировать webhook: ${error.message}`);
+      }
+      throw error;
+    }
+
     return runInTransaction(this.connection, async (session) => {
       const doc = await this.accountRepository.create(
         {
+          _id: accountId,
           organizationId: params.organizationId,
           assignedPositionId: params.assignedPositionId,
           platform: 'telegram',
           accountType: 'bot',
           name: params.name,
           botToken: params.botToken,
+          webhookSecret,
+          telegramBotUsername: verified.username,
+          authStatus: 'authenticated',
+          lastSyncAt: new Date(),
         },
         session,
       );
@@ -225,7 +292,7 @@ export class MessengerService {
           action: 'messenger_account.create',
           resource: 'messenger_account',
           resourceId: doc._id,
-          after: { platform: 'telegram', name: params.name },
+          after: { platform: 'telegram', name: params.name, telegramBotUsername: verified.username },
           correlationId: params.correlationId,
         },
         session,
@@ -312,7 +379,17 @@ export class MessengerService {
     actorIdentityId: Types.ObjectId;
     correlationId: string;
   }): Promise<boolean> {
-    return runInTransaction(this.connection, async (session) => {
+    // N-12: botToken нужен ПОСЛЕ транзакции (deleteWebhook — сеть, тот же
+    // принцип, что addTelegramBot: сеть не держит открытой Mongo-транзакцию).
+    // Читается ДО удаления — после deleteForOrganization токен уже недоступен.
+    const withToken =
+      (await this.accountRepository.findByIdWithToken(params.accountId)) ?? undefined;
+    const shouldDeleteWebhook =
+      withToken?.organizationId.equals(params.organizationId) &&
+      withToken.platform === 'telegram' &&
+      Boolean(withToken.botToken);
+
+    const deleted = await runInTransaction(this.connection, async (session) => {
       const existing = await this.accountRepository.findByIdForOrganization(
         params.accountId,
         params.organizationId,
@@ -322,7 +399,7 @@ export class MessengerService {
         throw new NotFoundException('Учётная запись мессенджера не найдена');
       }
 
-      const deleted = await this.accountRepository.deleteForOrganization(
+      const deletedInner = await this.accountRepository.deleteForOrganization(
         params.accountId,
         params.organizationId,
         session,
@@ -359,8 +436,21 @@ export class MessengerService {
         session,
       );
 
-      return deleted;
+      return deletedInner;
     });
+
+    if (deleted && shouldDeleteWebhook && withToken!.botToken) {
+      // Best-effort: Telegram продолжит слать апдейты на уже отвязанный
+      // URL, пока сам не решит, что webhook недоступен — не блокируем
+      // удаление аккаунта, если сеть к Telegram недоступна прямо сейчас.
+      try {
+        await this.telegramBotClient.deleteWebhook(withToken!.botToken);
+      } catch (error) {
+        this.logger.warn(`Не удалось отвязать webhook Telegram при удалении аккаунта: ${(error as Error).message}`);
+      }
+    }
+
+    return deleted;
   }
 
   async listDialogs(params: {
@@ -524,6 +614,7 @@ export class MessengerService {
           payload: {
             dialogId: params.dialogId.toString(),
             messageId: message._id.toString(),
+            accountId: dialog.accountId.toString(),
             platform: dialog.platform,
             externalChatId: dialog.externalChatId,
             text: params.text,
@@ -631,6 +722,7 @@ export class MessengerService {
           payload: {
             dialogId: params.dialogId.toString(),
             messageId: message._id.toString(),
+            accountId: dialog.accountId.toString(),
             platform: dialog.platform,
             externalChatId: dialog.externalChatId,
             text: displayText,
@@ -781,6 +873,111 @@ export class MessengerService {
       // Idempotency-Key на двух разных эндпоинтах даёт ложный 409
       // IDEMPOTENCY_KEY_CONFLICT, см. docstring CrmService.createTask.
       idempotencyOperation: 'createTaskFromDialog',
+    });
+  }
+
+  /**
+   * N-12: вебхук Telegram — «сообщение... возвращается в диалог»
+   * (roadmap-2026-09.md). Единственный путь, которым внешний, полностью
+   * неаутентифицированный HTTP-вызов достигает этого сервиса —
+   * TelegramWebhookController публичный (без TenantGuard/PermissionGuard).
+   * Секрет вебхука (`webhookSecret`) — единственная проверка подлинности;
+   * при её провале метод молча возвращает управление (не бросает), чтобы
+   * не превращать ответ в оракул "аккаунт существует/не существует" или
+   * "секрет верный/неверный" для стороннего вызывающего.
+   *
+   * Обрабатываются только текстовые `message` — другие типы апдейтов
+   * (edited_message, callback_query, фото/видео без текста) молча
+   * игнорируются: расширение на них — отдельная, ещё не начатая работа.
+   *
+   * Идемпотентность: Telegram может доставить один апдейт повторно
+   * (собственный retry на таймауте/5xx с нашей стороны) — дедуп по
+   * (dialogId, externalMessageId) ДО создания сообщения.
+   */
+  async handleTelegramUpdate(params: {
+    accountId: Types.ObjectId;
+    secretToken: string | undefined;
+    update: TelegramUpdate;
+  }): Promise<void> {
+    const account = await this.accountRepository.findByIdWithWebhookSecret(params.accountId);
+    if (!account || account.platform !== 'telegram' || !account.webhookSecret) {
+      this.logger.warn(`Telegram webhook: аккаунт ${params.accountId.toString()} не найден или не настроен`);
+      return;
+    }
+
+    if (!isValidWebhookSecret(params.secretToken, account.webhookSecret)) {
+      this.logger.warn(`Telegram webhook: неверный секрет для аккаунта ${params.accountId.toString()}`);
+      return;
+    }
+
+    const message = params.update.message;
+    if (!message || !message.text) {
+      // Не текст (фото/стикер/служебный апдейт) — вне текущего объёма N-12.
+      return;
+    }
+    // Присваивание в отдельный const: TS не сохраняет сужение `message.text`
+    // из проверки выше внутри замыкания runInTransaction ниже.
+    const text = message.text;
+
+    const externalChatId = message.chat.id.toString();
+    const externalMessageId = message.message_id.toString();
+    const clientName =
+      [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ').trim() || 'Telegram';
+    const clientHandle = message.from?.username ? `@${message.from.username}` : undefined;
+
+    await runInTransaction(this.connection, async (session) => {
+      let dialog = await this.dialogRepository.findByExternalChatId(
+        account.organizationId,
+        params.accountId,
+        externalChatId,
+        session,
+      );
+
+      if (!dialog) {
+        dialog = await this.dialogRepository.create(
+          {
+            organizationId: account.organizationId,
+            accountId: params.accountId,
+            assignedPositionId: account.assignedPositionId,
+            platform: 'telegram',
+            externalChatId,
+            name: clientName,
+            clientHandle,
+          },
+          session,
+        );
+      }
+
+      const existingMessage = await this.messageRepository.findByExternalMessageId(
+        dialog._id,
+        externalMessageId,
+        session,
+      );
+      if (existingMessage) {
+        // Уже записан при предыдущей доставке того же апдейта — не дублируем.
+        return;
+      }
+
+      const sentAt = new Date(message.date * 1000);
+      await this.messageRepository.create(
+        {
+          organizationId: account.organizationId,
+          dialogId: dialog._id,
+          externalMessageId,
+          author: 'client',
+          text,
+          sentAt,
+        },
+        session,
+      );
+
+      const lastMessage: DialogLastMessage = {
+        text,
+        sentAt,
+        fromMe: false,
+        author: 'client',
+      };
+      await this.dialogRepository.updateLastMessage(dialog._id, account.organizationId, lastMessage, true, session);
     });
   }
 }
