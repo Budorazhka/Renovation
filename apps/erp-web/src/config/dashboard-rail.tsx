@@ -11,6 +11,7 @@ import {
   MessagesSquare,
   Factory,
   BarChart3,
+  ClipboardList,
 } from 'lucide-react'
 import type { UserRole } from '@/types/auth'
 import type { PermissionMap } from '@/data/personnel-permissions'
@@ -116,6 +117,13 @@ export const DASHBOARD_RAIL_ITEMS: DashboardRailItem[] = [
     match: (p) =>
       p.startsWith('/dashboard/community') || p.startsWith('/dashboard/partners'),
   },
+  {
+    id: 'buyer-requests',
+    label: 'Запросы покупателей',
+    to: '/dashboard/buyer-requests',
+    icon: ClipboardList,
+    match: (p) => p.startsWith('/dashboard/buyer-requests'),
+  },
 ]
 
 /**
@@ -123,22 +131,22 @@ export const DASHBOARD_RAIL_ITEMS: DashboardRailItem[] = [
  * Пусто = видит весь список.
  */
 const HIDE_RAIL_IDS_FOR_ROLE: Partial<Record<UserRole, string[]>> = {
-  /** Команда —, Обучение —, Финансы — */
-  marketer: ['team', 'learning', 'finance'],
+  /** Команда —, Обучение —, Финансы —, Запросы покупателей — (нет buyer_request.respond, permission-matrix.md разд.1.1) */
+  marketer: ['team', 'learning', 'finance', 'buyer-requests'],
   /** Операционный администратор: без стратегических контуров. */
   administrator: ['learning', 'finance', 'community', 'chats'],
   /** Стажёр: только базовый операционный контур. */
-  trainee: ['newbuild', 'chats', 'team', 'learning', 'finance', 'community', 'analytics'],
+  trainee: ['newbuild', 'chats', 'team', 'learning', 'finance', 'community', 'analytics', 'buyer-requests'],
   /** Лиды —, Команда —, Обучение —, Финансы —, Сообщество — */
-  lawyer: ['leads', 'team', 'learning', 'finance', 'community'],
+  lawyer: ['leads', 'team', 'learning', 'finance', 'community', 'buyer-requests'],
   /** Legacy роль: не должна использоваться в активном контуре финального ТЗ. */
-  hr: ['crm', 'leads', 'newbuild', 'secondary', 'chats', 'team', 'learning', 'finance', 'community', 'analytics'],
+  hr: ['crm', 'leads', 'newbuild', 'secondary', 'chats', 'team', 'learning', 'finance', 'community', 'analytics', 'buyer-requests'],
   /** Legacy роль: не должна использоваться в активном контуре финального ТЗ. */
-  partner: ['crm', 'leads', 'newbuild', 'secondary', 'chats', 'team', 'learning', 'finance', 'community', 'analytics'],
+  partner: ['crm', 'leads', 'newbuild', 'secondary', 'chats', 'team', 'learning', 'finance', 'community', 'analytics', 'buyer-requests'],
   /** Лиды —, Команда —, Обучение —, Сообщество — */
-  finance: ['leads', 'team', 'learning', 'community'],
-  /** Команда —, Обучение — */
-  procurement_head: ['team', 'learning'],
+  finance: ['leads', 'team', 'learning', 'community', 'buyer-requests'],
+  /** Команда —, Обучение —, Запросы покупателей — (нет buyer_request.respond) */
+  procurement_head: ['team', 'learning', 'buyer-requests'],
 }
 
 /** Доступ к разделу «Чаты» (видимость пункта rail = тот же флаг, что и у guard по `chats`). */

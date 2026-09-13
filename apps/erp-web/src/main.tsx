@@ -29,6 +29,7 @@ import { ProductPage } from '@/components/product/ProductPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
 import { LeadsPokerPage } from '@/components/leads/LeadsPokerPage'
 import LeadsInboxV2Page from '@/pages/leads/LeadsInboxV2Page'
+import BuyerRequestsBoardPage from '@/pages/buyer-requests/BuyerRequestsBoardPage'
 import { RuntimeErrorBoundary } from '@/components/common/RuntimeErrorBoundary'
 import {
   LeadsErrorBoundary,
@@ -559,6 +560,7 @@ createRoot(document.getElementById('root')!).render(
                             <Route path="leads" element={<Navigate to="/dashboard/leads/poker" replace />} />
                             <Route path="leads/poker" element={<LeadsErrorBoundary><RuntimeErrorBoundary><LeadsPokerPage /></RuntimeErrorBoundary></LeadsErrorBoundary>} />
                             <Route path="leads/inbox" element={<LeadsErrorBoundary><RuntimeErrorBoundary><LeadsInboxV2Page /></RuntimeErrorBoundary></LeadsErrorBoundary>} />
+                            <Route path="buyer-requests" element={<RuntimeErrorBoundary><BuyerRequestsBoardPage /></RuntimeErrorBoundary>} />
                             <Route path="leads/analytics" element={<Navigate to="/dashboard/leads/report/general" replace />} />
                             <Route path="my-properties" element={<MyPropertiesPage />} />
                             <Route path="lms" element={<Navigate to="/dashboard/lms/browse" replace />} />
