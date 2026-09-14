@@ -1,14 +1,16 @@
 import { useI18n } from '@/i18n';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import NotificationsViewModal from './NotificationsViewModal';
 import TasksGridModal from './modals/TasksGridModal';
 import { apiService, NotificationType, type Task, EventType, TaskStatus, TaskPriority } from '../../services/api';
+import { listCrmTasks, setCrmTaskStatus } from '../../services/crmTasksV2';
+import { tasksApiV2 } from '@/services/tasksApiV2';
+import { loadCrmCalendarEvents } from '@/lib/calendar-v2-crm-adapter';
 import type { Notification, NotificationAttachment } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
-import { compareArrays } from '../../utils/dataComparison';
 import { useDisableScroll } from '../../hooks/useDisableScroll';
 
 interface NotificationsBlockProps {
@@ -27,6 +29,7 @@ interface OptimizationSuggestion {
 const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView }) => {
   const { t } = useI18n();
   const { user } = useAuth();
+  const userId = user?.id;
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'notifications' | 'reminders' | 'news'>(() => {
     const tab = searchParams.get('notificationsTab') as 'notifications' | 'reminders' | 'news' | null;
@@ -47,6 +50,8 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Notification | null>(null);
   const [imageIndex, setImageIndex] = useState(0);
+  // Версии задач модалки — для оптимистичной блокировки PATCH /tasks/:id.
+  const taskVersionsRef = useRef<Map<string, number>>(new Map());
 
   const truncateMessage = (message: string, maxLength: number = 50): string => {
     if (message.length <= maxLength) return message;
@@ -177,24 +182,15 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
     }
 
     try {
-      // Загружаем полные данные задач
-      const tasksResponse = await apiService.getTasks({
-        page: 1,
-        limit: 100,
-        assignedTo: user?.id,
-      });
-
-      if (tasksResponse.success && tasksResponse.data) {
-        const allTasks = tasksResponse.data.items || [];
-        const filteredTasks = allTasks.filter(t => taskIds.includes(t._id));
-        setTasksForModal(filteredTasks);
-        setTasksGridModalTitle(suggestionTitle);
-        setIsTasksGridModalOpen(true);
-      }
+      const { tasks, versions } = await listCrmTasks(userId);
+      taskVersionsRef.current = versions;
+      setTasksForModal(tasks.filter(t => taskIds.includes(t._id)));
+      setTasksGridModalTitle(suggestionTitle);
+      setIsTasksGridModalOpen(true);
     } catch (error) {
       console.error('Failed to load tasks for modal:', error);
     }
-  }, [user?.id]);
+  }, [userId]);
 
   const listFilter = useMemo(() => {
     if (activeTab === 'reminders') return { type: NotificationType.REMINDER as const };
@@ -204,7 +200,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
 
   // Функция анализа планов на сегодня
   const analyzeTodayPlansData = useCallback(async (): Promise<OptimizationSuggestion[]> => {
-    if (!user?.id) return [];
+    if (!userId) return [];
 
     try {
       const today = new Date();
@@ -212,26 +208,12 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Загружаем задачи на сегодня
-      const tasksResponse = await apiService.getTasks({
-        page: 1,
-        limit: 100,
-        assignedTo: user.id,
-      });
-
-      // Загружаем события через unified API (прогрев кэша / согласованность с календарём)
-      await apiService.getCalendarUnified({
-        startDate: today.toISOString(),
-        endDate: tomorrow.toISOString(),
-        userId: user.id,
-        userRole: user.role,
-      });
+      const { tasks } = await listCrmTasks(userId);
 
       const suggestions: OptimizationSuggestion[] = [];
       const now = new Date();
-      
-      if (tasksResponse.success && tasksResponse.data) {
-        const tasks = tasksResponse.data.items || [];
+
+      {
         const todayTasks = tasks.filter(task => {
           if (!task.startDate && !task.endDate) return false;
           const taskDate = task.startDate ? new Date(task.startDate) : new Date(task.endDate!);
@@ -248,7 +230,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
           suggestions.push({
             id: 'today-plans',
             title: t('notificationsBlock.plansFor', { date: dateStr }),
-            message: `📋 ${t('notificationsBlock.tasksCount')} ${activeTasks.length}\n⚠️ ${t('notificationsBlock.urgentImportantCount', { count: urgentAndImportantTasks.length }).replace('⚠️ ', '')}`,
+            message: `${t('notificationsBlock.tasksCount', { count: activeTasks.length })}\n${t('notificationsBlock.urgentImportantCount', { count: urgentAndImportantTasks.length })}`,
             type: 'info',
             createdAt: now,
             taskIds: activeTasks.map(t => t._id),
@@ -261,7 +243,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
       console.error('Failed to analyze today plans:', error);
       return [];
     }
-  }, [user?.id, user?.role]);
+  }, [userId, t]);
 
   // Анализ планов на сегодня и генерация предложений по оптимизации
   const analyzeTodayPlans = useCallback(async () => {
@@ -269,7 +251,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
     setOptimizationSuggestions(suggestions);
   }, [analyzeTodayPlansData]);
 
-  // Автообновление анализа планов каждые 1.5 секунды
+  // Автообновление анализа планов раз в 30 секунд
   useAutoRefresh({
     fetchData: analyzeTodayPlansData,
     onDataUpdate: (newSuggestions) => {
@@ -286,7 +268,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
                JSON.stringify(old.taskIds) === JSON.stringify(newSuggestion.taskIds);
       });
     },
-    interval: 1500,
+    interval: 30000,
     enabled: activeTab === 'notifications' && !!user?.id,
   });
 
@@ -382,77 +364,24 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
 
   // Функция загрузки напоминаний
   const loadRemindersData = useCallback(async (): Promise<Array<{ id: string; title: string; message: string; date: Date; taskId?: string }>> => {
-    if (!user?.id) return [];
+    if (!userId) return [];
 
     try {
       const now = new Date();
       const futureDate = new Date(now);
       futureDate.setDate(futureDate.getDate() + 7); // Напоминания на неделю вперед
 
-      // Загружаем события-напоминания из календаря через unified API
-      const unifiedResponse = await apiService.getCalendarUnified({
-        startDate: now.toISOString(),
-        endDate: futureDate.toISOString(),
-        userId: user.id,
-        userRole: user.role,
-        type: EventType.REMINDER,
-      });
-      
-      const eventsResponse = unifiedResponse.success && unifiedResponse.data
-        ? { success: true, data: unifiedResponse.data.events || [] }
-        : { success: false, data: [] };
-
-      const reminders: Array<{ id: string; title: string; message: string; date: Date; taskId?: string }> = [];
-      const taskIds: string[] = [];
-
-      if (eventsResponse.success && eventsResponse.data) {
-        const reminderEvents = eventsResponse.data.filter(e => e.type === EventType.REMINDER);
-        reminderEvents.forEach(event => {
-          const eventDate = new Date(event.startTime);
-          // Извлекаем taskId из события (может быть в event.taskId или event.taskId._id)
-          let taskId: string | undefined;
-          if (event.taskId) {
-            taskId = typeof event.taskId === 'string' ? event.taskId : event.taskId._id;
-            if (taskId) taskIds.push(taskId);
-          }
-          reminders.push({
-            id: `reminder_${event._id}`,
-            title: event.title,
-            message: event.description || t('notificationsBlock.reminderTitle', { title: event.title }),
-            date: eventDate,
-            taskId: taskId,
-          });
-        });
-      }
-
-      // Загружаем задачи для получения их названий
-      const tasksMap = new Map<string, string>();
-      if (taskIds.length > 0) {
-        try {
-          const tasksResponse = await apiService.getTasks({ page: 1, limit: 100 });
-          if (tasksResponse.success && tasksResponse.data) {
-            tasksResponse.data.items.forEach(task => {
-              tasksMap.set(task._id, task.title);
-            });
-          }
-        } catch (error) {
-          console.error('Failed to load tasks for reminders:', error);
-        }
-      }
-
-      // Обновляем title и message для напоминаний с задачами
-      reminders.forEach(reminder => {
-        if (reminder.taskId) {
-          const taskTitle = tasksMap.get(reminder.taskId);
-          if (taskTitle) {
-            const truncatedTitle = taskTitle.length > 50 ? taskTitle.substring(0, 50) + '...' : taskTitle;
-            reminder.title = t('notificationsBlock.reminderAbout', { title: truncatedTitle });
-            if (!reminder.message || reminder.message === `Напоминание: ${reminder.title}`) {
-              reminder.message = t('notificationsBlock.reminderTask', { title: truncatedTitle });
-            }
-          }
-        }
-      });
+      // Напоминания — события календаря платформы типа reminder. Событие не
+      // ссылается на задачу (разные сущности), поэтому taskId у них нет.
+      const events = await loadCrmCalendarEvents(now, futureDate);
+      const reminders: Array<{ id: string; title: string; message: string; date: Date; taskId?: string }> = events
+        .filter(event => event.type === EventType.REMINDER)
+        .map(event => ({
+          id: `reminder_${event._id}`,
+          title: event.title,
+          message: event.description || t('notificationsBlock.reminderTitle', { title: event.title }),
+          date: new Date(event.startTime),
+        }));
 
       // Сортируем по дате
       reminders.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -461,7 +390,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
       console.error('Failed to load reminders:', error);
       return [];
     }
-  }, [user?.id, user?.role]);
+  }, [userId, t]);
 
   // Загрузка напоминаний из календаря и задач
   const loadReminders = useCallback(async () => {
@@ -469,7 +398,7 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
     setRemindersFromCalendar(reminders);
   }, [loadRemindersData]);
 
-  // Автообновление напоминаний каждые 1.5 секунды
+  // Автообновление напоминаний раз в 30 секунд
   useAutoRefresh({
     fetchData: loadRemindersData,
     onDataUpdate: (newReminders) => {
@@ -486,99 +415,14 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
                old.taskId === newReminder.taskId;
       });
     },
-    interval: 1500,
+    interval: 30000,
     enabled: activeTab === 'reminders' && !!user?.id,
   });
 
-  // Функция загрузки уведомлений
-  const loadNotifications = useCallback(async (): Promise<Notification[]> => {
-    try {
-      const res = await apiService.getNotifications({ page: 1, limit: 20, ...(listFilter.type ? { type: listFilter.type } : {}) });
-      if (res.success && res.data) {
-        let list = res.data.items || [];
-        if (activeTab === 'notifications') {
-          list = list.filter(n => n.type !== NotificationType.REMINDER && n.type !== NotificationType.NEWS);
-        }
-        // Для новостей исключаем элементы с упоминанием "Планы на" (любую дату)
-        if (activeTab === 'news') {
-          list = list.filter(n => {
-            const title = (n.title || '').toLowerCase();
-            const message = (n.message || '').toLowerCase();
-            // Исключаем любые уведомления, начинающиеся с "планы на"
-            return !title.startsWith('планы на') && !message.includes('планы на');
-          });
-        }
-
-        // Загружаем задачи для напоминаний, чтобы показать их названия
-        const reminderNotifications = list.filter(n => n.type === NotificationType.REMINDER && n.taskId);
-        if (reminderNotifications.length > 0) {
-          const taskIds: string[] = [];
-          reminderNotifications.forEach(n => {
-            const taskId = normalizeTaskId(n.taskId);
-            if (taskId) taskIds.push(taskId);
-          });
-
-          if (taskIds.length > 0) {
-            try {
-              const tasksResponse = await apiService.getTasks({ page: 1, limit: 100 });
-              if (tasksResponse.success && tasksResponse.data) {
-                const tasksMap = new Map<string, string>();
-                tasksResponse.data.items.forEach(task => {
-                  tasksMap.set(task._id, task.title);
-                });
-
-                // Обновляем title для напоминаний с задачами
-                list = list.map(n => {
-                  if (n.type === NotificationType.REMINDER && n.taskId) {
-                    const taskId = normalizeTaskId(n.taskId);
-                    if (taskId) {
-                      const taskTitle = tasksMap.get(taskId);
-                      if (taskTitle) {
-                        const truncatedTitle = taskTitle.length > 50 ? taskTitle.substring(0, 50) + '...' : taskTitle;
-                        return {
-                          ...n,
-                          title: t('notificationsBlock.reminderAbout', { title: truncatedTitle }),
-                        };
-                      }
-                    }
-                  }
-                  return n;
-                });
-              }
-            } catch (error) {
-              console.error('Failed to load tasks for reminder notifications:', error);
-            }
-          }
-        }
-
-        // Сортируем по дате создания (новые первыми)
-        list.sort((a, b) => {
-          const dateA = new Date(a.createdAt || 0).getTime();
-          const dateB = new Date(b.createdAt || 0).getTime();
-          return dateB - dateA; // Убывание: новые первыми
-        });
-        return list.slice(0, 5);
-      }
-      return [];
-    } catch (e) {
-      console.error('Failed to load notifications:', e);
-      return [];
-    }
-  }, [activeTab, listFilter]);
-
-  // Автообновление уведомлений каждые 1.5 секунды
-  useAutoRefresh({
-    fetchData: loadNotifications,
-    onDataUpdate: (newItems) => {
-      setItems(newItems);
-      setLoading(false);
-    },
-    compareFn: (oldItems, newItems) => {
-      return compareArrays(oldItems, newItems, '_id', ['title', 'message', 'isRead', 'type']);
-    },
-    interval: 1500,
-    enabled: true,
-  });
+  // Серверных уведомлений (новости, системные, запросы) у платформы нет —
+  // источник был только на легаси api-crm.baza.sale. Вкладка «Уведомления»
+  // показывает «Планы на сегодня», вкладка «Напоминания» — календарь.
+  const loadNotifications = useCallback(async (): Promise<Notification[]> => [], []);
 
   useEffect(() => {
     // Первая загрузка с индикатором загрузки
@@ -897,14 +741,16 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
           tasks={tasksForModal}
           onUpdateTaskStatus={async (taskId, status) => {
             try {
-              await apiService.updateTask(taskId, { status });
+              const updated = await setCrmTaskStatus(taskId, taskVersionsRef.current.get(taskId) ?? 0, status);
+              taskVersionsRef.current.set(taskId, updated.version);
             } catch (error) {
               console.error('Failed to update task status:', error);
             }
           }}
           onDeleteTask={async (taskId) => {
             try {
-              await apiService.deleteTask(taskId);
+              await setCrmTaskStatus(taskId, taskVersionsRef.current.get(taskId) ?? 0, TaskStatus.CANCELLED);
+              taskVersionsRef.current.delete(taskId);
               setTasksForModal(prev => prev.filter(t => t._id !== taskId));
             } catch (error) {
               console.error('Failed to delete task:', error);
@@ -917,7 +763,8 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
           }}
           onUpdateTaskEndDate={async (taskId, endDate) => {
             try {
-              await apiService.updateTask(taskId, { endDate });
+              const updated = await tasksApiV2.setDueAt(taskId, taskVersionsRef.current.get(taskId) ?? 0, endDate || undefined);
+              taskVersionsRef.current.set(taskId, updated.version);
             } catch (error) {
               console.error('Failed to update task end date:', error);
             }

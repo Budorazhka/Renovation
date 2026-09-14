@@ -1,17 +1,22 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRolePermissions } from '@/hooks/useRolePermissions'
+import { useCrmView } from '@/hooks/useCrmView'
 import { LeadsCardTableView } from './LeadsCardTableView'
+import { CrmViewSwitcher } from './CrmViewSwitcher'
 import { ShieldX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 
-/** Покерный стол лидов (CRM, п. 6.2 ТЗ) — в колонке контента рядом с rail, не скрывает меню. */
+const ClassicCRMPage = lazy(() => import('@/features/crm/CRMPage'))
+
+/** Единая страница CRM: стол, список или классический вид — один раздел, вид выбирается переключателем. */
 export function LeadsPokerPage() {
   const navigate = useNavigate()
   const { isMarketer } = useRolePermissions()
   const { t } = useI18n()
   const [selectedManagerId, setSelectedManagerId] = useState<string>('_all')
+  const [view, setView] = useCrmView()
 
   if (isMarketer) {
     return (
@@ -37,13 +42,29 @@ export function LeadsPokerPage() {
     )
   }
 
+  const switcher = <CrmViewSwitcher value={view} onChange={setView} />
+
+  if (view === 'classic') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-end px-4 py-2">{switcher}</div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Suspense fallback={null}>
+            <ClassicCRMPage />
+          </Suspense>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <LeadsCardTableView
         variant="page"
         selectedManagerId={selectedManagerId}
         onSelectedManagerIdChange={setSelectedManagerId}
-        onBack={() => navigate('/dashboard/crm')}
+        viewMode={view}
+        viewSwitcher={switcher}
       />
     </div>
   )

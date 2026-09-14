@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,8 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core"
-import { ArrowLeft, Filter, Search, X, Eye, MessageSquare, ListTodo, LayoutList, LayoutGrid } from "lucide-react"
+import { ArrowLeft, Filter, Search, X, Eye, MessageSquare, ListTodo, Upload } from "lucide-react"
+import { LeadsImportDialog } from "@/components/leads/LeadsImportDialog"
 import { useLeads } from "@/context/LeadsContext"
 import { useAuth } from "@/context/AuthContext"
 import { useRolePermissions } from "@/hooks/useRolePermissions"
@@ -44,7 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import LeadViewModal from "@/features/crm/components/crm/LeadViewModal"
 import { LeadStage, ProductType, type Lead as CrmLead } from "@/features/crm/services/api/types"
-import { leadsApiV2 } from "@/services/leadsApiV2"
+import { leadsApiV2, OLD_BASE_TAG } from "@/services/leadsApiV2"
 import { mapPokerIdToCrmStage, POKER_SOURCE_TO_CRM_PRODUCT } from "@/lib/crm-poker-adapter"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { cn } from "@/lib/utils"
@@ -261,6 +262,8 @@ export function LeadsCardTableView({
   onSelectedManagerIdChange,
   onClose,
   onBack,
+  viewMode,
+  viewSwitcher,
 }: {
   variant: LeadsCardTableViewVariant
   selectedManagerId: string
@@ -268,8 +271,11 @@ export function LeadsCardTableView({
   onClose?: () => void
   /** В режиме page — опциональная кнопка «Назад» */
   onBack?: () => void
+  viewMode: "poker" | "list"
+  /** Переключатель вида CRM (стол / список / классический) — владеет им страница. */
+  viewSwitcher: ReactNode
 }) {
-  const { state, dispatch, isLoading } = useLeads()
+  const { state, dispatch, isLoading, refreshLeads } = useLeads()
   const { currentUser } = useAuth()
   const { t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -312,6 +318,8 @@ export function LeadsCardTableView({
   const [q, setQ] = useState("")
   const [filterNoTask, setFilterNoTask] = useState(false)
   const [filterNoManager, setFilterNoManager] = useState(false)
+  const [filterOldBase, setFilterOldBase] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [filterOverdue, setFilterOverdue] = useState(false)
 
   // Force selectedManagerId for manager role
@@ -352,7 +360,6 @@ export function LeadsCardTableView({
   const [dealSession, setDealSession] = useState(0)
   const [draggingLead, setDraggingLead] = useState<Lead | null>(null)
   const [expandedStageId, setExpandedStageId] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<"poker" | "list">("poker")
 
   // Покер-доска фиксированного размера масштабируется под доступную область — без прокрутки и наездов.
   const fitRef = useRef<HTMLDivElement>(null)
@@ -475,6 +482,10 @@ export function LeadsCardTableView({
       list = list.filter((lead) => (lead.name ?? lead.id).toLowerCase().includes(term))
     }
 
+    if (filterOldBase) {
+      list = list.filter((lead) => lead.tags?.includes(OLD_BASE_TAG))
+    }
+
     if (filterNoTask || filterNoManager || filterOverdue) {
       list = list.filter((lead) => {
         const noTask = lead.hasTask === false
@@ -506,7 +517,7 @@ export function LeadsCardTableView({
     }
 
     return list
-  }, [leadPool, selectedManagerId, q, filterNoTask, filterNoManager, filterOverdue, onlyCritical, dateFrom, dateTo, selectedProduct])
+  }, [leadPool, selectedManagerId, q, filterNoTask, filterNoManager, filterOverdue, filterOldBase, onlyCritical, dateFrom, dateTo, selectedProduct])
 
   const leadsByStage = useMemo(() => {
     const map: Record<string, Lead[]> = {}
@@ -679,7 +690,7 @@ export function LeadsCardTableView({
               size="sm"
               className={cn(
                 "h-7 shrink-0 gap-1 border-[var(--hub-card-border)] bg-[var(--green-card)] px-1.5 text-[11px] hover:bg-[var(--green-card-hover)]",
-                (dateFrom || dateTo || onlyCritical || filterNoTask || filterNoManager || filterOverdue)
+                (dateFrom || dateTo || onlyCritical || filterNoTask || filterNoManager || filterOverdue || filterOldBase)
                   ? "text-[var(--gold)] border-[color-mix(in_srgb,var(--gold)_44%,transparent)]"
                   : "text-[var(--app-text-muted)]"
               )}
@@ -725,6 +736,13 @@ export function LeadsCardTableView({
               className="text-sm focus:bg-[var(--dropdown-hover)] focus:text-[var(--app-text)]"
             >
               {t('crmPoker.taskOverdue')}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={filterOldBase}
+              onCheckedChange={(v) => setFilterOldBase(v === true)}
+              className="text-sm focus:bg-[var(--dropdown-hover)] focus:text-[var(--app-text)]"
+            >
+              {t('crmPoker.oldBaseFilter')}
             </DropdownMenuCheckboxItem>
             {!isManager && (
               <>
@@ -816,13 +834,14 @@ export function LeadsCardTableView({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setViewMode((m) => (m === "poker" ? "list" : "poker"))}
-          className="h-7 shrink-0 gap-1 px-2 text-[11px] font-medium border-[var(--hub-card-border)] bg-[var(--green-card)] text-[var(--app-text-muted)] hover:bg-[var(--green-card-hover)]"
-          title={viewMode === "poker" ? t('crmPoker.leadsList') : t('crmPoker.pokerTable')}
+          onClick={() => setImportOpen(true)}
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-[11px] font-medium border-[var(--hub-card-border)] bg-[var(--green-card)] text-[var(--app-text)] hover:border-[var(--hub-card-border-hover)] hover:bg-[var(--green-card-hover)]"
         >
-          {viewMode === "poker" ? <LayoutList className="size-3" /> : <LayoutGrid className="size-3" />}
-          {viewMode === "poker" ? t('crmPoker.list') : t('crmPoker.table')}
+          <Upload className="size-3.5 shrink-0" />
+          {t('crmPoker.importBase')}
         </Button>
+
+        {viewSwitcher}
 
         {variant === "dialog" && onClose && (
           <Button
@@ -849,6 +868,7 @@ export function LeadsCardTableView({
       </header>
 
       <LeadsSecretDistributionDialog open={distributionOpen} onOpenChange={setDistributionOpen} />
+      <LeadsImportDialog open={importOpen} onOpenChange={setImportOpen} onImported={() => void refreshLeads()} />
 
       {viewMode === "list" && (
         <div className="relative z-10 min-h-0 flex-1 overflow-auto p-6" style={{ fontFamily: "Montserrat, sans-serif" }}>

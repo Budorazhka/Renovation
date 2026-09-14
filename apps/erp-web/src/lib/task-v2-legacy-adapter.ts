@@ -48,7 +48,11 @@ export function mapTaskV2ToCrmTask(task: TaskV2): CrmTask {
     startDate: task.startAt ?? undefined,
     endDate: task.dueAt ?? undefined,
     colorLabel: task.colorHex ?? undefined,
-    categories: undefined,
+    // Классическая CRM различает вид (звонок/встреча) и рабочие/личные задачи по названиям категорий.
+    categories: [
+      ...(task.taskType === 'call' ? ['Звонок'] : task.taskType === 'meeting' ? ['Встреча'] : []),
+      task.taskCategory === 'personal' ? 'Личные задачи' : 'Рабочие задачи',
+    ],
     clientName: undefined,
     assignedTo: task.assignedPositionId ?? '',
     createdBy: task.createdByPositionId ?? '',

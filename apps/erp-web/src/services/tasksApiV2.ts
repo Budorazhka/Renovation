@@ -6,6 +6,7 @@ import type {
   ListTasksV2Response,
   TaskSubtaskV2,
   TaskV2,
+  UpdateTaskV2Payload,
 } from '@/types/tasksV2'
 
 export * from '@/types/tasksV2'
@@ -145,6 +146,20 @@ export const tasksApiV2 = {
    */
   async setDueAt(taskId: string, expectedVersion: number, dueAt: string | undefined): Promise<TaskV2> {
     const { data } = await api.patch<TaskV2>(`/api/v1/tasks/${taskId}`, { expectedVersion, dueAt })
+    return data
+  },
+
+  /** Правка задачи одним PATCH — любые поля UpdateTaskV2Payload. */
+  async update(taskId: string, expectedVersion: number, payload: UpdateTaskV2Payload): Promise<TaskV2> {
+    const { data } = await api.patch<TaskV2>(`/api/v1/tasks/${taskId}`, { ...payload, expectedVersion })
+    return data
+  },
+
+  /** GET /api/v1/tasks/:taskId/attachments/:assetId/download — временная ссылка на файл. */
+  async getAttachmentDownloadUrl(taskId: string, assetId: string): Promise<{ url: string; fileName: string }> {
+    const { data } = await api.get<{ url: string; fileName: string }>(
+      `/api/v1/tasks/${taskId}/attachments/${assetId}/download`,
+    )
     return data
   },
 

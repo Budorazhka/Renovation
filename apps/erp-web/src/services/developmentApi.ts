@@ -320,61 +320,6 @@ export interface ActivatePromotionPayload {
 
 export type BookingStatus = 'pending' | 'booked' | 'rejected' | 'expired' | 'paid';
 
-/** Status values for old leads (create + list). */
-export type OldLeadStatus = 'active' | 'deleted' | 'converted';
-
-/** Old lead record from GET /api/development/old-leads. */
-export interface OldLead {
-  id: string;
-  name: string;
-  whatsapp: string | null;
-  telegram: string | null;
-  lastContactTime: string | null;
-  status: OldLeadStatus | null;
-  description: string | null;
-  authorId: string | null;
-  developerId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Body of POST /api/development/old-leads — only `name` is required. */
-export interface CreateOldLeadPayload {
-  name: string;
-  whatsapp?: string;
-  telegram?: string;
-  lastContactTime?: string;
-  status?: OldLeadStatus;
-  description?: string;
-}
-
-/** Body of PATCH /api/development/old-leads/:id — every field is optional. */
-export interface UpdateOldLeadPayload {
-  name?: string;
-  whatsapp?: string | null;
-  telegram?: string | null;
-  lastContactTime?: string | null;
-  status?: OldLeadStatus;
-  description?: string | null;
-}
-
-/** One per-row issue from POST /api/development/old-leads/upload-excel. */
-export interface OldLeadExcelRowIssue {
-  row: number;
-  field?: string;
-  message: string;
-}
-
-/** Result of POST /api/development/old-leads/upload-excel. */
-export interface OldLeadsExcelUploadResult {
-  status: string;
-  totalRows?: number;
-  totalCreated: number;
-  totalSkipped?: number;
-  errors?: OldLeadExcelRowIssue[];
-  warnings?: OldLeadExcelRowIssue[];
-}
-
 /** Booking record DTO returned by every /bookings endpoint. */
 export interface Booking {
   id: string;
@@ -1143,31 +1088,6 @@ export const developmentApi = {
   getAnalyticsSummary: (params?: { from?: string; to?: string; projectId?: string }) =>
     api.get<ApiResponse<DeveloperAnalyticsSummaryResponse>>('/api/development/analytics/summary', { params })
       .then(r => r.data),
-
-  // Old leads (импорт из старой таблицы)
-  getOldLeads: (params?: { page?: number; limit?: number }) =>
-    api.get<ApiResponse<PaginatedResponse<OldLead>>>('/api/development/old-leads', { params })
-      .then(r => r.data),
-
-  createOldLead: (data: CreateOldLeadPayload) =>
-    api.post<ApiResponse<OldLead>>('/api/development/old-leads', data).then(r => r.data),
-
-  updateOldLead: (id: string, data: UpdateOldLeadPayload) =>
-    api.patch<ApiResponse<OldLead>>(`/api/development/old-leads/${id}`, data).then(r => r.data),
-
-  uploadOldLeadsExcel: (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post<ApiResponse<OldLeadsExcelUploadResult>>(
-      '/api/development/old-leads/upload-excel',
-      formData,
-      {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-      },
-    ).then(r => r.data);
-  },
 
   // Sales clients (регистрации клиентов за риэлторами)
   createSalesClient: (data: CreateSalesClientPayload) =>

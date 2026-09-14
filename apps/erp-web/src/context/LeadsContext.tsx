@@ -297,6 +297,8 @@ type LeadsContextValue = {
   getLeadWithHistory: (leadId: string) => LeadWithHistory | null
   /** Состояние загрузки данных из CRM */
   isLoading: boolean
+  /** Перечитать лиды с сервера (например, после импорта таблицы). */
+  refreshLeads: () => Promise<void>
 }
 
 const LeadsContext = createContext<LeadsContextValue | null>(null)
@@ -322,7 +324,11 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
       const [leadsResult, positions, settingsRes] = await Promise.all([
         leadsApiV2.listAll(),
         teamApi.list().catch(() => []),
-        apiService.getDistributionSettings(),
+        // Легаси-эндпоинт: на новом backend его нет, отдаёт 404, и без
+        // localStorage-фоллбэка getDistributionSettings бросает. Без .catch()
+        // падал весь Promise.all и стол оставался пустым при исправном
+        // /api/v1/leads — настройка раздачи не должна решать, видны ли лиды.
+        apiService.getDistributionSettings().catch(() => null),
       ])
 
       if (!leadsResult.complete) {
@@ -353,7 +359,7 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
         }))
       dispatch({ type: 'SET_MANAGERS', managers })
 
-      if (settingsRes.success && settingsRes.data) {
+      if (settingsRes?.success && settingsRes.data) {
         dispatch({ type: 'SET_DISTRIBUTION_RULE', rule: { type: settingsRes.data.type } })
         dispatch({ type: 'SET_MANUAL_DISTRIBUTOR', managerId: settingsRes.data.manualDistributorId })
       }
@@ -535,6 +541,7 @@ export function LeadsProvider({ children }: { children: ReactNode }) {
         isAutoDistribution,
         getLeadWithHistory,
         isLoading,
+        refreshLeads: fetchLeads,
       }}
     >
       {children}

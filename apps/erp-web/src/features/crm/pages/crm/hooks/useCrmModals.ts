@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, startTransition } from 'react';
-import { apiService } from '../../../services/api';
+import { tasksApiV2 } from '@/services/tasksApiV2';
 import { saveFilesToIndexedDB } from '../../../utils/taskDraftStorage';
 import type { UseCrmDataReturn } from './useCrmData';
 import type { UseCrmTaskFormReturn } from './useCrmTaskForm';
@@ -171,22 +171,16 @@ export function useCrmModals({
         setSearchParams(newParams, { replace: true });
       } else {
         try {
-          const response = await apiService.getTask(taskId);
-          if (response.success && response.data && response.data._id) {
-            setSelectedTaskForView(taskId);
-            setIsTaskViewModalOpen(true);
-            lastOpenedTaskIdRef.current = taskId;
-            const newParams = new URLSearchParams(searchParams);
-            newParams.set('modal', 'task');
-            newParams.set('taskId', taskId);
-            setSearchParams(newParams, { replace: true });
-            const tasksResponse = await apiService.getTasks({ page: 1, limit: 50 });
-            if (tasksResponse.success && tasksResponse.data) {
-              data.taskSync.syncWithBackend(tasksResponse.data.items);
-            }
-          } else {
-            alert('Задача не найдена или была удалена');
-          }
+          // Бросает 404, если задачи нет или она чужой организации.
+          await tasksApiV2.getById(taskId);
+          setSelectedTaskForView(taskId);
+          setIsTaskViewModalOpen(true);
+          lastOpenedTaskIdRef.current = taskId;
+          const newParams = new URLSearchParams(searchParams);
+          newParams.set('modal', 'task');
+          newParams.set('taskId', taskId);
+          setSearchParams(newParams, { replace: true });
+          await data.loadTasks();
         } catch (error: unknown) {
           const err = error as { response?: { status?: number } };
           if (err.response?.status === 404) alert('Задача не найдена или была удалена');
@@ -195,7 +189,7 @@ export function useCrmModals({
         }
       }
     },
-    [backendTasks, searchParams, setSearchParams, isTaskViewModalOpen, selectedTaskForView, data.taskSync],
+    [backendTasks, searchParams, setSearchParams, isTaskViewModalOpen, selectedTaskForView, data],
   );
 
   const handleCloseTaskView = useCallback(() => {
@@ -366,22 +360,13 @@ export function useCrmModals({
         } else {
           const loadTaskFromAPI = async () => {
             try {
-              const response = await apiService.getTask(taskIdParam);
-              if (response.success && response.data) {
-                startTransition(() => {
-                  setSelectedTaskForView(taskIdParam);
-                  setIsTaskViewModalOpen(true);
-                });
-                lastOpenedTaskIdRef.current = taskIdParam;
-                await loadTasks();
-              } else {
-                const newParams = new URLSearchParams(searchParams);
-                newParams.delete('modal');
-                newParams.delete('taskId');
-                newParams.delete('editing');
-                setSearchParams(newParams, { replace: true });
-                lastOpenedTaskIdRef.current = null;
-              }
+              await tasksApiV2.getById(taskIdParam);
+              startTransition(() => {
+                setSelectedTaskForView(taskIdParam);
+                setIsTaskViewModalOpen(true);
+              });
+              lastOpenedTaskIdRef.current = taskIdParam;
+              await loadTasks();
             } catch {
               const newParams = new URLSearchParams(searchParams);
               newParams.delete('modal');

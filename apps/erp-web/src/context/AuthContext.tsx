@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { teamApi } from '@/services/teamApi'
-import { developersApi } from '@/services/developersApi'
 import { platformAuthApi, type PlatformMeResponse } from '@/services/platformAuthApi'
+import { organizationsAuthApi, type OrganizationType } from '@/services/organizationsAuthApi'
 import type { CurrentUser } from '@/types/auth'
 import type { AccountType, UserRole } from '@/types/auth'
 import { ROLE_LABEL, ACCOUNT_TYPE_LABEL } from '@/lib/permissions'
@@ -177,11 +177,26 @@ function patchFromMe(me: PlatformMeResponse): Partial<CurrentUser> {
   }
 }
 
+/** POST /auth/register отвечает 409 (ConflictException), если login уже занят. */
+function isConflictError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('response' in error)) return false
+  return (error as { response?: { status?: number } }).response?.status === 409
+}
+
 export type LoginResult = 'ok' | 'blocked' | 'invalid'
+export type RegisterResult = 'ok' | 'login_taken' | 'invalid'
 
 interface AuthContextValue {
   currentUser: CurrentUser | null
   login: (login: string, password: string) => Promise<LoginResult>
+  /**
+   * Реальная регистрация: создаёт Identity (POST /auth/register), затем
+   * организацию + owner-позицию (POST /organizations/register) — тот же
+   * двухшаговый онбординг, что apps/api/src/modules/organizations/
+   * organization-onboarding.controller.ts докстринг описывает. Второй шаг
+   * уже ставит session cookie — отдельный login() после этого не нужен.
+   */
+  registerOrganization: (params: { login: string; password: string; type: OrganizationType; name: string }) => Promise<RegisterResult>
   /** Войти в кабинет как выбранный тип и роль (демо, без пароля) */
   enterAs: (accountType: AccountType, role: UserRole) => void
   logout: () => void
@@ -331,28 +346,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // команды, ради которого endpoint задумывался, здесь происходит атомарно
     // при создании организации, а не после логина.
 
-    // Реальный API застройщиков: create-or-return записи текущего пользователя.
-    // Для ролей ≠ developer без записи вернётся null — безопасно звать всегда.
-    void developersApi
-      .ensureSelf()
-      .then((profile) => {
-        if (cancelled || !profile) return
-        setCurrentUser((prev) => {
-          if (!prev) return prev
-          // ИСПРАВЛЕНО 11.09.2026: тот же принцип meWon, что у team-users
-          // ensureSelf выше — companyName уже авторитетно взят из /me
-          // (organization.name). profile.title — маркетинговый заголовок
-          // публичной карточки застройщика, не то же самое, и может законно
-          // отличаться (см. erp-session-context-me.md). Раньше перезаписывал
-          // безусловно, из-за чего внутренний UI мог показать чужой/другой
-          // текст вместо организации, которую только что подтвердил /me.
-          const meWon = prev.serverPermissions !== undefined
-          return meWon ? prev : { ...prev, companyName: profile.title || prev.companyName }
-        })
-      })
-      .catch(() => {
-        /* API застройщиков недоступен — оставляем companyName из кэша сессии */
-      })
+    // developersApi.ensureSelf() отсюда убран 14.09.2026: он ходил в
+    // /api/developers/ensure-self легаси-бэкенда, которого у платформы нет, и
+    // на каждом входе падал 404. Название организации авторитетно приходит из /me.
 
     return () => {
       cancelled = true
@@ -524,6 +520,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return 'invalid'
   }
 
+  /**
+   * Шаг 1+2 реальной регистрации (см. AuthContextValue.registerOrganization
+   * докстринг). После успеха ставим МИНИМАЛЬНЫЙ CurrentUser из уже
+   * известных из ответа полей (organizationId/positionId/name/type, роль —
+   * всегда 'owner': registerOrganizationOwner создаёт только owner-позицию)
+   * — тот же принцип "не блокировать рендер на ensureSelf()", что login()
+   * применяет явно; здесь достаточно смены currentUser.id/login, чтобы уже
+   * существующий useEffect выше (строки ~234-360) сам дотянул serverPermissions
+   * через GET /me, без дублирования той же логики здесь.
+   */
+  async function registerOrganization(params: {
+    login: string
+    password: string
+    type: OrganizationType
+    name: string
+  }): Promise<RegisterResult> {
+    const trimmedLogin = params.login.trim()
+
+    try {
+      await platformAuthApi.register({ login: trimmedLogin, password: params.password })
+    } catch (error) {
+      if (isConflictError(error)) return 'login_taken'
+      console.error('[Auth] Identity registration failed:', error)
+      return 'invalid'
+    }
+
+    try {
+      const result = await organizationsAuthApi.register({
+        login: trimmedLogin,
+        password: params.password,
+        type: params.type,
+        name: params.name,
+      })
+
+      localStorage.setItem('crm_session_active', '1')
+
+      setCurrentUser({
+        id: result.positionId,
+        name: trimmedLogin,
+        login: trimmedLogin,
+        role: 'owner',
+        accountType: params.type === 'developer' ? 'developer' : 'agency',
+        organizationType: params.type,
+        companyId: result.organizationId,
+        companyName: params.name,
+        positionId: result.positionId,
+      })
+      return 'ok'
+    } catch (error) {
+      // Identity из шага 1 уже создана — пользователь может войти обычным
+      // login() тем же логином/паролем, даже если этот шаг упал на сети.
+      console.error('[Auth] Organization registration failed:', error)
+      return 'invalid'
+    }
+  }
+
   function toggleBlockUser(userId: string) {
     setBlockedUserIds((prev) => {
       const next = new Set(prev)
@@ -598,7 +650,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ currentUser, login, enterAs, logout, toggleBlockUser, isUserBlocked, updateProfile }}>
+    <AuthContext.Provider value={{ currentUser, login, registerOrganization, enterAs, logout, toggleBlockUser, isUserBlocked, updateProfile }}>
       {children}
     </AuthContext.Provider>
   )

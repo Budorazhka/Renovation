@@ -20,7 +20,8 @@ function addRecentLeadTag(tag: string): void {
 import { LeadStage, ProductType } from '../../services/api';
 import { resolveDuplicateLeadForUser } from '../../utils/leadDuplicateHelper';
 import { leadsApiV2, newIdempotencyKey } from '@/services/leadsApiV2';
-import { mapLeadV2ToCrmLead, mapProductTypeCrmToV2 } from '@/lib/lead-v2-legacy-adapter';
+import { mapLeadV2ToCrmLead, mapProductTypeCrmToV2, stageCrmToV2 } from '@/lib/lead-v2-legacy-adapter';
+import { OLD_BASE_TAG } from '@/services/leadsApiV2';
 import FilterDropdown from './FilterDropdown';
 import AddLeadModal from './AddLeadModal';
 import CreateClientModal from './CreateClientModal';
@@ -67,6 +68,8 @@ interface LeadsBlockProps {
 const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, onUpdateLead, onUpdateLeadAfterSync, onLoadLeads, onLeadStageChange, onOpenNewTaskModal, onOpenTaskManagementModal, activeLeadId, onLeadDeleted, onProductChange, onCloseChecklist }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
+  // Системная метка импорта показывается подписью, а не машинным значением.
+  const tagLabel = (tag: string) => (tag === OLD_BASE_TAG ? t('crmPoker.oldBaseFilter') : tag);
   const [selectedProduct, setSelectedProduct] = useState<ProductTab>('RP');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [selectedTab, setSelectedTab] = useState<'all' | 'leads' | 'inWork' | 'bought'>('all');
@@ -874,7 +877,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
       // `(lead as any).version` — расширение mapLeadV2ToCrmLead под CAS в
       // этом компоненте (см. lead-v2-legacy-adapter.ts докстринг поля).
       const expectedVersion = (lead as any).version ?? 0;
-      await leadsApiV2.changeStage(leadId, stage, expectedVersion, newIdempotencyKey());
+      await leadsApiV2.changeStage(leadId, stageCrmToV2(stage), expectedVersion, newIdempotencyKey());
 
       // changeStage не отдаёт полную read-модель лида (см. её докстринг) —
       // перечитываем лид, чтобы получить актуальные name/productType/version
@@ -1546,7 +1549,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                 {((record.tags?.[0] != null ? [0, 1] : [0]) as number[]).map((slotIndex) => {
                   const tagValue = record.tags?.[slotIndex];
                   const isFilled = !!tagValue;
-                  const tooltipLabel = isFilled ? `#${tagValue}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
+                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
                   return (
                     <div key={slotIndex} className="relative">
                       <button
@@ -1568,7 +1571,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                       title={tooltipLabel}
                     >
                       {isFilled ? (
-                        <span className="truncate">#{tagValue}</span>
+                        <span className="truncate">#{tagLabel(tagValue)}</span>
                       ) : (
                         <span className="text-[var(--muted-foreground)] leading-none flex items-center justify-center">+</span>
                         )}
@@ -1600,7 +1603,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                 {((record.tags?.[0] != null ? [0, 1] : [0]) as number[]).map((slotIndex) => {
                   const tagValue = record.tags?.[slotIndex];
                   const isFilled = !!tagValue;
-                  const tooltipLabel = isFilled ? `#${tagValue}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
+                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
                   return (
                     <button
                       key={slotIndex}
@@ -1622,7 +1625,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                       title={tooltipLabel}
                     >
                       {isFilled ? (
-                        <span className="truncate">#{tagValue}</span>
+                        <span className="truncate">#{tagLabel(tagValue)}</span>
                       ) : (
                         <span className="text-[var(--muted-foreground)] leading-none flex items-center justify-center">+</span>
                       )}
@@ -2959,7 +2962,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                   className="text-base font-medium px-2.5 py-1 rounded-sm bg-[var(--secondary)] text-[var(--foreground)] hover:bg-[color:var(--primary)]/15 hover:text-[color:var(--primary)] border border-transparent hover:border-[color:var(--primary)]/30 transition-colors"
                   onClick={() => applyTag(tag)}
                 >
-                  #{tag}
+                  #{tagLabel(tag)}
                 </button>
               ))}
             </div>

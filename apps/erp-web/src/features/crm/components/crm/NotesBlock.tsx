@@ -2,7 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useI18n } from '@/i18n';
 import { useDisableScroll } from '../../hooks/useDisableScroll';
-import { apiService, type CreateNoteDto, type UpdateNoteDto, type Note, type NoteFile, type Lead } from '../../services/api';
+import { type CreateNoteDto, type UpdateNoteDto, type Note, type NoteFile, type Lead } from '../../services/api';
+import { notesService } from '../../services/notesV2';
+import { leadsApiV2 } from '@/services/leadsApiV2';
+import { mapLeadV2ToCrmLead } from '@/lib/lead-v2-legacy-adapter';
 import Tooltip from '../common/Tooltip';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh';
 import { 
@@ -116,14 +119,12 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
   useEffect(() => {
     const loadAllLeads = async () => {
       try {
-        const leadsResponse = await apiService.getLeads({ page: 1, limit: 1000 });
-        if (leadsResponse.success && leadsResponse.data) {
-          const map = new Map<string, Lead>();
-          leadsResponse.data.items.forEach((lead: Lead) => {
-            map.set(lead._id, lead);
-          });
-          setLeadsMap(map);
-        }
+        const { items } = await leadsApiV2.listAll();
+        const map = new Map<string, Lead>();
+        items.map(mapLeadV2ToCrmLead).forEach((lead: Lead) => {
+          map.set(lead._id, lead);
+        });
+        setLeadsMap(map);
       } catch (error) {
         console.error(t('notesBlock.errorLoadingLeads'), error);
       }
@@ -135,7 +136,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
   // Функция для загрузки заметок
   const fetchNotes = useCallback(async (): Promise<Note[]> => {
     try {
-      const response = await apiService.getNotes({ page: 1, limit: 100 });
+      const response = await notesService.getNotes();
       if (response.success && response.data) {
         return response.data.items;
       }
@@ -162,7 +163,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
   useAutoRefresh({
     fetchData: fetchNotes,
     onDataUpdate: updateNotes,
-    interval: 2000, // Обновление каждые 2 секунды
+    interval: 30000,
     enabled: true,
     keyField: '_id',
     compareFields: ['title', 'content', 'isPinned', 'category', 'leadId', 'createdAt', 'updatedAt', 'files'],
@@ -283,24 +284,18 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
     }
   };
 
-  // Функция для скачивания файла через прокси (решение проблемы CORS)
+  // Файл открывается по временной ссылке хранилища, которую выдаёт сервер.
   const handleDownloadNoteFile = async (noteId: string, fileIndex: number, filename: string) => {
     try {
-      const blob = await apiService.getNoteFile(noteId, fileIndex);
-      
-      // Создаем URL из blob
-      const url = URL.createObjectURL(blob);
-      
-      // Создаем временную ссылку для скачивания
+      const { url } = await notesService.getNoteFileUrl(noteId, fileIndex);
       const a = document.createElement('a');
       a.href = url;
       a.download = decodeFilename(filename);
+      a.target = '_blank';
+      a.rel = 'noopener';
       document.body.appendChild(a);
       a.click();
-      
-      // Очистка
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
     } catch (error) {
       console.error(t('notesBlock.errorDownloadingFile'), error);
       alert(t('notesBlock.downloadFailedTryAgain'));
@@ -326,7 +321,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         });
       });
       
-      const response = await apiService.pinNote(noteId, !currentPinnedStatus);
+      const response = await notesService.pinNote(noteId, !currentPinnedStatus);
       if (response.success && response.data) {
         // Автообновление через useAutoRefresh обновит список полностью через несколько секунд
       } else {
@@ -473,7 +468,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
     if (!noteToDelete?._id) return;
 
     try {
-      const response = await apiService.deleteNote(noteToDelete._id);
+      const response = await notesService.deleteNote(noteToDelete._id);
       if (response.success) {
         // Удаляем заметку из локального состояния для мгновенного обновления UI
         // Автообновление через useAutoRefresh обновит список полностью через несколько секунд
@@ -513,7 +508,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
 
     try {
       setIsUpdatingViewTitle(true);
-      const response = await apiService.updateNote(viewingNote._id, { title: newTitle });
+      const response = await notesService.updateNote(viewingNote._id, { title: newTitle });
 
       if (response.success && response.data) {
         setViewNoteTitle(newTitle);
@@ -539,7 +534,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
 
     try {
       setIsUpdatingViewDescription(true);
-      const response = await apiService.updateNote(viewingNote._id, { content: newDescription });
+      const response = await notesService.updateNote(viewingNote._id, { content: newDescription });
 
       if (response.success && response.data) {
         setViewNoteDescription(newDescription);
@@ -609,7 +604,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         categoryId = isNaN(parsedId) ? undefined : parsedId;
       }
 
-      const response = await apiService.updateNote(viewingNote._id, { category: categoryId });
+      const response = await notesService.updateNote(viewingNote._id, { category: categoryId });
       
       if (response.success && response.data) {
         setViewingNote(response.data);
@@ -626,43 +621,10 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
     }
   };
 
+  // Своих категорий у заметок платформы нет — только «Личная» и «Рабочая».
   const handleAddViewCategory = async () => {
-    if (newViewCategoryName.trim()) {
-      try {
-        // Используем API для создания категории (get-or-create)
-        const response = await apiService.getOrCreateNoteCategory(newViewCategoryName.trim());
-        
-        if (response.success && response.data) {
-          const newCategory = response.data;
-          const newKey = newCategory.id.toString();
-          const newCategoryLabel = newCategory.name;
-          
-          // Добавляем новую категорию в список
-          setNoteCategoriesList((prev) => [...prev, { key: newKey, label: newCategoryLabel }]);
-          
-          // Обновляем Map категорий
-          setCategoriesMap((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(newCategory.id, newCategoryLabel);
-            return newMap;
-          });
-          
-          // Обновляем категорию заметки
-          if (viewingNote?._id) {
-            await handleUpdateViewCategory(newCategoryLabel);
-          }
-          
-          setNewViewCategoryName('');
-          setIsViewCategoryModalOpen(false);
-          setIsViewCategoryPickerOpen(false);
-        } else {
-          alert(t('notesBlock.failedToCreateCategory'));
-        }
-      } catch (error: any) {
-        console.error(t('notesBlock.errorCreatingCategoryLog'), error);
-        alert(t('notesBlock.errorCreatingCategoryTryAgain'));
-      }
-    }
+    setNewViewCategoryName('');
+    setIsViewCategoryModalOpen(false);
   };
 
   const handleUpdateViewClient = async (leadId: string) => {
@@ -674,7 +636,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         ? { leadId: null } 
         : { leadId: leadId.trim() };
       
-      const response = await apiService.updateNote(viewingNote._id, updateData);
+      const response = await notesService.updateNote(viewingNote._id, updateData);
       
       if (response.success && response.data) {
         setViewingNote(response.data);
@@ -716,7 +678,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
       // Если заметка не имеет content, обновляем её перед удалением файла
       if (!viewingNote.content) {
         try {
-          await apiService.updateNote(viewingNote._id, {
+          await notesService.updateNote(viewingNote._id, {
             content: currentContent,
             title: viewingNote.title
           });
@@ -725,7 +687,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         }
       }
 
-      const response = await apiService.deleteNoteFileByIndex(viewingNote._id, fileToDelete.index);
+      const response = await notesService.deleteNoteFileByIndex(viewingNote._id, fileToDelete.index);
       
       if (response.success && response.data) {
         // Обновляем заметку в модалке
@@ -750,13 +712,13 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         try {
           // Обновляем заметку с content перед повторной попыткой удаления
           const currentContent = viewingNote.content || viewingNote.title || '';
-          await apiService.updateNote(viewingNote._id, {
+          await notesService.updateNote(viewingNote._id, {
             content: currentContent,
             title: viewingNote.title
           });
           
           // Повторяем попытку удаления файла
-          const retryResponse = await apiService.deleteNoteFileByIndex(viewingNote._id, fileToDelete.index);
+          const retryResponse = await notesService.deleteNoteFileByIndex(viewingNote._id, fileToDelete.index);
           
           if (retryResponse.success && retryResponse.data) {
             setViewingNote(retryResponse.data);
@@ -796,26 +758,17 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
       }
 
       // Загружаем файлы через бэкенд
-      const uploadResponse = await apiService.uploadAndRegisterFilesBulk(
-        filesArray,
-        'note',
-        viewingNote._id,
-        'notes'
-      );
+      const uploadResponse = await notesService.uploadNoteFiles(viewingNote._id, filesArray);
 
       if (uploadResponse.success && uploadResponse.data) {
-        // Обновляем заметку, получая свежие данные
-        const noteResponse = await apiService.getNote(viewingNote._id);
-        if (noteResponse.success && noteResponse.data) {
-          const updatedNote = noteResponse.data;
-          setViewingNote(updatedNote);
-          setViewNoteFiles(updatedNote.files || []);
-          
-          // Обновляем заметку в локальном состоянии для мгновенного обновления UI
-          setNotes(prev => prev.map(note => 
-            note._id === viewingNote._id ? updatedNote : note
-          ));
-        }
+        const updatedNote = uploadResponse.data;
+        setViewingNote(updatedNote);
+        setViewNoteFiles(updatedNote.files || []);
+        setNotes(prev => prev.map(note =>
+          note._id === viewingNote._id ? updatedNote : note
+        ));
+      } else {
+        alert(uploadResponse.message || t('notesBlock.errorUploadingFiles'));
       }
 
       if (viewNoteFileInputRef.current) {
@@ -851,7 +804,7 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
           // Сортируем индексы по убыванию, чтобы удалять с конца (чтобы индексы не сдвигались)
           const sortedIndexes = [...deletedFileIndexes].sort((a, b) => b - a);
           for (const fileIndex of sortedIndexes) {
-            await apiService.deleteNoteFileByIndex(editingNoteId, fileIndex);
+            await notesService.deleteNoteFileByIndex(editingNoteId, fileIndex);
           }
         } catch (error) {
           console.error(t('notesBlock.errorDeletingFilesLog'), error);
@@ -881,18 +834,14 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         updateData.leadId = null;
       }
 
-      const response = await apiService.updateNote(editingNoteId, updateData);
+      const response = await notesService.updateNote(editingNoteId, updateData);
 
       if (response.success && response.data) {
         // Загружаем новые файлы, если они есть (через новую систему)
         if (selectedNoteFiles.length > 0) {
           try {
-            await apiService.uploadAndRegisterFilesBulk(
-              selectedNoteFiles,
-              'note',
-              editingNoteId,
-              'notes'
-            );
+            const uploadResult = await notesService.uploadNoteFiles(editingNoteId, selectedNoteFiles);
+            if (!uploadResult.success) alert(uploadResult.message || t('notesBlock.errorUploadingFiles'));
           } catch (error) {
             console.error(t('notesBlock.errorUploadingFilesLog'), error);
           }
@@ -983,18 +932,14 @@ const NotesBlock: React.FC<NotesBlockProps> = ({ onCloseChecklist, onOpenNewTask
         noteData.leadId = selectedNoteLeadId.trim();
       }
 
-      const response = await apiService.createNote(noteData);
+      const response = await notesService.createNote(noteData);
 
       if (response.success && response.data) {
         // Загружаем файлы, если они есть (через новую систему)
         if (selectedNoteFiles.length > 0) {
           try {
-            await apiService.uploadAndRegisterFilesBulk(
-              selectedNoteFiles,
-              'note',
-              response.data._id,
-              'notes'
-            );
+            const uploadResult = await notesService.uploadNoteFiles(response.data._id, selectedNoteFiles);
+            if (!uploadResult.success) alert(uploadResult.message || t('notesBlock.errorUploadingFiles'));
           } catch (error) {
             console.error(t('notesBlock.errorUploadingFilesLog'), error);
           }

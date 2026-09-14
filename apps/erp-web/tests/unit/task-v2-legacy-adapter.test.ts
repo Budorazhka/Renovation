@@ -60,6 +60,11 @@ describe('task-v2-legacy-adapter', () => {
     expect(mapTaskV2ToCrmTask(makeTask({ isUrgent: false, isImportant: false })).priority).toBe(TaskPriority.NOT_URGENT_NOT_IMPORTANT)
   })
 
+  it('категория задачи сохраняется: work → «Рабочие задачи», personal → «Личные задачи»', () => {
+    expect(mapTaskV2ToCrmTask(makeTask({ taskCategory: 'work' })).categories).toEqual(['Рабочие задачи'])
+    expect(mapTaskV2ToCrmTask(makeTask({ taskCategory: 'personal' })).categories).toEqual(['Личные задачи'])
+  })
+
   it('маппит подзадачи done→completed', () => {
     const task = makeTask({ subtasks: [{ id: 's-1', title: 'Уточнить бюджет', done: true }, { id: 's-2', title: 'Отправить КП', done: false }] })
     const crmTask = mapTaskV2ToCrmTask(task)

@@ -78,7 +78,7 @@ const FEED_STACK_CLASS = 'flex min-w-0 flex-1 flex-col gap-1'
 const LEADS_POKER_HREF = '/dashboard/leads/poker'
 
 /** Классическая CRM — блок задач */
-const CRM_TASKS_HREF = '/dashboard/crm/classic'
+const CRM_TASKS_HREF = '/dashboard/leads/poker?view=classic'
 
 const DESK_HEADER_LINK_CLASS =
   'text-[13px] font-normal uppercase tracking-wide text-[color:var(--theme-accent-link-dim)] hover:text-[color:var(--theme-accent-link)] sm:text-[14px]'

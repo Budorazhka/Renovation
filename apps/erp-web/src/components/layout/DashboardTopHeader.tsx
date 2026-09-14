@@ -62,13 +62,6 @@ export function DashboardTopHeader() {
 
   const isDevManagement = location.pathname.startsWith('/dashboard/development/management')
 
-  /** Страницы CRM — переключатель визуалов (воронка / классическая / старые лиды) в шапке */
-  const isCrmVisual =
-    location.pathname.startsWith('/dashboard/crm/classic') ||
-    location.pathname.startsWith('/dashboard/crm/old-leads') ||
-    location.pathname.startsWith('/dashboard/leads/poker') ||
-    location.pathname.startsWith('/dashboard/leads/inbox')
-
   const btn = cn(
     'inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px] font-normal transition-colors',
     isLight
@@ -161,41 +154,6 @@ export function DashboardTopHeader() {
                 aria-selected={isActive}
                 className={cn(
                   'flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-[14px] font-normal transition-colors sm:min-h-10 sm:px-4',
-                  isActive
-                    ? isLight
-                      ? 'border-amber-400/55 bg-amber-100/70 text-slate-900'
-                      : 'border-[color:color-mix(in_srgb,var(--gold)_60%,transparent)] bg-[color-mix(in_srgb,var(--gold)_18%,transparent)] text-emerald-50'
-                    : isLight
-                      ? 'border-slate-200/90 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-                      : 'border-emerald-800/45 text-emerald-100/65 hover:bg-emerald-900/35 hover:text-emerald-50',
-                )}
-              >
-                {tab.label}
-              </Link>
-            )
-          })}
-        </div>
-      ) : isCrmVisual ? (
-        <div
-          className="flex shrink-0 items-center gap-1 sm:gap-1.5 overflow-x-auto"
-          role="tablist"
-          aria-label={t('shell.crmView')}
-        >
-          {[
-            { id: 'funnel', label: t('tabs.funnel'), path: '/dashboard/leads/poker' },
-            { id: 'classic', label: t('tabs.classic'), path: '/dashboard/crm/classic' },
-            { id: 'oldLeads', label: t('tabs.oldLeads'), path: '/dashboard/crm/old-leads' },
-            { id: 'inboxV2', label: t('tabs.inboxV2'), path: '/dashboard/leads/inbox' },
-          ].map((tab) => {
-            const isActive = location.pathname === tab.path || location.pathname.startsWith(tab.path + '/')
-            return (
-              <Link
-                key={tab.id}
-                to={tab.path}
-                role="tab"
-                aria-selected={isActive}
-                className={cn(
-                  'flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-[16px] font-normal transition-colors sm:min-h-10 sm:px-4',
                   isActive
                     ? isLight
                       ? 'border-amber-400/55 bg-amber-100/70 text-slate-900'

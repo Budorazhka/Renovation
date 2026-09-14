@@ -8,6 +8,8 @@
 export type TaskStatusV2 = 'open' | 'in_progress' | 'completed' | 'cancelled'
 export type TaskPriorityV2 = 'low' | 'medium' | 'high' | 'critical'
 export type TaskCategoryV2 = 'work' | 'personal'
+/** Вид задачи: обычная, звонок или встреча. Независим от категории «рабочая/личная». */
+export type TaskTypeV2 = 'standard' | 'call' | 'meeting'
 export type TaskEntityTypeV2 = 'lead' | 'client' | 'deal' | 'property' | 'booking' | 'none'
 
 export interface TaskAttachmentV2 {
@@ -36,6 +38,7 @@ export interface TaskV2 {
   /** Квадрант для экрана. Сервер выводит из признаков, не хранит. */
   priority: TaskPriorityV2
   taskCategory: TaskCategoryV2
+  taskType: TaskTypeV2
   colorHex: string | null
   reminderOffsetsMinutes: number[]
   subtasks: TaskSubtaskV2[]
@@ -89,6 +92,7 @@ export interface CreateTaskV2Payload {
   isUrgent?: boolean
   isImportant?: boolean
   taskCategory?: TaskCategoryV2
+  taskType?: TaskTypeV2
   colorHex?: string | null
   reminderOffsetsMinutes?: number[]
   subtasks?: TaskSubtaskV2[]
@@ -97,4 +101,24 @@ export interface CreateTaskV2Payload {
   assignedPositionId?: string
   leadId?: string
   contactId?: string
+}
+
+/**
+ * Тело PATCH /tasks/:taskId. Исполнитель сюда не входит — только через
+ * /reassign; завершение — только через /complete. `null` снимает значение.
+ */
+export interface UpdateTaskV2Payload {
+  title?: string
+  description?: string
+  status?: 'open' | 'in_progress' | 'cancelled'
+  dueAt?: string | null
+  startAt?: string | null
+  isUrgent?: boolean
+  isImportant?: boolean
+  taskCategory?: TaskCategoryV2
+  taskType?: TaskTypeV2
+  colorHex?: string | null
+  leadId?: string | null
+  subtasks?: TaskSubtaskV2[]
+  attachments?: TaskAttachmentV2[]
 }

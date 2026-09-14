@@ -11,14 +11,10 @@ import { pathToFileURL } from 'node:url';
  * BLOCKED_INFRASTRUCTURE reporting with remediation commands, and the thing
  * Playwright's globalSetup actually imports) see scripts/runtime/preflight.mjs.
  *
- * ADMIN_WEB replaces the previous stale ERP_WEB entry.
- *
- * Уточнение: apps/erp-web с 02.09.2026 лежит в репозитории как вендоренная
- * копия, но в runtime-стеке его нет и здесь он не проверяется. Причина не в
- * забывчивости: пакет намеренно исключён из workspace (pnpm-workspace.yaml),
- * поэтому его образ невозможно собрать теми же командами, что остальные.
- * Попытка добавить сервис в стек 04.09.2026 уронила гейт дважды и была
- * отменена.
+ * apps/erp-web вернулся в workspace и в runtime-стек (см. compose.runtime.yml)
+ * позже 04.09.2026 — этот комментарий раньше объяснял, почему erp-web
+ * исключён, но с тех пор устарел: DEFAULTS/checkEndpoint ниже уже проверяют
+ * его наравне с остальными тремя приложениями.
  */
 const DEFAULTS = {
   api: 'http://localhost:3000',

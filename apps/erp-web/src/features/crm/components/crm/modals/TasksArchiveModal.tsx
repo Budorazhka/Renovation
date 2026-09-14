@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { apiService, type Task, TaskStatus, TaskPriority } from '../../../services/api';
+import { type Task, TaskPriority } from '../../../services/api';
+import { tasksApiV2 } from '@/services/tasksApiV2';
+import { mapTaskV2ToCrmTask } from '@/lib/task-v2-legacy-adapter';
 import { useDisableScroll } from '../../../hooks/useDisableScroll';
 import Tooltip from '../../common/Tooltip';
 import { useI18n } from '@/i18n';
@@ -27,6 +29,8 @@ const TasksArchiveModal: React.FC<TasksArchiveModalProps> = ({ isOpen, onClose, 
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'personal' | 'work'>('all');
   const [restoringTaskId, setRestoringTaskId] = useState<string | null>(null);
   const [confirmRestoreTask, setConfirmRestoreTask] = useState<Task | null>(null);
+  // Версии задач для оптимистичной блокировки при восстановлении (PATCH требует expectedVersion).
+  const versionsRef = useRef<Map<string, number>>(new Map());
 
   // Вычисляем дату 30 дней назад
   const getThirtyDaysAgo = () => {
@@ -40,33 +44,15 @@ const TasksArchiveModal: React.FC<TasksArchiveModalProps> = ({ isOpen, onClose, 
       setLoading(true);
       setError(null);
 
-      // Фильтруем задачи: удаленные и выполненные за последние 30 дней
-      const thirtyDaysAgo = getThirtyDaysAgo();
-      
-      // Определяем категорию для фильтра
-      let categoryParam: string | undefined;
-      if (categoryFilter === 'personal') {
-        categoryParam = 'Личные задачи';
-      } else if (categoryFilter === 'work') {
-        categoryParam = 'Рабочие задачи';
-      }
-
-      // Получаем все удаленные задачи (без фильтра по статусу на бэкенде)
-      // Используем большой limit, чтобы получить все задачи для фильтрации на клиенте
-      const result = await apiService.getArchivedTasks({
-        page: 1,
-        limit: 1000, // Получаем все задачи для фильтрации на клиенте
-        ...(categoryParam && { category: categoryParam }),
+      // Архив — отменённые (удалённые) задачи за последние 30 дней.
+      const thirtyDaysAgo = new Date(getThirtyDaysAgo());
+      const { items } = await tasksApiV2.listAll({ status: 'cancelled' });
+      const recent = items.filter((task) => {
+        const changedAt = new Date(task.updatedAt ?? task.createdAt);
+        return changedAt >= thirtyDaysAgo && (categoryFilter === 'all' || task.taskCategory === categoryFilter);
       });
-
-      // Фильтруем задачи: все удаленные за последние 30 дней ИЛИ выполненные за последние 30 дней
-      const filteredTasks = (result.data?.items || []).filter(task => {
-        const updatedAt = new Date(task.updatedAt);
-        const isWithin30Days = updatedAt >= new Date(thirtyDaysAgo);
-        // Показываем все удаленные задачи за последние 30 дней
-        // ИЛИ выполненные задачи за последние 30 дней (даже если удалены раньше)
-        return isWithin30Days || (task.status === TaskStatus.COMPLETED && isWithin30Days);
-      });
+      recent.forEach((task) => versionsRef.current.set(task.id, task.version));
+      const filteredTasks = recent.map(mapTaskV2ToCrmTask);
 
       // Применяем пагинацию на клиенте
       const startIndex = (page - 1) * pagination.limit;
@@ -109,21 +95,10 @@ const TasksArchiveModal: React.FC<TasksArchiveModalProps> = ({ isOpen, onClose, 
       setRestoringTaskId(task._id);
       setError(null);
       
-      const response = await apiService.restoreTask(task._id);
-      
-      if (response.success && response.data) {
-        // Вызываем callback для обновления списка задач
-        if (onTaskRestored) {
-          onTaskRestored(response.data);
-        }
-        
-        // Обновляем список архива после восстановления
-        await fetchArchivedTasks(pagination.page);
-        
-        setConfirmRestoreTask(null);
-      } else {
-        setError(response.message || t('tasksArchiveErrors.restoreError'));
-      }
+      const restored = await tasksApiV2.setStatus(task._id, versionsRef.current.get(task._id) ?? 0, 'open');
+      onTaskRestored?.(mapTaskV2ToCrmTask(restored));
+      await fetchArchivedTasks(pagination.page);
+      setConfirmRestoreTask(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : t('tasksArchiveErrors.restoreError');
       setError(errorMessage);

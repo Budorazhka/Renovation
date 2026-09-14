@@ -13,6 +13,7 @@ import { ka } from '@/i18n/dictionaries/ka'
 import { es } from '@/i18n/dictionaries/es'
 import { tr } from '@/i18n/dictionaries/tr'
 import { applyRuntimeTranslations } from '@/i18n/runtimeTranslations'
+import { interpolate } from './interpolate'
 import type { Language, Translate, TranslationTree, FormatDate, FormatNumber } from '@/i18n/types'
 
 const LANGUAGE_STORAGE_KEY = 'erp.language'
@@ -52,13 +53,6 @@ function resolveTranslation(dictionary: TranslationTree, key: string): string | 
   }, dictionary)
 
   return typeof value === 'string' ? value : undefined
-}
-
-function interpolate(text: string, params?: Record<string, string | number>): string {
-  if (!params) return text
-  return text.replace(/\{(\w+)\}/g, (match, key) => {
-    return params[key] !== undefined ? String(params[key]) : match
-  })
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {

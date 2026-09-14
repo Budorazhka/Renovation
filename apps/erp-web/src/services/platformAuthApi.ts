@@ -43,6 +43,15 @@ export const platformAuthApi = {
     return data
   },
 
+  /**
+   * Шаг 1 онбординга (AuthController.register) — создаёт голую Identity, БЕЗ
+   * сессии (cookie не ставится). Шаг 2 — organizationsAuthApi.register.
+   */
+  async register(params: { login: string; password: string }): Promise<{ identityId: string }> {
+    const { data } = await api.post<{ identityId: string }>('/api/v1/auth/register', params)
+    return data
+  },
+
   async logout(): Promise<{ loggedOut: true }> {
     const { data } = await api.post<{ loggedOut: true }>('/api/v1/auth/logout')
     return data

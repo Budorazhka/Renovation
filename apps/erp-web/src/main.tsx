@@ -37,7 +37,7 @@ import {
   ProductErrorBoundary,
   SettingsErrorBoundary,
 } from '@/components/common/ModuleErrorBoundary'
-import { AgencyOnboarding } from '@/components/onboarding/AgencyOnboarding'
+import { RegisterPage } from '@/components/auth/RegisterPage'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { InviteActivatePage } from '@/components/auth/InviteActivatePage'
 import { LMSPage } from '@/components/lms/LMSPage'
@@ -69,8 +69,6 @@ import { SelectionsListPage } from '@/components/selections/SelectionsListPage'
 import { SelectionCardPage } from '@/components/selections/SelectionCardPage'
 import { SelectionsNewPage } from '@/components/selections/SelectionsNewPage'
 import { SelectionsHubPage } from '@/components/selections/SelectionsHubPage'
-import ClassicCRMPage from '@/features/crm/CRMPage'
-import { OldLeadsPage } from '@/components/crm/OldLeadsPage'
 import ClientsPage from '@/pages/modules/ClientsPage'
 import PartnersMlmAnalyticsPage from '@/pages/modules/PartnersMlmAnalyticsPage'
 import ChatsPage from '@/pages/modules/ChatsPage'
@@ -253,8 +251,8 @@ createRoot(document.getElementById('root')!).render(
                         <Route element={<Outlet />}>
                           <Route path="/" element={<EntryRoute />} />
                           <Route path="/login" element={<LoginPage />} />
-                          <Route path="/register" element={<AgencyOnboarding />} />
-                          <Route path="/register/agency" element={<AgencyOnboarding />} />
+                          <Route path="/register" element={<RegisterPage />} />
+                          <Route path="/register/agency" element={<RegisterPage />} />
                           <Route path="/s/:token" element={<ClientSelectionPage />} />
                           <Route path="/lot/:unitId" element={<ClientUnitPage />} />
                           <Route path="/invite/:token" element={<InviteActivatePage />} />
@@ -428,8 +426,8 @@ createRoot(document.getElementById('root')!).render(
                             </Route>
                             <Route path="crm" element={<Outlet />}>
                               <Route index element={<Navigate to="/dashboard/leads/poker" replace />} />
-                              <Route path="classic" element={<ClassicCRMPage />} />
-                              <Route path="old-leads" element={<OldLeadsPage />} />
+                              <Route path="classic" element={<Navigate to="/dashboard/leads/poker?view=classic" replace />} />
+                              <Route path="old-leads" element={<Navigate to="/dashboard/leads/poker" replace />} />
                               <Route
                                 path="analytics"
                                 element={

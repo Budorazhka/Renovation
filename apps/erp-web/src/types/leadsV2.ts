@@ -89,6 +89,9 @@ export interface LeadV2 {
   rejectionReason?: string | null
   rejectionComment?: string | null
   telegram?: string | null
+  /** Из импорта старой базы. */
+  whatsapp?: string | null
+  lastContactAt?: string | null
   country?: string | null
   /**
    * realtorStage/curatorStage — независимые указатели легаси 6-ступенчатой
@@ -103,6 +106,12 @@ export interface LeadV2 {
 
 /** Тело PATCH /leads/:leadId — см. UpdateLeadDto (apps/api). Все поля опциональны, `stage` сюда не входит (отдельный эндпоинт .../stage). */
 export interface UpdateLeadV2Payload {
+  /** Имя, телефон и почта — поля контакта лида; сервер обновляет контакт. */
+  name?: string
+  phone?: string
+  email?: string | null
+  /** Смена продукта сбрасывает стадию в «Новый лид» нового продукта. */
+  productType?: LeadProductTypeV2
   city?: string
   notes?: string
   tags?: string[]

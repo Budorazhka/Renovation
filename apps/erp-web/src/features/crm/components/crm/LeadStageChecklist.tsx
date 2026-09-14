@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { LeadStage, ProductType, apiService, type LeadFile, type LibraryFolder } from '../../services/api';
+import { leadCrmService } from '../../services/leadsCrmV2';
 import { useToast } from '../common/Toast';
 import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
 import {
@@ -788,7 +789,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
   useEffect(() => {
     const loadChecklistState = async () => {
       try {
-        const response = await apiService.getChecklistState(leadId);
+        const response = await leadCrmService.getChecklistState(leadId);
         if (response.success && response.data) {
           const saved: Record<string, boolean> = {};
           response.data.items.forEach(item => {
@@ -827,7 +828,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     if (changes.length === 0) return;
 
     try {
-      const response = await apiService.saveChecklistState(leadId, changes);
+      const response = await leadCrmService.saveChecklistState(leadId, changes);
       if (response.success && response.data) {
       } else {
         console.error('Failed to save checklist to backend:', response.message);
@@ -893,7 +894,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     }
     
     try {
-      const response = await apiService.getLeadFiles(leadId);
+      const response = await leadCrmService.getLeadFiles(leadId);
       if (response.success && response.data) {
         setFiles(response.data.files);
       }
@@ -1217,7 +1218,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     setDeleteLeadFileConfirm({ isOpen: false, filename: null });
     
     try {
-      const response = await apiService.deleteLeadFileByName(leadId, filename);
+      const response = await leadCrmService.deleteLeadFileByName(leadId, filename);
       if (response.success) {
         await loadLeadFiles();
         showToast(t('checklist.fileDeleted'), 'success');
@@ -1293,12 +1294,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
         return;
       }
 
-      const response = await apiService.uploadAndRegisterFilesBulk(
-        filesArray,
-        'lead',
-        leadId,
-        'leads'
-      );
+      const response = await leadCrmService.uploadLeadFiles(leadId, filesArray);
 
       if (response.success) {
         await loadLeadFiles();
@@ -1364,7 +1360,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     setIsSaving(true);
     try {
       // Получаем существующий комментарий этапа
-      const existingCommentResponse = await apiService.getStageComment(leadId, stage);
+      const existingCommentResponse = await leadCrmService.getStageComment(leadId, stage);
       
       let commentToSave = quickNoteText.trim();
       
@@ -1376,7 +1372,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
       }
       
       // Сохраняем комментарий (обновленный или новый)
-      const response = await apiService.createStageComment(leadId, stage, commentToSave);
+      const response = await leadCrmService.createStageComment(leadId, stage, commentToSave);
       
       if (!response.success) {
         throw new Error('Не удалось сохранить комментарий этапа');

@@ -112,13 +112,10 @@ describe('AuthContext: контекст сессии приходит из GET /
     expect(screen.getByTestId('permissions').textContent).toBe('1')
   })
 
-  // ИСПРАВЛЕНО 11.09.2026 (erp-session-context-me.md, «Что осталось
-  // открытым»): developersApi.ensureSelf() безусловно перетирал companyName
-  // значением profile.title (маркетинговый заголовок публичной карточки
-  // застройщика, не то же самое, что organization.name) — тот же класс
-  // гонки, что уже был у team-users ensureSelf выше, но без такой же охраны
-  // meWon.
-  it('организация из /me не перетирается profile.title от developersApi.ensureSelf', async () => {
+  // developersApi.ensureSelf() ходил в легаси /api/developers/ensure-self
+  // (у платформы его нет, всегда 404) и мог перетереть companyName заголовком
+  // публичной карточки. С 14.09.2026 при входе он не вызывается вовсе.
+  it('организация берётся из /me, легаси-профиль застройщика не запрашивается', async () => {
     me.mockResolvedValue(ME_RESPONSE)
     ensureSelf.mockResolvedValue(null)
     // Публичная карточка застройщика существует и отдаёт другой заголовок —
@@ -138,6 +135,7 @@ describe('AuthContext: контекст сессии приходит из GET /
 
     await waitFor(() => expect(screen.getByTestId('company-id').textContent).toBe('org-42'))
     expect(screen.getByTestId('company-name').textContent).toBe('АН Премиум')
+    expect(developersEnsureSelf).not.toHaveBeenCalled()
   })
 
   it('при недоступном /me реальный пользователь не попадает в мок-компанию c1', async () => {

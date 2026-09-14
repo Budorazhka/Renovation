@@ -12,6 +12,8 @@ import {
   mapLeadV2ToCrmLead,
   mapProductTypeCrmToV2,
   mapProductTypeV2ToCrm,
+  stageCrmToV2,
+  stageV2ToCrm,
 } from '@/lib/lead-v2-legacy-adapter'
 import type { LeadEventV2, LeadV2 } from '@/types/leadsV2'
 
@@ -84,9 +86,34 @@ describe('lead-v2-legacy-adapter', () => {
     expect(crmLead.updatedAt).toBe(crmLead.createdAt)
   })
 
-  it('mapLeadV2ToCrmLead — прокидывает version (не в легаси-интерфейсе Lead) для CAS в LeadsBlock/LeadsComponent', () => {
+  it('mapLeadV2ToCrmLead — прокидывает version (не в легаси-интерфейсе Lead) для CAS в LeadsBlock', () => {
     const crmLead = mapLeadV2ToCrmLead(makeLead({ version: 7 }))
     expect((crmLead as any).version).toBe(7)
+  })
+
+  it('стадии продаж переводятся: backend `new` → легаси needs_analysis («Новый лид»), `defective` → rejected', () => {
+    expect(mapLeadV2ToCrmLead(makeLead({ productType: 'sales', stage: 'new' })).stage).toBe('needs_analysis')
+    expect(mapLeadV2ToCrmLead(makeLead({ productType: 'sales', stage: 'defective' })).stage).toBe('rejected')
+    expect(mapLeadV2ToCrmLead(makeLead({ productType: 'sales', stage: 'golden' })).stage).toBe('deal_closed')
+  })
+
+  it('stageCrmToV2 — обратный перевод для PATCH /stage; стадии с префиксом продукта не меняются', () => {
+    expect(stageCrmToV2('needs_analysis')).toBe('new')
+    expect(stageCrmToV2('rejected')).toBe('defective')
+    expect(stageCrmToV2('network_call_later')).toBe('network_call_later')
+    for (const backendId of ['defective', 'refused', 'new', 'callback', 'deal', 'golden', 'new_deals']) {
+      expect(stageCrmToV2(stageV2ToCrm(backendId))).toBe(backendId)
+    }
+  })
+
+  it('история и комментарии стадий тоже в легаси-номенклатуре', () => {
+    const events = [
+      { id: 'e-2', leadId: 'lead-1', stage: 'callback', changedBy: { type: 'system' as const }, changedAt: '2026-09-02T00:00:00Z', comment: 'перезвонить' },
+      { id: 'e-1', leadId: 'lead-1', stage: 'new', changedBy: { type: 'system' as const }, changedAt: '2026-09-01T00:00:00Z', comment: null },
+    ]
+    const history = mapLeadEventsV2ToLegacyHistory(events as never)
+    expect(history[0]).toMatchObject({ fromStage: 'needs_analysis', toStage: 'presentation' })
+    expect(buildStageCommentsMap(events as never).get('presentation' as never)).toBe('перезвонить')
   })
 
   it('mapProductTypeCrmToV2 — обратное к mapProductTypeV2ToCrm', () => {

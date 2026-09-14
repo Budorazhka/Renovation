@@ -223,4 +223,68 @@ export const leadsApiV2 = {
     const { data } = await api.get<LeadStageDefinitionsV2Response>('/api/v1/leads/stage-definitions')
     return data
   },
+
+  /**
+   * POST /api/v1/leads/import — таблица (.xlsx/.csv) с колонками phone
+   * (обязательна), name, whatsapp, telegram, comment, last_contact. С tag =
+   * OLD_BASE_TAG каждый созданный лид получает метку старой базы.
+   */
+  async importLeads(file: File, options?: { tag?: typeof OLD_BASE_TAG }): Promise<LeadImportResultV2> {
+    const form = new FormData()
+    form.append('file', file)
+    const { data } = await api.post<{ success: boolean; data: LeadImportResultV2 }>('/api/v1/leads/import', form, {
+      params: options?.tag ? { tag: options.tag } : undefined,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return data.data
+  },
+}
+
+/** Чек-лист стадий лида и заметки к стадиям (GET/PATCH /leads/:id/checklist, PUT /leads/:id/stage-notes/:stage). */
+export const leadChecklistApiV2 = {
+  async get(leadId: string): Promise<LeadChecklistV2> {
+    const { data } = await api.get<LeadChecklistV2>(`/api/v1/leads/${leadId}/checklist`)
+    return data
+  },
+
+  async update(leadId: string, changes: LeadChecklistItemV2[]): Promise<LeadChecklistV2> {
+    const { data } = await api.patch<LeadChecklistV2>(`/api/v1/leads/${leadId}/checklist`, { changes })
+    return data
+  },
+
+  /** Пустой text удаляет заметку стадии. */
+  async putStageNote(leadId: string, stage: string, text: string): Promise<LeadStageNoteV2> {
+    const { data } = await api.put<LeadStageNoteV2>(
+      `/api/v1/leads/${leadId}/stage-notes/${encodeURIComponent(stage)}`,
+      { text },
+    )
+    return data
+  },
+}
+
+export interface LeadChecklistItemV2 {
+  stage: string
+  index: number
+  checked: boolean
+}
+
+export interface LeadStageNoteV2 {
+  stage: string
+  text: string
+  updatedAt: string
+}
+
+export interface LeadChecklistV2 {
+  items: LeadChecklistItemV2[]
+  stageNotes: LeadStageNoteV2[]
+}
+
+/** Метка лидов, загруженных из старой базы контактов (импорт с tag=old_base). */
+export const OLD_BASE_TAG = 'old_base'
+
+export interface LeadImportResultV2 {
+  total: number
+  created: number
+  failed: number
+  errors: Array<{ row: number; message: string }>
 }

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useDisableScroll } from '../../hooks/useDisableScroll';
-import { apiService } from '../../services/api';
+import { leadCrmService } from '../../services/leadsCrmV2';
 import { ProductType, LeadStage } from '../../services/api';
 import type { CreateLeadDto, Lead, LeadFile, UpdateLeadDto } from '../../services/api';
 import { resolveDuplicateLeadForUser } from '../../utils/leadDuplicateHelper';
@@ -267,7 +267,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
     
     // Всегда загружаем файлы через API для получения актуального списка
     try {
-      const filesResponse = await apiService.getLeadFiles(lead._id);
+      const filesResponse = await leadCrmService.getLeadFiles(lead._id);
       if (filesResponse.success && filesResponse.data) {
         setExistingFiles(normalizeLeadFiles(filesResponse.data.files || []));
       } else {
@@ -295,7 +295,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
       // Загружаем полный объект лида с бэкенда, чтобы гарантировать наличие всех полей, включая budgetValue и budgetCurrency
       const loadFullLead = async () => {
         try {
-          const response = await apiService.getLead(lead._id);
+          const response = await leadCrmService.getLead(lead._id);
           if (response.success && response.data) {
             const fullLead = response.data;
             
@@ -1046,7 +1046,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
         notes: '', // Очищаем только описание
       };
 
-      const response = await apiService.updateLead(lead._id, updateData);
+      const response = await leadCrmService.updateLead(lead._id, updateData);
 
       if (response.success && response.data) {
         // Сохраняем старое значение для истории
@@ -1229,7 +1229,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
           productType: newProductType,
         };
 
-        const response = await apiService.updateLead(lead._id, updateData);
+        const response = await leadCrmService.updateLead(lead._id, updateData);
 
         if (response.success && response.data) {
           // Если productType изменился и мы установили новый этап, убеждаемся, что этап действительно обновлен
@@ -1239,7 +1239,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
             if (updatedLead.stage !== updateData.stage) {
               // Если этап не был установлен через updateLead, устанавливаем его отдельно
               try {
-                const stageResponse = await apiService.updateLeadStage(lead._id, { stage: updateData.stage });
+                const stageResponse = await leadCrmService.updateLeadStage(lead._id, { stage: updateData.stage });
                 if (stageResponse.success && stageResponse.data) {
                   updatedLead = stageResponse.data;
                 }
@@ -1391,7 +1391,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
           if (deletedFiles.length > 0) {
             try {
               const deletePromises = deletedFiles.map(filename => {
-                return apiService.deleteLeadFileByName(lead._id, filename).catch(error => {
+                return leadCrmService.deleteLeadFileByName(lead._id, filename).catch(error => {
                   console.error(`[CreateClientModal] Failed to delete file ${filename}:`, error);
                   return { success: false, message: error.message };
                 });
@@ -1420,12 +1420,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
                 throw new Error(`Максимум ${MAX_FILES_PER_LEAD} файлов на лид. Текущее количество: ${currentFilesCount}, пытаетесь добавить: ${selectedFiles.length}`);
               }
               
-              await apiService.uploadAndRegisterFilesBulk(
-                selectedFiles,
-                'lead',
-                lead._id,
-                'leads'
-              );
+              await leadCrmService.uploadLeadFiles(lead._id, selectedFiles);
             } catch (error: any) {
               // Мягкая обработка ошибки - API может не поддерживать загрузку файлов лидов
               if (error.response?.status === 404) {
@@ -1487,7 +1482,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
           leadData.notes = clientDescription.trim();
         }
 
-        const response = await apiService.createLead(leadData);
+        const response = await leadCrmService.createLead(leadData);
 
         if (response.success && response.data) {
           // Определяем этап "Новый лид" для выбранного продукта
@@ -1506,9 +1501,9 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
           
           if (response.data._id) {
             try {
-              await apiService.updateLeadStage(response.data._id, { stage: stageToSet });
+              await leadCrmService.updateLeadStage(response.data._id, { stage: stageToSet });
               // Перезагружаем лида, чтобы получить обновленную стадию
-              const updatedLeadResponse = await apiService.getLead(response.data._id);
+              const updatedLeadResponse = await leadCrmService.getLead(response.data._id);
               if (updatedLeadResponse.success && updatedLeadResponse.data) {
                 response.data = updatedLeadResponse.data;
               }

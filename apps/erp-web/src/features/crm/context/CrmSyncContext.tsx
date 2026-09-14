@@ -1,15 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
-import { apiService, TaskStatus as CrmTaskStatus, TaskPriority as CrmTaskPriority, NotificationType as CrmNotificationType, EventType as CrmEventType } from '../services/api';
-import type { Task as CrmTask, CalendarEvent as CrmCalendarEvent } from '../services/api';
 import { useAuth as useCrmAuth } from '../hooks/useAuth';
-import { parseDateFromAPI } from '../utils/dateUtils';
-import { useRealtimeSync } from '../hooks/useRealtimeSync';
-import type { Task, TaskPriority, TaskStatus } from '@/types/tasks';
+import type { Task } from '@/types/tasks';
 import type { DashboardNotifPreview } from '@/data/home-workspace-mock';
 import type { Reminder, NewsArticle } from '@/data/info-mock';
 import type { CalEvent } from '@/data/calendar-events-mock';
 import { calendarApiV2 } from '@/services/calendarApiV2';
+import { tasksApiV2 } from '@/services/tasksApiV2';
 import { mapCalendarEventV2ToLegacy, mapUnifiedTaskV2ToLegacy } from '@/lib/calendar-v2-legacy-adapter';
+import { isDisplayableTaskV2, mapTaskV2ToUiTask } from '@/lib/map-task-v2';
 import { teamApi } from '@/services/teamApi';
 
 interface CrmSyncContextValue {
@@ -26,182 +24,83 @@ interface CrmSyncContextValue {
 
 const CrmSyncContext = createContext<CrmSyncContextValue | null>(null);
 
+// Новостей у платформы нет — источник был только на легаси api-crm.baza.sale.
+const NO_NEWS: NewsArticle[] = [];
+
+function todayLocalDate(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+// Уведомления рабочего стола строятся из задач: просроченные и назначенные на сегодня.
+function buildTaskNotifications(tasks: Task[]): DashboardNotifPreview[] {
+  const today = todayLocalDate();
+  const overdue = tasks.filter((t) => t.status === 'overdue');
+  const dueToday = tasks.filter((t) => t.status !== 'done' && t.status !== 'overdue' && t.dueDate === today);
+  return [
+    ...overdue.map((t) => ({ id: `task-${t.id}`, type: 'alert' as const, title: t.title, body: t.dueDate, time: t.dueTime ?? '' })),
+    ...dueToday.map((t) => ({ id: `task-${t.id}`, type: 'info' as const, title: t.title, body: t.dueDate, time: t.dueTime ?? '' })),
+  ];
+}
+
 export function CrmSyncProvider({ children }: { children: React.ReactNode }) {
-  const { user: crmUser, isAuthenticated } = useCrmAuth();
+  const { isAuthenticated } = useCrmAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [notifications, setNotifications] = useState<DashboardNotifPreview[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [news, setNews] = useState<NewsArticle[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const mapCrmEvent = useCallback((e: CrmCalendarEvent): CalEvent => {
-    const startDate = new Date(e.startTime);
-    const y = startDate.getFullYear();
-    const m = String(startDate.getMonth() + 1).padStart(2, '0');
-    const d = String(startDate.getDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${d}`;
-    const timeStr = String(startDate.getHours()).padStart(2, '0') + ':' + String(startDate.getMinutes()).padStart(2, '0');
-
-    let type: CalEvent['type'] = 'meeting';
-    if (e.type === CrmEventType.CALL) type = 'call';
-    else if (e.type === CrmEventType.MEETING) type = 'meeting';
-    else if (e.type === CrmEventType.TASK || (e as any).type === 'task') type = 'showing'; // В ERP 'showing' как аналог задачи
-    
-    const clientName = typeof e.leadId === 'object' ? e.leadId?.name : undefined;
-
-    return {
-      id: e._id,
-      date: dateStr,
-      time: timeStr,
-      type: type,
-      title: e.title,
-      client: clientName,
-      location: e.location,
-      agentId: e.createdBy,
-      agentName: 'Менеджер', // В идеале получить имя из участников или создателя
-      dealId: typeof e.leadId === 'object' ? e.leadId?._id : e.leadId,
-    };
-  }, []);
-
-  const mapCrmTask = useCallback((t: CrmTask): Task => {
-    const taskDate = t.endDate ? parseDateFromAPI(t.endDate) : null;
-    const startDateParsed = t.startDate ? parseDateFromAPI(t.startDate) : null;
-    const isDone = t.status === CrmTaskStatus.COMPLETED;
-    
-    let dueDate = '';
-    let dueTime = undefined;
-    if (taskDate) {
-      const y = taskDate.getFullYear();
-      const m = String(taskDate.getMonth() + 1).padStart(2, '0');
-      const d = String(taskDate.getDate()).padStart(2, '0');
-      dueDate = `${y}-${m}-${d}`;
-      dueTime = String(taskDate.getHours()).padStart(2, '0') + ':' + String(taskDate.getMinutes()).padStart(2, '0');
-    }
-
-    let startDate = '';
-    let startTime = undefined;
-    if (startDateParsed) {
-      const y = startDateParsed.getFullYear();
-      const m = String(startDateParsed.getMonth() + 1).padStart(2, '0');
-      const d = String(startDateParsed.getDate()).padStart(2, '0');
-      startDate = `${y}-${m}-${d}`;
-      startTime = String(startDateParsed.getHours()).padStart(2, '0') + ':' + String(startDateParsed.getMinutes()).padStart(2, '0');
-    }
-
-    const assignedId = typeof t.assignedTo === 'object' ? t.assignedTo?._id : t.assignedTo;
-    const assignedName = typeof t.assignedTo === 'object' ? t.assignedTo?.name : 'Менеджер';
-    const createdName = typeof t.createdBy === 'object' ? t.createdBy?.name : 'Система';
-    
-    return {
-      id: t._id,
-      title: t.title,
-      description: t.description || '',
-      status: isDone ? 'done' : 
-              (taskDate && taskDate < new Date() ? 'overdue' : 'pending') as TaskStatus,
-      priority: (t.priority === CrmTaskPriority.URGENT_IMPORTANT ? 'critical' :
-                t.priority === CrmTaskPriority.NOT_URGENT_IMPORTANT ? 'medium' :
-                t.priority === CrmTaskPriority.URGENT_NOT_IMPORTANT ? 'high' : 'low') as TaskPriority,
-      assignedToId: assignedId || '',
-      assignedToName: assignedName || 'Менеджер',
-      createdByName: createdName || 'Система',
-      dueDate: dueDate,
-      dueTime: dueTime,
-      startDate: startDate,
-      startTime: startTime,
-      taskCategory: t.category === 1 ? 'personal' : 'work',
-      colorHex: t.colorLabel || null,
-      reminderOffsetsMinutes: [],
-      subtasks: (t.subtasks || []).map((st, idx) => ({
-        id: `${t._id}-st-${idx}`,
-        title: st.title,
-        done: !!st.completed,
-      })),
-      attachmentFileNames: t.files?.map(f => f.originalName) || [],
-      entityType: t.leadId ? 'client' : 'none',
-      entityId: typeof t.leadId === 'object' ? (t.leadId as any)?._id : t.leadId,
-      entityLabel: t.clientName || (typeof t.leadId === 'object' ? (t.leadId as any)?.name : undefined),
-      isAutomatic: false,
-      createdAt: t.createdAt || new Date().toISOString(),
-    } as Task;
-  }, []);
-
   const fetchData = useCallback(async () => {
-    if (!crmUser?.id || !isAuthenticated) return;
-    
+    if (!isAuthenticated) return;
+
     setIsLoading(true);
     try {
       const today = new Date();
-      // Получаем события за широкий диапазон (3 месяца), чтобы календарь работал плавно
+      // Широкий диапазон (3 месяца), чтобы календарь листался без дозагрузки.
       const startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const endDate = new Date(today.getFullYear(), today.getMonth() + 2, 0);
 
-      // Календарь — на реальном backend (apps/api, /api/v1/calendar/*), не
-      // на легаси api-crm.baza.sale. Ростер команды (teamApi.list()) нужен
-      // только для резолва agentName по createdByPositionId/assignedPositionId
-      // (тот же приём, что DealsContext/LeadsContext) — здесь запрашивается
-      // отдельно, а не через LeadsContext.leadManagers, потому что
-      // CrmSyncProvider монтируется СНАРУЖИ LeadsProvider (main.tsx) и не
-      // имеет доступа к его контексту.
-      const [tasksRes, notifsRes, calendarRes, teamRoster] = await Promise.all([
-        apiService.getTasks({ page: 1, limit: 100 }),
-        apiService.getNotifications({ page: 1, limit: 40 }),
-        calendarApiV2.getUnified({
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
+      // Каждый источник ловит свою ошибку: раньше один упавший запрос ронял
+      // весь Promise.all и календарь с напоминаниями оставались пустыми.
+      // Ростер команды нужен только для имён по positionId — CrmSyncProvider
+      // смонтирован снаружи LeadsProvider и его ростер не видит.
+      const [tasksRes, calendarRes, teamRoster] = await Promise.all([
+        tasksApiV2.listAll().catch((error: unknown) => {
+          console.error('[CrmSyncContext] Tasks sync failed:', error);
+          return null;
         }),
+        calendarApiV2
+          .getUnified({ startDate: startDate.toISOString(), endDate: endDate.toISOString() })
+          .catch((error: unknown) => {
+            console.error('[CrmSyncContext] Calendar sync failed:', error);
+            return null;
+          }),
         teamApi.list().catch(() => []),
       ]);
 
-      if (tasksRes.success && tasksRes.data) {
-        setTasks((tasksRes.data.items || []).map(mapCrmTask));
+      const agentNameById = new Map<string, string>();
+      for (const member of teamRoster) {
+        if (member.vacant) continue;
+        agentNameById.set(member.positionId ?? member.id, member.name || member.position || 'Без имени');
       }
 
-      if (notifsRes.success && notifsRes.data) {
-        const rawNotifs = notifsRes.data.items || [];
-        
-        setNotifications(rawNotifs
-          .filter(n => n.type !== CrmNotificationType.REMINDER && n.type !== CrmNotificationType.NEWS)
-          .map(n => ({
-            id: n._id,
-            type: n.priority === 'urgent' || n.priority === 'high' ? 'alert' : 'info',
-            title: n.title,
-            body: n.message,
-            time: new Date(n.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-          }))
-        );
-
-        setNews(rawNotifs
-          .filter(n => n.type === CrmNotificationType.NEWS)
-          .map(n => ({
-            id: n._id,
-            title: n.title,
-            body: n.message,
-            category: 'company',
-            author: 'CRM',
-            publishedAt: n.createdAt.split('T')[0],
-            emoji: '📢',
-          }))
-        );
+      if (tasksRes) {
+        const uiTasks = tasksRes.items.filter(isDisplayableTaskV2).map((t) => mapTaskV2ToUiTask(t, agentNameById));
+        setTasks(uiTasks);
+        setNotifications(buildTaskNotifications(uiTasks));
       }
 
-      {
-        const agentNameById = new Map<string, string>();
-        for (const member of teamRoster) {
-          if (member.vacant) continue;
-          agentNameById.set(member.positionId ?? member.id, member.name || member.position || 'Без имени');
-        }
-
+      if (calendarRes) {
         const mappedEvents = calendarRes.events.map((e) => mapCalendarEventV2ToLegacy(e, agentNameById));
         const mappedTasks = calendarRes.tasks
           .map((t) => mapUnifiedTaskV2ToLegacy(t, agentNameById))
           .filter((e): e is CalEvent => e !== null);
         setCalendarEvents([...mappedEvents, ...mappedTasks]);
 
-        // Напоминания выводятся из СЫРЫХ CalendarEventV2 (type:'reminder'),
-        // ДО перевода через легаси-таблицу типов — таблица схлопывает
-        // 'reminder' в 'call' для отображения на календаре, и после
-        // перевода отличить напоминание от звонка было бы уже нечем.
+        // Напоминания берутся из сырых событий type:'reminder' до перевода в
+        // легаси-типы: там 'reminder' схлопывается в 'call' и отличить его уже нельзя.
         setReminders(calendarRes.events
           .filter((e) => e.type === 'reminder')
           .map((e) => ({
@@ -211,92 +110,45 @@ export function CrmSyncProvider({ children }: { children: React.ReactNode }) {
             dueAt: e.startTime,
             done: false,
             priority: 'medium' as const,
-            // Честный пробел: CalendarEventV2 не ссылается на Task (см.
-            // CalendarEventDocument докстринг — календарь и задачи разные
-            // сущности), денормализованного заголовка задачи здесь нет.
+            // Событие календаря не ссылается на задачу — названия задачи здесь нет.
             entityLabel: 'Задача',
           }))
         );
       }
-    } catch (error) {
-      console.error('[CrmSyncContext] Background sync failed:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [crmUser, isAuthenticated, mapCrmTask, mapCrmEvent]);
-
-  // Realtime updates
-  useRealtimeSync({
-    onTaskCreated: (t) => setTasks(prev => [mapCrmTask(t), ...prev]),
-    onTaskUpdated: (t) => setTasks(prev => prev.map(old => old.id === t._id ? mapCrmTask(t) : old)),
-    onTaskDeleted: (id) => setTasks(prev => prev.filter(t => t.id !== id)),
-    onNotificationNew: (n) => {
-      if (n.type === CrmNotificationType.NEWS) {
-        setNews(prev => [{
-          id: n._id,
-          title: n.title,
-          body: n.message,
-          category: 'company',
-          author: 'CRM',
-          publishedAt: n.createdAt.split('T')[0],
-          emoji: '📢',
-        }, ...prev]);
-      } else if (n.type !== CrmNotificationType.REMINDER) {
-        setNotifications(prev => [{
-          id: n._id,
-          type: n.priority === 'urgent' || n.priority === 'high' ? 'alert' : 'info',
-          title: n.title,
-          body: n.message,
-          time: new Date(n.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        }, ...prev]);
-      }
-    },
-    onCalendarEventCreated: (e) => setCalendarEvents(prev => [...prev, mapCrmEvent(e)]),
-    onCalendarEventUpdated: (e) => setCalendarEvents(prev => prev.map(old => old.id === e._id ? mapCrmEvent(e) : old)),
-    onCalendarEventDeleted: (id) => setCalendarEvents(prev => prev.filter(e => e.id !== id)),
-  });
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchData();
-      // Periodical full refresh every 5 minutes as a fallback
-      const interval = setInterval(fetchData, 5 * 60 * 1000);
-      return () => clearInterval(interval);
-    }
+    if (!isAuthenticated) return;
+    void fetchData();
+    // Реального времени у платформы нет — полное обновление раз в 5 минут.
+    const interval = setInterval(() => void fetchData(), 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [isAuthenticated, fetchData]);
 
+  // Уведомления и напоминания производные (из задач и календаря), серверного
+  // флага «прочитано» у них нет — скрываются до следующей синхронизации.
   const markNotificationRead = useCallback(async (id: string) => {
-    try {
-      await apiService.markNotificationRead(id, true);
-      setNotifications(prev => prev.filter(n => n.id !== id));
-    } catch (e) {
-      console.error(e);
-    }
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
   const archiveReminder = useCallback(async (id: string) => {
-    try {
-      if (id.startsWith('reminder_')) {
-        const actualId = id.replace('reminder_', '');
-        await apiService.archiveNotification(actualId, true);
-      }
-      setReminders(prev => prev.filter(r => r.id !== id));
-    } catch (e) {
-      console.error(e);
-    }
+    setReminders((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
   const value = useMemo(() => ({
     tasks,
     notifications,
     reminders,
-    news,
+    news: NO_NEWS,
     calendarEvents,
     isLoading,
     refresh: fetchData,
     markNotificationRead,
-    archiveReminder
-  }), [tasks, notifications, reminders, news, calendarEvents, isLoading, fetchData, markNotificationRead, archiveReminder]);
+    archiveReminder,
+  }), [tasks, notifications, reminders, calendarEvents, isLoading, fetchData, markNotificationRead, archiveReminder]);
 
   return (
     <CrmSyncContext.Provider value={value}>

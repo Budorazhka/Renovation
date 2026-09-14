@@ -30,7 +30,7 @@ import { leadsApiV2 } from '@/services/leadsApiV2';
 import type { LeadEventV2 } from '@/types/leadsV2';
 import { tasksApiV2 } from '@/services/tasksApiV2';
 import { mediaApiV2 } from '@/services/mediaApiV2';
-import { mapLeadV2ToCrmLead, mapLeadEventsV2ToLegacyHistory, buildStageCommentsMap } from '@/lib/lead-v2-legacy-adapter';
+import { mapLeadV2ToCrmLead, mapLeadEventsV2ToLegacyHistory, buildStageCommentsMap, stageCrmToV2 } from '@/lib/lead-v2-legacy-adapter';
 import { mapTaskV2ToCrmTask } from '@/lib/task-v2-legacy-adapter';
 import { isDisplayableTaskV2 } from '@/lib/map-task-v2';
 
@@ -1585,7 +1585,7 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
       // `[phase 3]` Это реальная смена `stage` (не сопутствующее поле) —
       // CAS через expectedVersion (см. leadsApiV2.changeStage докстринг).
       const expectedVersion = leadVersionRef.current ?? 0;
-      const result = await leadsApiV2.changeStage(displayLead._id, newStage, expectedVersion);
+      const result = await leadsApiV2.changeStage(displayLead._id, stageCrmToV2(newStage), expectedVersion);
       if (typeof result.version === 'number') {
         leadVersionRef.current = result.version;
       }

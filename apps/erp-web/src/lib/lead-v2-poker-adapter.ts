@@ -187,5 +187,6 @@ export function mapLeadV2ToPoker(lead: LeadV2): PokerLead {
     taskOverdue: false,
     commissionUsd: 0,
     status: 'in_progress',
+    tags: lead.tags ?? [],
   }
 }

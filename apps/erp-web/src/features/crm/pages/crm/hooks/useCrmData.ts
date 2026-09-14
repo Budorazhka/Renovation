@@ -264,20 +264,21 @@ export function useCrmData({ isAuthenticated }: UseCrmDataParams) {
     }
   }, [taskSync, loadTasks]);
 
-  /**
-   * `[phase 4]` Честный пробел: PATCH /tasks/:id (UpdateTaskDto) не
-   * принимает `isUrgent`/`isImportant` существующей задачи — эти признаки
-   * задаются только при создании (apps/api/.../dto/update-task.dto.ts,
-   * `task.controller.ts::updateTask`). Смена приоритета уже созданной задачи
-   * (например, перетаскиванием карточки в другой квадрант матрицы
-   * Эйзенхауэра) на новом backend не поддерживается — не выдумываем
-   * серверную поддержку, локальное состояние обновляется оптимистично, но
-   * откатится при следующей синхронизации с сервером.
-   */
+  /** Квадрант матрицы Эйзенхауэра → пара isUrgent/isImportant в PATCH /tasks/:id. */
   const updateTaskPriority = useCallback(async (taskId: string, priority: TaskPriority) => {
     taskSync.updateTask(taskId, { priority } as Partial<Task>, ['priority']);
-    console.warn('[useCrmData] Смена приоритета существующей задачи не поддерживается новым backend — изменение не сохранено на сервере', taskId);
-  }, [taskSync]);
+    try {
+      const expectedVersion = taskVersionsRef.current.get(taskId) ?? 0;
+      const updated = await tasksApiV2.update(taskId, expectedVersion, {
+        isUrgent: priority === TaskPriority.URGENT_IMPORTANT || priority === TaskPriority.URGENT_NOT_IMPORTANT,
+        isImportant: priority === TaskPriority.URGENT_IMPORTANT || priority === TaskPriority.NOT_URGENT_IMPORTANT,
+      });
+      taskVersionsRef.current.set(taskId, updated.version);
+      taskSync.updateTaskAfterSync(taskId, mapTaskV2ToCrmTask(updated));
+    } catch {
+      await loadTasks();
+    }
+  }, [taskSync, loadTasks]);
 
   const updateTaskEndDate = useCallback(async (taskId: string, endDate: string | undefined) => {
     taskSync.updateTask(taskId, { endDate } as Partial<Task>, ['endDate']);

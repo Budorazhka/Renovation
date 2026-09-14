@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useState, memo } from 'react';
 import { useI18n } from '@/i18n';
 // import { useSearchParams } from 'react-router-dom';
-import { TaskStatus, TaskPriority, apiService, type Task, type TaskFile, type Subtask, type Lead, type UpdateTaskDto } from '../../services/api';
+import { TaskStatus, TaskPriority, type Task, type TaskFile, type Subtask, type Lead, type UpdateTaskDto } from '../../services/api';
+import { crmTaskService } from '../../services/crmTasksV2';
 import { useDisableScroll } from '../../hooks/useDisableScroll';
 import Calendar from './Calendar';
 import { ColorModal } from './modals/ColorModal';
@@ -308,7 +309,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
   useEffect(() => {
     const loadLeads = async () => {
       try {
-        const response = await apiService.getLeads({ page: 1, limit: 1000 });
+        const response = await crmTaskService.getLeads();
         if (response.success && response.data) {
           const leadsMap = new Map<string, Lead>();
           response.data.items.forEach((lead: Lead) => {
@@ -330,7 +331,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        const response = await apiService.getTaskCategories();
+        const response = await crmTaskService.getTaskCategories();
         if (response.success && response.data) {
           // Фиксированные категории задач
           const fixedCategories = [t('taskViewModal.call'), t('taskViewModal.meeting'), t('taskViewModal.personalTasks'), t('taskViewModal.workTasks')];
@@ -370,7 +371,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
             );
             if (!exists) {
               try {
-                const createResponse = await apiService.getOrCreateTaskCategory(fixedCat);
+                const createResponse = await crmTaskService.getOrCreateTaskCategory(fixedCat);
                 if (createResponse.success && createResponse.data) {
                   sortedCategories.push({
                     key: createResponse.data.id.toString(),
@@ -423,7 +424,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
     if (!task?._id) return;
     
     try {
-      const response = await apiService.getTaskFiles(task._id);
+      const response = await crmTaskService.getTaskFiles(task._id);
       if (response.success && response.data) {
         setFiles(response.data.files);
       }
@@ -449,18 +450,13 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         return;
       }
 
-      const response = await apiService.uploadAndRegisterFilesBulk(
-        filesArray,
-        'task',
-        task._id,
-        'tasks'
-      );
+      const response = await crmTaskService.uploadTaskFiles(task._id, filesArray);
       
       if (response.success) {
         await loadTaskFiles();
         // Обновляем задачу, если есть callback
         if (onTaskUpdate) {
-          const taskResponse = await apiService.getTask(task._id);
+          const taskResponse = await crmTaskService.getTask(task._id);
           if (taskResponse.success && taskResponse.data) {
             onTaskUpdate(taskResponse.data);
           }
@@ -480,7 +476,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
     if (!task?._id) return;
     
     try {
-      const response = await apiService.deleteTaskFileByName(task._id, filename);
+      const response = await crmTaskService.deleteTaskFileByName(task._id, filename);
       if (response.success) {
         await loadTaskFiles();
         if (onTaskUpdate && response.data?.task) onTaskUpdate(response.data.task);
@@ -490,8 +486,15 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
     }
   };
 
-  const handleDownloadFile = (file: TaskFile) => {
-    window.open(file.url, '_blank');
+  // Файл открывается по временной ссылке хранилища; filename у файла задачи — это assetId.
+  const handleDownloadFile = async (file: TaskFile) => {
+    if (!task?._id) return;
+    try {
+      const { url } = await crmTaskService.getAttachmentUrl(task._id, file.filename);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      alert(t('taskViewModal.errorWhileDownloadingFiles'));
+    }
   };
 
   const getFileIcon = (mimeType: string, size: number = 20) => {
@@ -556,7 +559,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
       );
       setSubtasks(optimisticSubtasks);
       
-      const response = await apiService.updateSubtaskStatus(task._id, index, newCompleted);
+      const response = await crmTaskService.updateSubtaskStatus(task._id, index, newCompleted);
       
       if (response.success && response.data) {
         setSubtasks(response.data.subtasks || []);
@@ -585,7 +588,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
       const optimisticSubtasks = subtasks.filter((_, i) => i !== index);
       setSubtasks(optimisticSubtasks);
       
-      const response = await apiService.deleteSubtask(task._id, index);
+      const response = await crmTaskService.deleteSubtask(task._id, index);
       
       if (response.success && response.data) {
         setSubtasks(response.data.subtasks || []);
@@ -630,7 +633,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         setEditingSubtaskIndex(null);
         setEditingSubtaskTitle('');
 
-        const response = await apiService.addSubtask(task._id, newSubtask);
+        const response = await crmTaskService.addSubtask(task._id, newSubtask);
         
         if (response.success && response.data) {
           setSubtasks(response.data.subtasks || []);
@@ -648,7 +651,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         setEditingSubtaskIndex(null);
         setEditingSubtaskTitle('');
 
-        const response = await apiService.updateTask(task._id, { 
+        const response = await crmTaskService.updateTask(task._id, {
           subtasks: updatedSubtasks.map(st => ({ title: st.title, completed: st.completed ?? false }))
         });
         
@@ -677,7 +680,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
 
     try {
       setIsUpdatingDescription(true);
-      const response = await apiService.updateTask(task._id, { description: newDescription });
+      const response = await crmTaskService.updateTask(task._id, { description: newDescription });
       
       if (response.success && response.data) {
         setDescription(newDescription);
@@ -699,7 +702,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
 
     try {
       setIsUpdatingTitle(true);
-      const response = await apiService.updateTask(task._id, { title: newTitle });
+      const response = await crmTaskService.updateTask(task._id, { title: newTitle });
       
       if (response.success && response.data) {
         setTitle(newTitle);
@@ -846,7 +849,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
       const updateData: any = colorLabel === undefined 
         ? { colorLabel: null } 
         : { colorLabel };
-      const response = await apiService.updateTask(task._id, updateData);
+      const response = await crmTaskService.updateTask(task._id, updateData);
       if (response.success && response.data) {
         if (onTaskUpdate) onTaskUpdate(response.data);
       } else {
@@ -877,7 +880,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         newPriority = TaskPriority.NOT_URGENT_NOT_IMPORTANT;
       }
 
-      const response = await apiService.updateTask(task._id, { priority: newPriority });
+      const response = await crmTaskService.updateTask(task._id, { priority: newPriority });
       
       if (response.success && response.data) {
         if (onTaskUpdate) onTaskUpdate(response.data);
@@ -910,7 +913,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         newPriority = TaskPriority.NOT_URGENT_NOT_IMPORTANT;
       }
 
-      const response = await apiService.updateTask(task._id, { priority: newPriority });
+      const response = await crmTaskService.updateTask(task._id, { priority: newPriority });
       
       if (response.success && response.data) {
         if (onTaskUpdate) onTaskUpdate(response.data);
@@ -939,7 +942,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         }
       }
 
-      const response = await apiService.updateTask(task._id, { category: categoryId, categories: normalized });
+      const response = await crmTaskService.updateTask(task._id, { category: categoryId, categories: normalized });
       
       if (response.success && response.data) {
         setSelectedCategories(normalized);
@@ -963,12 +966,12 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         ? { leadId: null } 
         : { leadId: leadId.trim() };
       
-      const response = await apiService.updateTask(task._id, updateData);
+      const response = await crmTaskService.updateTask(task._id, updateData);
       
       if (response.success && response.data) {
         // Перезагружаем лиды, чтобы обновить отображение
         try {
-          const leadsResponse = await apiService.getLeads({ page: 1, limit: 1000 });
+          const leadsResponse = await crmTaskService.getLeads();
           if (leadsResponse.success && leadsResponse.data) {
             const newLeadsMap = new Map<string, Lead>();
             leadsResponse.data.items.forEach((lead: Lead) => {
@@ -1094,7 +1097,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         startDateTime = formatLocalDateTime(dateObj);
       }
 
-      const response = await apiService.updateTask(task._id, { startDate: startDateTime });
+      const response = await crmTaskService.updateTask(task._id, { startDate: startDateTime });
       
       if (response.success && response.data) {
         // Обновляем сохраненное значение
@@ -1232,7 +1235,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
             try {
               // Небольшая задержка, чтобы сервер успел обработать запрос
               await new Promise(resolve => setTimeout(resolve, 100));
-              const response = await apiService.getTask(task._id);
+              const response = await crmTaskService.getTask(task._id);
               if (response.success && response.data) {
                 onTaskUpdate(response.data);
                 // Обновляем сохраненное значение из ответа сервера
@@ -1267,7 +1270,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
         }
       } else {
         // Fallback: используем старый способ через onTaskUpdate
-        const response = await apiService.updateTask(task._id, { endDate: endDateTime });
+        const response = await crmTaskService.updateTask(task._id, { endDate: endDateTime });
         
         if (response.success && response.data) {
           // Обновляем сохраненное значение
@@ -2364,7 +2367,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                   let categoryLabel = callCategory?.label;
                                 if (!categoryLabel) {
                                   try {
-                                      const response = await apiService.getOrCreateTaskCategory(t('taskViewModal.call'));
+                                      const response = await crmTaskService.getOrCreateTaskCategory(t('taskViewModal.call'));
                                     if (response.success && response.data) {
                                       categoryLabel = response.data.name;
                                       const categoryId = response.data.id?.toString() || '';
@@ -2403,7 +2406,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                   let categoryLabel = meetingCategory?.label;
                                 if (!categoryLabel) {
                                   try {
-                                      const response = await apiService.getOrCreateTaskCategory(t('taskViewModal.meeting'));
+                                      const response = await crmTaskService.getOrCreateTaskCategory(t('taskViewModal.meeting'));
                                     if (response.success && response.data) {
                                       categoryLabel = response.data.name;
                                       const categoryId = response.data.id?.toString() || '';
@@ -2445,7 +2448,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                   let categoryLabel = workCategory?.label;
                                 if (!categoryLabel) {
                                   try {
-                                      const response = await apiService.getOrCreateTaskCategory(t('taskViewModal.workTasks'));
+                                      const response = await crmTaskService.getOrCreateTaskCategory(t('taskViewModal.workTasks'));
                                     if (response.success && response.data) {
                                       categoryLabel = response.data.name;
                                       const categoryId = response.data.id?.toString() || '';
@@ -2484,7 +2487,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                   let categoryLabel = personalCategory?.label;
                                 if (!categoryLabel) {
                                   try {
-                                      const response = await apiService.getOrCreateTaskCategory(t('taskViewModal.personalTasks'));
+                                      const response = await crmTaskService.getOrCreateTaskCategory(t('taskViewModal.personalTasks'));
                                     if (response.success && response.data) {
                                       categoryLabel = response.data.name;
                                       const categoryId = response.data.id?.toString() || '';
@@ -2730,7 +2733,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                     const dateObj = new Date(`${newStartDate}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
                                     const startDateTime = formatLocalDateTime(dateObj);
                                     try {
-                                      const response = await apiService.updateTask(task!._id, { startDate: startDateTime });
+                                      const response = await crmTaskService.updateTask(task!._id, { startDate: startDateTime });
                                       if (response.success && response.data) {
                                         if (onTaskUpdate) onTaskUpdate(response.data);
                                       }
@@ -2840,7 +2843,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                           if (onTaskUpdate) {
                                             try {
                                               await new Promise(resolve => setTimeout(resolve, 200));
-                                              const response = await apiService.getTask(task._id);
+                                              const response = await crmTaskService.getTask(task._id);
                                               if (response.success && response.data) {
                                                 onTaskUpdate(response.data);
                                               }
@@ -2863,7 +2866,7 @@ const TaskViewModalComponent: React.FC<TaskViewModalProps> = ({
                                           if (onTaskUpdate) {
                                             try {
                                               await new Promise(resolve => setTimeout(resolve, 200));
-                                              const response = await apiService.getTask(task._id);
+                                              const response = await crmTaskService.getTask(task._id);
                                               if (response.success && response.data) {
                                                 onTaskUpdate(response.data);
                                               }

@@ -4,7 +4,11 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /workspace
 ENV COREPACK_HOME=/tmp/corepack
-ARG VITE_PLATFORM_API_BASE_URL=/api/v1
+# platformAuthApi/leadsApiV2/teamApi и другие *ApiV2-клиенты сами дописывают
+# "/api/v1/..." к каждому пути (apps/api вешает глобальный префикс api/v1) —
+# поэтому здесь baseURL должен быть БЕЗ /api/v1, иначе браузер шлёт
+# /api/v1/api/v1/... и всё падает 404 (было так до 14.09.2026).
+ARG VITE_PLATFORM_API_BASE_URL=/
 ARG VITE_CRM_API_BASE_URL=/api/v1
 ENV VITE_PLATFORM_API_BASE_URL=${VITE_PLATFORM_API_BASE_URL}
 ENV VITE_CRM_API_BASE_URL=${VITE_CRM_API_BASE_URL}

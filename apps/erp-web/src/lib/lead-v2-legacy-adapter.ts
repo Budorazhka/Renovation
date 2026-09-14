@@ -1,6 +1,8 @@
 import { ProductType } from '@/features/crm/services/api/types'
 import type { BudgetCurrency, Lead as CrmLead, LeadStage as CrmLeadStage, RejectionReason } from '@/features/crm/services/api/types'
 import type { LeadEventV2, LeadProductTypeV2, LeadV2 } from '@/types/leadsV2'
+import type { LeadStageId } from '@/types/leads'
+import { CRM_STAGE_TO_POKER_ID, POKER_ID_TO_CRM_STAGE } from './crm-poker-adapter'
 
 /**
  * Адаптер: LeadV2 (apps/api, /api/v1/leads/*) → легаси `Lead`
@@ -9,15 +11,25 @@ import type { LeadEventV2, LeadProductTypeV2, LeadV2 } from '@/types/leadsV2'
  * данных). Аналог lead-v2-poker-adapter.ts, но целевой тип — легаси CRM
  * Lead, а не покерная карточка.
  *
- * Ключевое допущение, снимающее необходимость в отдельной таблице стадий:
- * строковые id стадий на новом backend (apps/api/src/modules/crm/
- * lead-stage-definitions.ts) ПОБУКВЕННО совпадают со значениями легаси
- * enum `LeadStage` для всех четырёх продуктов — обе таксономии выведены из
- * одного источника (см. докстринг lib/lead-v2-poker-adapter.ts). То же верно
- * для realtorStage/curatorStage (`realtor_1..6`/`curator_1..6`). Поэтому
- * `stage`/`realtorStage`/`curatorStage` кастуются напрямую, без таблицы
- * перевода.
+ * Стадии: у network/owner/agent id на backend (lead-stage-definitions.ts)
+ * побуквенно совпадают с легаси enum `LeadStage` (все с префиксом продукта),
+ * а у sales — нет: backend хранит `defective`/`refused`/`new`/…, легаси —
+ * `rejected`/`first_contact`/`needs_analysis`/…. Перевод — по таблице
+ * crm-poker-adapter (CRM_STAGE_TO_POKER_ID), той же, что переносит в
+ * apps/api lead-stage-legacy-mapping.ts. Id продаж без префикса и не
+ * пересекаются с другими продуктами, поэтому переводятся без знания продукта.
+ * realtorStage/curatorStage (`realtor_1..6`/`curator_1..6`) совпадают.
  */
+
+/** Id стадии backend → легаси LeadStage (у sales id различаются, у остальных совпадают). */
+export function stageV2ToCrm(stage: string): CrmLeadStage {
+  return (POKER_ID_TO_CRM_STAGE[stage as LeadStageId] ?? stage) as CrmLeadStage
+}
+
+/** Легаси LeadStage → id стадии backend для PATCH /leads/:id/stage. */
+export function stageCrmToV2(stage: string): string {
+  return CRM_STAGE_TO_POKER_ID[stage] ?? stage
+}
 
 const PRODUCT_V2_TO_CRM: Record<LeadProductTypeV2, ProductType> = {
   sales: ProductType.SALES,
@@ -40,7 +52,7 @@ const CRM_TO_PRODUCT_V2: Record<ProductType, LeadProductTypeV2> = {
   [ProductType.AGENT]: 'agent',
 }
 
-/** `[phase 4]` Обратное к mapProductTypeV2ToCrm — нужно там, где форма создания лида (LeadsBlock/LeadsComponent) отдаёт легаси ProductType, а POST /leads принимает LeadProductTypeV2. */
+/** `[phase 4]` Обратное к mapProductTypeV2ToCrm — нужно там, где форма создания лида (LeadsBlock) отдаёт легаси ProductType, а POST /leads принимает LeadProductTypeV2. */
 export function mapProductTypeCrmToV2(productType: ProductType): LeadProductTypeV2 {
   return CRM_TO_PRODUCT_V2[productType]
 }
@@ -69,7 +81,7 @@ export function mapLeadV2ToCrmLead(lead: LeadV2): CrmLead {
     phone: lead.contact?.phone ?? '',
     email: lead.contact?.email,
     city: lead.city ?? undefined,
-    stage: lead.stage as unknown as CrmLeadStage,
+    stage: stageV2ToCrm(lead.stage),
     productType: mapProductTypeV2ToCrm(lead.productType),
     realtorStage: lead.realtorStage ? (lead.realtorStage as unknown as CrmLeadStage) : undefined,
     curatorStage: lead.curatorStage ? (lead.curatorStage as unknown as CrmLeadStage) : undefined,
@@ -92,7 +104,7 @@ export function mapLeadV2ToCrmLead(lead: LeadV2): CrmLead {
     aiSummary: undefined,
     // Не в интерфейсе легаси Lead — LeadViewModal читает его через `(displayLead as any).telegram`.
     telegram: lead.telegram ?? undefined,
-    // `[phase 4]` Тоже не в интерфейсе легаси Lead — нужен LeadsBlock/LeadsComponent
+    // `[phase 4]` Тоже не в интерфейсе легаси Lead — нужен LeadsBlock
     // как expectedVersion для CAS в leadsApiV2.changeStage/update (лиды там
     // читаются из общего списка, не из отдельного getById с явным version,
     // как в LeadViewModal), читается через `(lead as any).version`.
@@ -129,10 +141,11 @@ export function mapLeadEventsV2ToLegacyHistory(events: LeadEventV2[]): Array<{
 }> {
   return events.map((event, index) => {
     const previous = events[index + 1]
-    const fromStage = previous ? previous.stage : `${event.stage}__unknown_previous`
+    const toStage = stageV2ToCrm(event.stage)
+    const fromStage = previous ? stageV2ToCrm(previous.stage) : `${toStage}__unknown_previous`
     return {
       fromStage: fromStage as unknown as CrmLeadStage,
-      toStage: event.stage as unknown as CrmLeadStage,
+      toStage,
       changedAt: event.changedAt,
       changedBy: event.changedBy.positionId ?? 'system',
       userName: '',
@@ -146,7 +159,7 @@ export function mapLeadEventsV2ToLegacyHistory(events: LeadEventV2[]): Array<{
 export function buildStageCommentsMap(events: LeadEventV2[]): Map<CrmLeadStage, string> {
   const map = new Map<CrmLeadStage, string>()
   for (const event of events) {
-    const stage = event.stage as unknown as CrmLeadStage
+    const stage = stageV2ToCrm(event.stage)
     if (event.comment && !map.has(stage)) {
       map.set(stage, event.comment)
     }

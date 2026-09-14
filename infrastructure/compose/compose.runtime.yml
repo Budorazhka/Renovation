@@ -280,7 +280,7 @@ services:
       context: ../..
       dockerfile: infrastructure/docker/Dockerfile.erp-web
       args:
-        VITE_PLATFORM_API_BASE_URL: ${VITE_PLATFORM_API_BASE_URL:-/api/v1}
+        VITE_PLATFORM_API_BASE_URL: ${VITE_PLATFORM_API_BASE_URL:-/}
         VITE_CRM_API_BASE_URL: ${VITE_CRM_API_BASE_URL:-/api/v1}
     restart: unless-stopped
     depends_on:

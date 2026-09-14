@@ -86,6 +86,8 @@ export interface Lead {
   status?: LeadStatus
   /** Телефон клиента */
   phone?: string
+  /** Метки лида с сервера (например, OLD_BASE_TAG — лид из импорта старой базы). */
+  tags?: string[]
 }
 
 /** Единое облако лидов — пул по всем типам */

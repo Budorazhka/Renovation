@@ -1,6 +1,4 @@
 import { lazy, Suspense } from 'react'
-import { useAuth as useCrmAuth } from '@/features/crm/hooks/useAuth'
-import LoginPage from '@/features/crm/components/LoginPage'
 import bazaLogo from '@/assets/baza-logo.png'
 import '@/features/crm/styles/App.css'
 import { useI18n } from "@/i18n";
@@ -32,27 +30,15 @@ function CrmLoader() {
 /**
  * CRMPage — полноценная CRM из crm-code, встроенная в layout дашборда.
  * Рендерится ВНУТРИ текущего layout (через Outlet), без собственного BrowserRouter.
- * При отсутствии CRM-авторизации показывает CRM LoginPage.
+ *
+ * Своей проверки авторизации здесь нет намеренно: весь /dashboard закрыт
+ * платформенным RequireAuth (main.tsx), сюда доходит только вошедший
+ * пользователь. Раньше поверх этого стоял второй гейт на легаси-токен
+ * jwt_token из localStorage, которого реальный вход не выдаёт (сессия в
+ * httpOnly cookie) — он показывал форму «вход по коду из портала» и делал
+ * экран недостижимым для всех, кто вошёл честно.
  */
 export default function CRMPage() {
-  const { isAuthenticated, isLoading } = useCrmAuth()
-
-  if (isLoading) {
-    return (
-      <div id="crm-root" className="flex min-h-0 w-full flex-1 flex-col">
-        <CrmLoader />
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div id="crm-root">
-        <LoginPage />
-      </div>
-    )
-  }
-
   return (
     <div id="crm-root" className="min-w-0 max-w-full overflow-x-hidden">
       <div className="crm-app min-h-0 min-w-0 max-w-full flex-1 overflow-x-hidden overflow-y-auto">

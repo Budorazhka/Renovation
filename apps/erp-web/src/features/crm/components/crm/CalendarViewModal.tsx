@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import Calendar from './Calendar';
 import { useDisableScroll } from '../../hooks/useDisableScroll';
 import { useAuth } from '../../hooks/useAuth';
-import { apiService, type CalendarEvent, type Task, EventType, EventStatus, type UpdateCalendarEventDto, TaskPriority, TaskStatus } from '../../services/api';
+import { type CalendarEvent, type Task, EventType, EventStatus, type UpdateCalendarEventDto, TaskPriority, TaskStatus } from '../../services/api';
+import { calendarCrmService } from '../../services/calendarCrmV2';
+import { crmTaskService } from '../../services/crmTasksV2';
 import { compareCalendarEvents, compareArrays } from '../../utils/dataComparison';
 import TaskViewModal from './TaskViewModal';
 import Tooltip from '../common/Tooltip';
@@ -740,7 +742,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       const { start, end } = getPeriodDates();
       
       // Загружаем события календаря через unified API
-      const unifiedResponse = await apiService.getCalendarUnified({
+      const unifiedResponse = await calendarCrmService.getCalendarUnified({
         startDate: start.toISOString(),
         endDate: end.toISOString(),
         userId: user.id,
@@ -748,7 +750,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       });
       
       // Загружаем ВСЕ задачи пользователя через getTasks API (чтобы получить полные данные с категориями)
-      const tasksResponse = await apiService.getTasks({
+      const tasksResponse = await crmTaskService.getTasks({
         page: 1,
         limit: 500, // Увеличиваем лимит, чтобы получить все задачи
         assignedTo: user.id,
@@ -1163,7 +1165,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       // Fallback на старый метод при ошибке
       try {
         const { start: fallbackStart, end: fallbackEnd } = getPeriodDates();
-        const eventsResponse = await apiService.getCalendarEventsView({
+        const eventsResponse = await calendarCrmService.getCalendarEventsView({
           startDate: fallbackStart.toISOString(),
           endDate: fallbackEnd.toISOString(),
           userId: user.id,
@@ -1358,7 +1360,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
 
       // Если создается задача, создаем событие типа TASK без taskId - автоматически создастся задача
       if (eventData.type === EventType.TASK) {
-        const response = await apiService.createCalendarEvent(createData, user.id);
+        const response = await calendarCrmService.createCalendarEvent(createData);
 
         if (response.success) {
           const eventStartDate = new Date(eventData.startTime);
@@ -1386,7 +1388,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       }
 
       // Для остальных типов создаем событие календаря
-      const response = await apiService.createCalendarEvent(createData, user.id);
+      const response = await calendarCrmService.createCalendarEvent(createData);
 
       if (response.success) {
         // Переключаемся на дату созданного события, чтобы увидеть его
@@ -1615,7 +1617,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
         const normalizedTaskId = normalizeTaskId(taskId);
         
         // Загружаем полные данные задачи
-        const taskResponse = await apiService.getTask(normalizedTaskId);
+        const taskResponse = await crmTaskService.getTask(normalizedTaskId);
         
         if (taskResponse.success && taskResponse.data) {
           setSelectedTaskForView(taskResponse.data);
@@ -1682,14 +1684,12 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       // Если ID начинается с task_, перемещается задача через unified view
       // Если ID является обычным MongoDB ObjectId, перемещается событие календаря
       // API автоматически определяет тип объекта по ID и синхронизирует изменения
-      const response = await apiService.moveCalendarEvent(
+      const response = await calendarCrmService.moveCalendarEvent(
         draggedEvent._id,
         {
           newStartTime: newStart.toISOString(),
           newEndTime: newEnd.toISOString(),
         },
-        user?.id,
-        user?.role
       );
       
       if (response.success && response.data) {
@@ -3174,7 +3174,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       // API автоматически определяет тип объекта по ID
       // userId обязателен согласно документации
       const eventId = eventToDelete._id;
-      const response = await apiService.deleteCalendarEvent(eventId, user.id, user.role);
+      const response = await calendarCrmService.deleteCalendarEvent(eventId);
       
       if (response.success) {
         // УМНОЕ СРАВНЕНИЕ: Удаляем событие из локального состояния
@@ -3225,7 +3225,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     if (!user?.id) return;
 
     try {
-      const response = await apiService.updateCalendarEvent(eventId, updateData, user.id, user.role);
+      const response = await calendarCrmService.updateCalendarEvent(eventId, updateData);
       
       if (response.success && response.data) {
         const updatedEvent = response.data;
@@ -3465,7 +3465,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
 
     try {
       // Прямое получение задачи
-      const directResponse = await apiService.getTask(normalizedTaskId);
+      const directResponse = await crmTaskService.getTask(normalizedTaskId);
       if (directResponse.success && directResponse.data) {
         setSelectedTaskForView(directResponse.data);
         setIsTaskViewModalOpen(true);
@@ -3478,7 +3478,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       const end = new Date(start);
       end.setDate(end.getDate() + 60);
 
-      const unifiedResponse = await apiService.getCalendarUnified({
+      const unifiedResponse = await calendarCrmService.getCalendarUnified({
         startDate: start.toISOString(),
         endDate: end.toISOString(),
       });
@@ -3508,7 +3508,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
           );
 
           if (fallbackTaskId) {
-            const taskResponse = await apiService.getTask(fallbackTaskId);
+            const taskResponse = await crmTaskService.getTask(fallbackTaskId);
             if (taskResponse.success && taskResponse.data) {
               setSelectedTaskForView(taskResponse.data);
               setIsTaskViewModalOpen(true);
@@ -4709,7 +4709,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
       const normalizedTaskId = taskId.startsWith('task_') ? taskId.replace('task_', '') : taskId;
       
       // Обновляем статус задачи на сервере
-      const response = await apiService.updateTask(normalizedTaskId, { status });
+      const response = await crmTaskService.updateTask(normalizedTaskId, { status });
       
       if (response.success && response.data) {
         // Обновляем событие в локальном состоянии

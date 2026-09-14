@@ -1,7 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { apiService, TaskPriority, TaskStatus } from '../../../services/api';
-import type { Task, CreateTaskDto } from '../../../services/api';
-import { formatLocalDateTime } from '../../../utils/dateUtils';
+import { TaskPriority, TaskStatus } from '../../../services/api';
+import { categoryFields, crmTaskService } from '../../../services/crmTasksV2';
+import type { Task } from '../../../services/api';
+import { newIdempotencyKey, tasksApiV2 } from '@/services/tasksApiV2';
+import type { CreateTaskV2Payload, TaskAttachmentV2 } from '@/types/tasksV2';
+import { mediaApiV2 } from '@/services/mediaApiV2';
+import { mapTaskV2ToCrmTask } from '@/lib/task-v2-legacy-adapter';
+import { notesService } from '../../../services/notesV2';
 import { clearFilesFromIndexedDB } from '../../../utils/taskDraftStorage';
 import { createInitialTaskFormState, excelColorPalette, formatFileSize, type TaskFormState } from '../../../utils/taskFormUtils';
 import type { ModalTaskData } from '../../../components/crm/TaskCard';
@@ -24,17 +29,18 @@ const MODAL_TASK_CATEGORIES: { key: ModalTaskCategory; label: string }[] = [
   { key: 'all', label: 'Все' },
 ];
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
 const MODAL_TASKS_CATEGORIES_BY_INDEX: ModalTaskCategory[] = [
   'personal', 'work', 'personal', 'work', 'personal', 'work',
 ];
 
 export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseModalRef }: UseCrmTaskFormParams) {
+  const userId = user?.id;
   const {
     backendTasks,
-    backendLeads,
     taskSync,
     taskCategoriesMap,
-    setTaskCategoriesMap,
     loadTasks,
   } = data;
 
@@ -236,63 +242,49 @@ export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseMod
     }
   }, [modalTasksData, taskCategoryById, backendTasks, mapBackendTaskToCategory]);
 
+  // Задача создаётся в apps/api (POST /api/v1/tasks). Легаси-категории
+  // «Звонок»/«Встреча» у платформы не хранятся — остаётся только пара
+  // «рабочая/личная» (taskCategory). Создание задачи с leadId само попадает
+  // в таймлайн лида, отдельная запись истории не нужна.
   const createBackendTask = useCallback(async (
     title: string,
     description: string,
     priority: TaskPriority,
     subtasks: Array<{ title: string; completed: boolean }>,
     leadId?: string,
-    startDate?: string,
-    endDate?: string,
+    startAt?: string,
+    dueAt?: string,
     colorLabel?: string,
-    category?: number,
     categories?: string[],
-  ) => {
+    attachments?: TaskAttachmentV2[],
+  ): Promise<Task | null> => {
     try {
-      const assignedUserId = user?.id || '690ca643abbceba815ba7090';
-      const normalizedCategories = sanitizeCategories(categories);
-      let leadName: string | undefined;
-      if (leadId) {
-        const selectedLead = backendLeads.find(l => l._id === leadId);
-        leadName = selectedLead?.name;
-      }
-      const taskData: CreateTaskDto = {
+      const normalizedCategories = sanitizeCategories(categories) ?? [];
+      const payload: CreateTaskV2Payload = {
         title,
         ...(description && { description }),
-        priority,
-        assignedTo: assignedUserId,
+        isUrgent: priority === TaskPriority.URGENT_IMPORTANT || priority === TaskPriority.URGENT_NOT_IMPORTANT,
+        isImportant: priority === TaskPriority.URGENT_IMPORTANT || priority === TaskPriority.NOT_URGENT_IMPORTANT,
+        taskCategory: 'work',
+        ...categoryFields(normalizedCategories),
+        ...(startAt && { startAt }),
+        ...(dueAt && { dueAt }),
+        colorHex: colorLabel && HEX_COLOR.test(colorLabel) ? colorLabel : null,
+        subtasks: subtasks.map((s, index) => ({ id: `sub-${Date.now()}-${index}`, title: s.title, done: s.completed })),
+        ...(attachments && attachments.length > 0 && { attachments }),
+        ...(userId && { assignedPositionId: userId }),
         ...(leadId && { leadId }),
-        ...(subtasks.length > 0 && { subtasks }),
-        ...(startDate && { startDate }),
-        ...(endDate && { endDate }),
-        ...(colorLabel && { colorLabel }),
-        ...(category !== undefined && { category }),
-        ...(normalizedCategories && normalizedCategories.length > 0 && { categories: normalizedCategories }),
-        ...(leadName && { clientName: leadName }),
       };
-      const response = await apiService.createTask(taskData);
-      if (response.success && response.data) {
-        requestAnimationFrame(() => {
-          if (response.data) taskSync.addTask(response.data);
-        });
-        if (leadId) {
-          try {
-            await apiService.addLeadHistoryEntry(leadId, { message: `Задача "${title}" создана` });
-          } catch {
-            // ignore
-          }
-        }
-        return response.data;
-      } else {
-        alert(`Ошибка: ${response.message || 'Не удалось создать задачу'}`);
-      }
+      const created = mapTaskV2ToCrmTask(await tasksApiV2.create(payload, newIdempotencyKey()));
+      taskSync.addTask(created);
+      void loadTasks();
+      return created;
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string }; status?: number }; message?: string };
-      const errorMessage = err.response?.data?.message || err.message || 'Не удалось создать задачу';
-      alert(`Ошибка: ${errorMessage}`);
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      alert(`Ошибка: ${err.response?.data?.message || err.message || 'Не удалось создать задачу'}`);
+      return null;
     }
-    return null;
-  }, [user?.id, backendLeads, taskSync]);
+  }, [userId, taskSync, loadTasks]);
 
   const handleCreateTask = useCallback(async (customTaskForm?: TaskFormState) => {
     const formData = customTaskForm || taskForm;
@@ -355,54 +347,31 @@ export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseMod
         }
       }
 
-      const startDateTime = startDateObj ? formatLocalDateTime(startDateObj) : undefined;
-      const endDateTime = endDateObj ? formatLocalDateTime(endDateObj) : undefined;
-
-      let categoryId: number | undefined;
-      let categoryToUse: string | undefined;
       let finalCategories: string[] | undefined;
-
       if (formData.taskType === 'standard' || !formData.taskType) {
         if (formData.taskCategory) {
-          categoryToUse = formData.taskCategory === 'work' ? 'Рабочие задачи' : 'Личные задачи';
-          finalCategories = [categoryToUse];
+          finalCategories = [formData.taskCategory === 'work' ? 'Рабочие задачи' : 'Личные задачи'];
         }
       } else {
         finalCategories = formData.categories?.length ? formData.categories : undefined;
-        if (finalCategories?.length) {
-          categoryToUse = finalCategories.find(c => c === 'Рабочие задачи' || c === 'Личные задачи');
-        }
-      }
-      const categoriesToSanitize = finalCategories || formData.categories;
-      const sanitizedCategories = sanitizeCategories(categoriesToSanitize);
-
-      if (categoryToUse) {
-        const category = MODAL_TASK_CATEGORIES.find(cat => cat.label === categoryToUse);
-        if (category) {
-          let categoryFromMap = Array.from(taskCategoriesMap.entries()).find(([, name]) => name === categoryToUse);
-          if (categoryFromMap) {
-            categoryId = categoryFromMap[0];
-          } else {
-            try {
-              const response = await apiService.getOrCreateTaskCategory(categoryToUse);
-              if (response.success && response.data) {
-                categoryId = response.data.id;
-                setTaskCategoriesMap(prev => {
-                  const newMap = new Map(prev);
-                  newMap.set(response.data!.id, response.data!.name);
-                  return newMap;
-                });
-              }
-            } catch {
-              // ignore
-            }
-          }
-        }
       }
 
       const leadIdToUse = formData.leadId && typeof formData.leadId === 'string' && formData.leadId.trim()
         ? formData.leadId.trim()
         : undefined;
+
+      // Файлы загружаются в хранилище платформы до создания задачи — сервер
+      // принимает только ссылки на уже загруженные файлы (assetId).
+      const attachments: TaskAttachmentV2[] = [];
+      for (const file of selectedTaskFiles) {
+        try {
+          const { assetId } = await mediaApiV2.uploadFile(file, 'task_attachment');
+          attachments.push({ assetId, fileName: file.name });
+        } catch {
+          alert(`Не удалось загрузить файл «${file.name}». Задача не создана.`);
+          return;
+        }
+      }
 
       const newTask = await createBackendTask(
         title,
@@ -410,24 +379,17 @@ export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseMod
         getPriority(),
         formData.subtasks,
         leadIdToUse,
-        startDateTime,
-        endDateTime,
+        startDateObj?.toISOString(),
+        endDateObj?.toISOString(),
         formData.colorTag !== 'none' ? formData.colorTag : undefined,
-        categoryId,
-        sanitizedCategories && sanitizedCategories.length > 0 ? sanitizedCategories : undefined,
+        finalCategories ?? formData.categories,
+        attachments,
       );
 
       if (newTask) {
-        if (selectedTaskFiles.length > 0) {
-          try {
-            await apiService.uploadAndRegisterFilesBulk(selectedTaskFiles, 'task', newTask._id, 'tasks');
-          } catch {
-            // continue
-          }
-        }
         if (noteIdToDelete) {
           try {
-            await apiService.deleteNote(noteIdToDelete);
+            await notesService.deleteNote(noteIdToDelete);
             setNoteIdToDelete(null);
           } catch {
             // ignore
@@ -477,7 +439,7 @@ export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseMod
     } finally {
       setIsUploadingFiles(false);
     }
-  }, [taskForm, taskCategoriesMap, setTaskCategoriesMap, selectedTaskFiles, createBackendTask, noteIdToDelete, onTaskCreatedRef]);
+  }, [taskForm, selectedTaskFiles, createBackendTask, noteIdToDelete, onTaskCreatedRef]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -622,45 +584,18 @@ export function useCrmTaskForm({ data, user, onTaskCreatedRef, onRequestCloseMod
       if (categoryLabel) {
         recentlyChangedCategoriesRef.current.set(id, Date.now());
         setTaskCategoryById(prev => ({ ...prev, [id]: targetCategory }));
-
-        let categoryId: number | undefined;
-        const categoryFromMap = Array.from(taskCategoriesMap.entries()).find(([, name]) => name === categoryLabel);
-        if (categoryFromMap) {
-          categoryId = categoryFromMap[0];
+        taskSync.updateTask(id, { categories: normalizedCategories } as Partial<Task>, ['categories']);
+        const response = await crmTaskService.updateTask(id, { categories: normalizedCategories });
+        if (response.success && response.data) {
+          taskSync.updateTaskAfterSync(id, response.data);
         } else {
-          try {
-            const response = await apiService.getOrCreateTaskCategory(categoryLabel);
-            if (response.success && response.data) {
-              categoryId = response.data.id;
-              setTaskCategoriesMap(prev => {
-                const newMap = new Map(prev);
-                newMap.set(response.data!.id, response.data!.name);
-                return newMap;
-              });
-            }
-          } catch {
-            // ignore
-          }
-        }
-
-        if (categoryId !== undefined) {
-          taskSync.updateTask(id, { category: categoryId, categories: normalizedCategories } as Partial<Task>, ['category', 'categories']);
-          try {
-            const response = await apiService.updateTask(id, { category: categoryId, categories: normalizedCategories });
-            if (response.success && response.data) {
-              taskSync.updateTaskAfterSync(id, response.data);
-            } else {
-              await loadTasks();
-            }
-          } catch {
-            await loadTasks();
-          }
+          await loadTasks();
         }
       }
     } else {
       setTaskCategoryById(prev => ({ ...prev, [id]: targetCategory }));
     }
-  }, [backendTasks, taskSync, taskCategoriesMap, setTaskCategoriesMap, loadTasks]);
+  }, [backendTasks, taskSync, loadTasks]);
 
   const handleTaskDragEnd = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();

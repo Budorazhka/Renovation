@@ -19,7 +19,6 @@ export default function App() {
   const isCrmAnalyticsRoute =
     location.pathname === '/dashboard/crm/analytics' ||
     location.pathname.startsWith('/dashboard/crm/analytics/')
-  const isClassicCrmRoute = location.pathname === '/dashboard/crm/classic'
   const isWizardRoute =
     location.pathname === '/dashboard/development/projects/new' ||
     /^\/dashboard\/development\/projects\/[^/]+\/edit$/.test(location.pathname)
@@ -28,7 +27,6 @@ export default function App() {
     isPokerRoute ||
     isNewBuildRegistrationsRoute ||
     isCrmAnalyticsRoute ||
-    isClassicCrmRoute ||
     isWizardRoute ||
     isTeamRoute
 
@@ -41,8 +39,7 @@ export default function App() {
       <Toaster position="top-right" expand={false} richColors theme={isLightTheme ? 'light' : 'dark'} />
       <div
         className={cn(
-          'flex h-screen min-h-0 flex-row overflow-hidden bg-[var(--app-bg)] text-[color:var(--app-text)]',
-          isClassicCrmRoute ? 'min-w-0' : 'min-w-[1280px]',
+          'flex h-screen min-h-0 min-w-[1280px] flex-row overflow-hidden bg-[var(--app-bg)] text-[color:var(--app-text)]',
           isFeltStyle ? 'app-theme-felt' : '',
         )}
       >
