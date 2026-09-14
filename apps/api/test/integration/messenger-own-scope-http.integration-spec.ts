@@ -347,7 +347,7 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
       method: 'POST',
       url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
       headers: { cookie: cookieB },
-      payload: { leadId: leadId.toString() },
+      payload: { expectedVersion: 0, leadId: leadId.toString() },
     });
 
     expect(response.statusCode).toBe(404);
@@ -365,7 +365,7 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
       method: 'POST',
       url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
       headers: { cookie },
-      payload: { leadId: foreignLeadId.toString() },
+      payload: { expectedVersion: 0, leadId: foreignLeadId.toString() },
     });
 
     expect(response.statusCode).toBe(404);
@@ -383,7 +383,7 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
       method: 'POST',
       url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
       headers: { cookie },
-      payload: { contactId: foreignContactId.toString() },
+      payload: { expectedVersion: 0, contactId: foreignContactId.toString() },
     });
 
     expect(response.statusCode).toBe(404);
@@ -401,7 +401,7 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
       method: 'POST',
       url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
       headers: { cookie },
-      payload: { dealId: foreignDealId.toString() },
+      payload: { expectedVersion: 0, dealId: foreignDealId.toString() },
     });
 
     expect(response.statusCode).toBe(404);
@@ -424,7 +424,7 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
       method: 'POST',
       url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
       headers: { cookie },
-      payload: { leadId: leadId.toString(), contactId: contactId.toString(), dealId: dealId.toString() },
+      payload: { expectedVersion: 0, leadId: leadId.toString(), contactId: contactId.toString(), dealId: dealId.toString() },
     });
 
     expect(response.statusCode).toBe(200);
@@ -432,6 +432,23 @@ describe('Messenger own-scope — HTTP integration (полный AppModule)', ()
     expect(dialog?.leadId?.toString()).toBe(leadId.toString());
     expect(dialog?.contactId?.toString()).toBe(contactId.toString());
     expect(dialog?.dealId?.toString()).toBe(dealId.toString());
+  });
+
+  it('linkDialogToCrm: устаревший expectedVersion — 409, привязка не меняется', async () => {
+    const { cookie, organizationId, positionId } = await seedOwnerSession();
+    const dialogId = await seedDialog(organizationId, positionId);
+    const leadId = await seedLead(organizationId);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/messenger/dialogs/${dialogId}/link-crm`,
+      headers: { cookie },
+      payload: { expectedVersion: 5, leadId: leadId.toString() },
+    });
+
+    expect(response.statusCode).toBe(409);
+    const dialog = await connection.collection('messenger_dialogs').findOne({ _id: dialogId });
+    expect(dialog?.leadId).toBeUndefined();
   });
 
   it('sendMediaMessage: assetId чужой организации — 404, сообщение не создаётся', async () => {
