@@ -79,6 +79,20 @@ describe('LeadImportService — построчная обработка', () => 
     expect(createLead).toHaveBeenCalledTimes(2);
   });
 
+  it('явно не-телефон («нет», короткий номер) — ошибка строки, лид не создаётся', async () => {
+    const { service, createLead } = makeService();
+    const buffer = csvBuffer(['+995 (555) 000-001,Иван', 'нет,Без номера', '12345,Короткий']);
+
+    const result = await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv' });
+
+    expect(result.created).toBe(1);
+    expect(result.errors).toEqual([
+      { row: 2, message: 'Некорректный телефон: нет' },
+      { row: 3, message: 'Некорректный телефон: 12345' },
+    ]);
+    expect(createLead).toHaveBeenCalledTimes(1);
+  });
+
   it('createLead бросает ошибку на одной строке — остальные всё равно обрабатываются', async () => {
     const createLead = jest
       .fn()
@@ -156,5 +170,73 @@ describe('LeadImportService — идемпотентность строки', ()
     expect(createLead).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ total: 2, created: 1, failed: 1 });
     expect(result.errors).toEqual([{ row: 2, message: 'конфликт идемпотентности' }]);
+  });
+});
+
+describe('LeadImportService — legacy-base-import колонки и tag', () => {
+  it('tag=old_base — createLead получает route:import, tags:[old_base] и route не зависит от идемпотентности', async () => {
+    const { service, createLead } = makeService();
+    const buffer = csvBuffer(['+995500000001,Иван']);
+
+    await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv', tag: 'old_base' });
+
+    expect(createLead).toHaveBeenCalledWith(
+      expect.objectContaining({ route: 'import', tags: ['old_base'] }),
+    );
+  });
+
+  it('без tag — createLead получает route:import, но tags не проставляется', async () => {
+    const { service, createLead } = makeService();
+    const buffer = csvBuffer(['+995500000001,Иван']);
+
+    await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv' });
+
+    expect(createLead).toHaveBeenCalledWith(expect.objectContaining({ route: 'import', tags: undefined }));
+  });
+
+  it('whatsapp/telegram/comment/last_contact колонки — передаются в createLead как whatsapp/telegram/notes/lastContactAt', async () => {
+    const { service, createLead } = makeService();
+    const buffer = Buffer.from(
+      'phone,name,telegram,whatsapp,comment,last_contact\n+995500000001,Иван,@ivan,+995500000009,Старая заявка,2026-01-15\n',
+      'utf8',
+    );
+
+    await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv' });
+
+    expect(createLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        telegram: '@ivan',
+        whatsapp: '+995500000009',
+        notes: 'Старая заявка',
+        lastContactAt: new Date('2026-01-15T00:00:00.000Z'),
+      }),
+    );
+  });
+
+  it('невалидная дата last_contact — ошибка ТОЛЬКО этой строки, остальные создаются', async () => {
+    const { service, createLead } = makeService();
+    const buffer = Buffer.from(
+      'phone,name,last_contact\n+995500000001,Иван,31.02.2026\n+995500000002,Пётр,15.01.2026\n',
+      'utf8',
+    );
+
+    const result = await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv' });
+
+    expect(result).toMatchObject({ total: 2, created: 1, failed: 1 });
+    expect(result.errors).toEqual([{ row: 1, message: expect.stringContaining('Некорректная дата') }]);
+    expect(createLead).toHaveBeenCalledTimes(1);
+  });
+
+  it('идемпотентность строки НЕ зависит от tag/новых колонок — requestBody остаётся {organizationId,requesterName,requesterPhone}', async () => {
+    const { service, checkReplay } = makeService();
+    const buffer = Buffer.from('phone,name,whatsapp\n+995500000001,Иван,+995500000009\n', 'utf8');
+
+    await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv', tag: 'old_base' });
+
+    expect(checkReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestBody: { organizationId: organizationId.toString(), requesterName: 'Иван', requesterPhone: '+995500000001' },
+      }),
+    );
   });
 });

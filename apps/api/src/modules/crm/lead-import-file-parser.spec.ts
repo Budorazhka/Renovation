@@ -1,5 +1,5 @@
 import { Workbook } from 'exceljs';
-import { parseLeadImportFile } from './lead-import-file-parser';
+import { parseLeadImportFile, parseImportContactDate } from './lead-import-file-parser';
 
 async function buildXlsx(headers: string[], rows: (string | number)[][]): Promise<Buffer> {
   const workbook = new Workbook();
@@ -78,5 +78,60 @@ describe('parseLeadImportFile — XLSX', () => {
     await expect(
       parseLeadImportFile(Buffer.from('irrelevant'), 'leads.txt', 'text/plain'),
     ).rejects.toThrow(/формат/);
+  });
+});
+
+describe('parseLeadImportFile — legacy-base-import колонки (whatsapp/telegram/comment/last_contact)', () => {
+  it('разбирает все новые колонки, регистронезависимо, в любом порядке', async () => {
+    const csv = 'phone,Telegram,WHATSAPP,Comment,Last_Contact\n+995500000001,@ivan,+995500000009,Старый клиент,2026-01-15\n';
+    const rows = await parseLeadImportFile(Buffer.from(csv, 'utf8'), 'leads.csv', 'text/csv');
+
+    expect(rows).toEqual([
+      {
+        row: 1,
+        name: undefined,
+        phone: '+995500000001',
+        telegram: '@ivan',
+        whatsapp: '+995500000009',
+        comment: 'Старый клиент',
+        lastContactAt: '2026-01-15',
+      },
+    ]);
+  });
+
+  it('без новых колонок — поля undefined, старые файлы (только phone/name) продолжают работать', async () => {
+    const csv = 'phone,name\n+995500000001,Иван\n';
+    const rows = await parseLeadImportFile(Buffer.from(csv, 'utf8'), 'leads.csv', 'text/csv');
+
+    expect(rows).toEqual([{ row: 1, name: 'Иван', phone: '+995500000001' }]);
+  });
+});
+
+describe('parseImportContactDate', () => {
+  it('ISO-дату (YYYY-MM-DD) разбирает', () => {
+    const date = parseImportContactDate('2026-01-15');
+    expect(date.toISOString()).toBe('2026-01-15T00:00:00.000Z');
+  });
+
+  it('ISO datetime разбирает', () => {
+    const date = parseImportContactDate('2026-01-15T10:30:00.000Z');
+    expect(date.toISOString()).toBe('2026-01-15T10:30:00.000Z');
+  });
+
+  it('dd.mm.yyyy (легаси-формат) разбирает', () => {
+    const date = parseImportContactDate('15.01.2026');
+    expect(date.toISOString()).toBe('2026-01-15T00:00:00.000Z');
+  });
+
+  it('несуществующая дата (31.02.2026) — ошибка', () => {
+    expect(() => parseImportContactDate('31.02.2026')).toThrow(/Некорректная дата/);
+  });
+
+  it('произвольный мусор — ошибка', () => {
+    expect(() => parseImportContactDate('не дата вообще')).toThrow(/Некорректная дата/);
+  });
+
+  it('американский формат mm/dd/yyyy — ошибка (не входит в поддерживаемые форматы)', () => {
+    expect(() => parseImportContactDate('01/15/2026')).toThrow(/Некорректная дата/);
   });
 });

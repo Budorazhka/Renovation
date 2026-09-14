@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TASK_CATEGORIES, type TaskCategory } from '../schemas/task.schema';
+import { TASK_CATEGORIES, type TaskCategory, TASK_TYPES, type TaskType } from '../schemas/task.schema';
 
 /** Подзадача. `id` генерирует клиент — он же переставляет их локально до сохранения. */
 export class CreateTaskSubtaskDto {
@@ -88,6 +88,11 @@ export class CreateTaskDto {
   @IsOptional()
   @IsIn(TASK_CATEGORIES)
   taskCategory?: TaskCategory;
+
+  /** Вид задачи. По умолчанию — 'standard', как в схеме. */
+  @IsOptional()
+  @IsIn(TASK_TYPES)
+  taskType?: TaskType;
 
   /** `null` — снять метку. Отсутствие поля и null — разные намерения. */
   @IsOptional()

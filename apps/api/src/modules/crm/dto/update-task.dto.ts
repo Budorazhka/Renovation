@@ -1,9 +1,12 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
+  IsHexColor,
   IsIn,
   IsInt,
+  IsMongoId,
   IsOptional,
   IsString,
   Min,
@@ -12,8 +15,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CreateTaskSubtaskDto } from './create-task.dto';
-import type { TaskStatus } from '../schemas/task.schema';
+import { CreateTaskAttachmentDto, CreateTaskSubtaskDto } from './create-task.dto';
+import {
+  TASK_CATEGORIES,
+  TASK_TYPES,
+  type TaskCategory,
+  type TaskStatus,
+  type TaskType,
+} from '../schemas/task.schema';
 
 /**
  * НЕ содержит assignedPositionId — смена исполнителя ТОЛЬКО через
@@ -36,9 +45,15 @@ export class UpdateTaskDto {
   @MaxLength(2000)
   description?: string;
 
+  /** `null` снимает срок — тот же принцип, что colorHex/leadId ниже: отсутствие поля и null — разные намерения. */
   @IsOptional()
   @IsDateString()
-  dueAt?: string;
+  dueAt?: string | null;
+
+  /** `null` снимает плановое начало. */
+  @IsOptional()
+  @IsDateString()
+  startAt?: string | null;
 
   /**
    * `in_progress` добавлен 02.09.2026. Статус появился в модели вместе с
@@ -56,6 +71,33 @@ export class UpdateTaskDto {
   @IsIn(['open', 'in_progress', 'cancelled'])
   status?: TaskStatus;
 
+  /** Признаки матрицы Эйзенхауэра — те же, что принимает создание. */
+  @IsOptional()
+  @IsBoolean()
+  isUrgent?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isImportant?: boolean;
+
+  @IsOptional()
+  @IsIn(TASK_CATEGORIES)
+  taskCategory?: TaskCategory;
+
+  @IsOptional()
+  @IsIn(TASK_TYPES)
+  taskType?: TaskType;
+
+  /** `null` — снять цветовую метку. Отсутствие поля и null — разные намерения. */
+  @IsOptional()
+  @IsHexColor()
+  colorHex?: string | null;
+
+  /** `null` — отвязать лид (и вместе с ним контакт, пришедший через лид). */
+  @IsOptional()
+  @IsMongoId()
+  leadId?: string | null;
+
   /**
    * Полный список подзадач. Заменяет прежний целиком, а не сливается с ним:
    * подзадачи живут только внутри своей задачи, экран всегда держит их все и
@@ -72,4 +114,16 @@ export class UpdateTaskDto {
   @ValidateNested({ each: true })
   @Type(() => CreateTaskSubtaskDto)
   subtasks?: CreateTaskSubtaskDto[];
+
+  /**
+   * Полный список вложений. Заменяет прежний целиком — тот же принцип, что
+   * subtasks выше. Проверка asset'ов та же, что в createTask (owner scope +
+   * verified).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => CreateTaskAttachmentDto)
+  attachments?: CreateTaskAttachmentDto[];
 }

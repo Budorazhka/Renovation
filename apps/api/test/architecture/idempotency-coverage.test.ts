@@ -80,6 +80,7 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
   'POST /community/threads': 'создание темы форума — повтор создал бы дубликат обсуждения',
   'POST /community/threads/:threadId/replies': 'создание ответа в треде — повтор создал бы дублирующий ответ',
   'POST /marketplace/requests': 'N-13: создание запроса требует Idempotency-Key, повтор не должен создать второй публичный запрос',
+  'POST /notes': 'дубль личной заметки засоряет блокнот менеджера — тот же класс риска, что дубль задачи',
 };
 
 /**
@@ -184,7 +185,11 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /leads/:leadId/assign': 'условный update владельца',
   'POST /leads/:leadId/unassign': 'условный update владельца (обратное действие assign, тот же принцип)',
   'PATCH /leads/:leadId':
-    '`[phase 3]` обновление сопутствующих полей по id, идемпотентно — повтор с тем же телом применяет тот же $set повторно, без побочного дублирования (stage сюда не входит, тот путь — PATCH /leads/:leadId/stage, уже в списке обязательных выше)',
+    '`[phase 3]` обновление сопутствующих полей по id, идемпотентно — повтор с тем же телом применяет тот же $set повторно, без побочного дублирования (stage сюда не входит, тот путь — PATCH /leads/:leadId/stage, уже в списке обязательных выше). name/phone/email/productType того же класса: повтор применяет тот же $set к Contact/тот же сброс stage к тому же productType повторно',
+  'PATCH /leads/:leadId/checklist':
+    'установка отметок чек-листа по (stage,index) — повтор с тем же телом применяет те же $set повторно, идемпотентно по природе (не создание сущности, не счётчик)',
+  'PUT /leads/:leadId/stage-notes/:stage':
+    'установка заметки стадии — повтор с тем же text приводит к тому же итоговому состоянию (тот же принцип, что PATCH .../checklist выше); пустой text удаляет запись, повторное удаление уже удалённой — тот же итог',
   'DELETE /leads/:leadId':
     '`[phase 3]` soft delete по id идемпотентно — повторный вызов на уже удалённом лиде получает 404 (LeadRepository.softDelete фильтрует status:{$ne:\'deleted\'}), не второй side-effect',
   'POST /leads/:leadId/files':
@@ -266,6 +271,10 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
     'добавление элемента идемпотентно по построению: условный push с фильтром "элемента ещё нет", ' +
     'тот же принцип, что POST /marketplace/favorites',
   'DELETE /marketplace/selections/:id/items': 'снятие уже снятого элемента — тот же итог, не ошибка',
+
+  // --- Личные заметки менеджера ---
+  'PATCH /notes/:noteId': 'expectedVersion (CAS)',
+  'DELETE /notes/:noteId': 'удаление по id идемпотентно, тот же принцип, что DELETE /leads/:leadId',
 };
 
 /** Сколько записей помечено `ПРОБЕЛ:`. Рост числа обязан быть осознанным. */

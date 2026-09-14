@@ -1079,6 +1079,41 @@ export interface paths {
         patch: operations["changeLeadStage"];
         trace?: never;
     };
+    "/leads/{leadId}/checklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** `[phase 3.1]` Чек-лист стадий лида + заметки к стадиям (lead.read, тот же own/organization scope, что GET /leads/{leadId}). Отдаёт только пункты/заметки, которые хоть раз были установлены — пустой чек-лист (новый лид) возвращает пустые массивы, сервер не предзаполняет весь набор пунктов продукта. */
+        get: operations["getLeadChecklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** `[phase 3.1]` Атомарная отметка пунктов чек-листа (lead.update, тот же own/organization scope, что PATCH /leads/{leadId}). НЕ версионирован (в отличие от PATCH /deals/{dealId}/checklist): пункты чек-листа отмечаются часто и независимо, CAS по версии ВСЕГО лида давал бы ложные конфликты между двумя менеджерами, отмечающими разные пункты одновременно, либо между отметкой пункта и правкой сопутствующих полей лида. Каждое изменение — независимый `$set` по ключу `(stage,index)`, конкурентные PATCH на РАЗНЫЕ пункты никогда не затирают друг друга; на ОДИН и тот же пункт — последняя запись побеждает. */
+        patch: operations["updateLeadChecklist"];
+        trace?: never;
+    };
+    "/leads/{leadId}/stage-notes/{stage}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** `[phase 3.1]` Заметка, привязанная к конкретной стадии лида (не к лиду в целом — для этого уже есть `notes`, PATCH /leads/{leadId}). Пустой `text` удаляет заметку этой стадии целиком (идемпотентно — повторное удаление уже удалённой заметки не ошибка). `stage` валидируется той же coarse-проверкой, что и PATCH .../stage: известное значение хоть какого-то продукта (ALL_LEAD_STAGE_VALUES), без привязки к productType КОНКРЕТНОГО лида. */
+        put: operations["setLeadStageNote"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads": {
         parameters: {
             query?: never;
@@ -1129,8 +1164,9 @@ export interface paths {
         /**
          * Импорт лидов из CSV/XLSX построчным отчётом об ошибках (import.run). Обычный multipart/form-data upload (поле `file`), не MediaModule — файл разбирается и отбрасывается в рамках одного запроса, нигде не хранится после обработки.
          *     ВАЖНО: сам грант import.run НЕ даёт доступа создавать лиды. Дополнительно требуется lead.create — тот же принцип, что у export.run/<entity>.read (см. /exports/{entity} выше): без него 403, даже если import.run выдан.
-         *     Колонки файла: `name` (опционально), `phone` (обязательно) — первая строка заголовок, порядок колонок не важен, matching по имени заголовка case-insensitive. Обработка СИНХРОННАЯ в рамках HTTP-запроса (не фоновое задание) — потолок 2000 строк, превышение отклоняется целиком, файл не обрезается молча (тот же принцип, что у /exports/{entity}, но ниже: создание лида — транзакция, на порядок тяжелее чтения проекции).
-         *     Идемпотентность: ключ на строку детерминированно вычисляется на сервере из (organizationId, phone) — повторная загрузка ТОГО ЖЕ файла не создаёт вторую партию лидов, строки с уже импортированным телефоном засчитываются как успешные без создания дубля.
+         *     Колонки файла: `phone` (обязательно), `name`/`whatsapp`/`telegram`/ `comment`/`last_contact` (опционально) — первая строка заголовок, порядок колонок не важен, matching по имени заголовка case-insensitive. `telegram` кладётся в `Lead.telegram`, `comment` — в `Lead.notes`, `whatsapp`/`last_contact` — в новые поля `Lead.whatsapp`/`Lead.lastContactAt`. `last_contact` принимает ISO (`YYYY-MM-DD` либо datetime) или `dd.mm.yyyy` — невалидная дата отклоняет ТОЛЬКО эту строку (попадает в `errors[]`), не весь файл. Обработка СИНХРОННАЯ в рамках HTTP-запроса (не фоновое задание) — потолок 2000 строк, превышение отклоняется целиком, файл не обрезается молча (тот же принцип, что у /exports/{entity}, но ниже: создание лида — транзакция, на порядок тяжелее чтения проекции).
+         *     `?tag=old_base` (опционально, единственное допустимое значение — другое отклоняется 400) помечает каждый СОЗДАННЫЙ этим запросом лид `tags:['old_base']`. Источник лида (`source.route`) для импорта — `'import'`, отличимо от ручного создания (`'manual'`) и от marketplace-потоков (URL публикации).
+         *     Идемпотентность: ключ на строку детерминированно вычисляется на сервере из (organizationId, phone) — повторная загрузка ТОГО ЖЕ телефона (даже в другом файле/с другим набором колонок, включая появление `?tag=old_base` во втором проходе) не создаёт вторую запись, строка засчитывается как успешная без создания дубля; колонки второго прохода на уже существующий лид не переносятся — это идемпотентность СОЗДАНИЯ, не upsert/merge существующего лида.
          *     `row` в `errors[]` — 1-indexed номер строки ДАННЫХ (без заголовка).
          */
         post: operations["importLeads"];
@@ -1306,6 +1342,60 @@ export interface paths {
         put?: never;
         /** Завершение задачи (перевод в статус completed с фиксацией времени и исполнителя). Идемпотентно на уровне "уже completed" — повторный вызов ЛЮБЫМ expectedVersion после успешного завершения просто возвращает текущее состояние (200), не 409/404 — безопасно вызывать повторно. Сам переход open→completed версионирован (conventions.md разд.5): устаревший expectedVersion на ОТКРЫТОЙ задаче — 409, не молчаливый lost update. */
         post: operations["completeTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Список личных заметок вызывающего автора (личный блокнот, не CRM-ресурс) — видны только заметки собственной Position в своей организации, даже owner/director не видит чужие. Newest-first, cursor-paginated. */
+        get: operations["listNotes"];
+        put?: never;
+        /** Создание личной заметки с опциональной привязкой к лиду */
+        post: operations["createNote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notes/{noteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Получение своей заметки по ID. Чужая заметка (другой автор либо другая организация) — 404, non-disclosure. */
+        get: operations["getNote"];
+        put?: never;
+        post?: never;
+        /** Удаление своей заметки по id, идемпотентно (повторный вызов на уже удалённой — 404). */
+        delete: operations["deleteNote"];
+        options?: never;
+        head?: never;
+        /** Частичное CAS-обновление своей заметки. expectedVersion обязателен (conventions.md разд.5). leadId:null отвязывает лид, attachments — полный новый список (заменяет прежний целиком). */
+        patch: operations["updateNote"];
+        trace?: never;
+    };
+    "/notes/{noteId}/attachments/{assetId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Короткоживущая подписанная ссылка на скачивание вложения заметки. Тот же note.read grant и own-scope, что GET /notes/{noteId} — если заметка не видна вызывающему, до вложения он не доходит. */
+        get: operations["downloadNoteAttachment"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4271,8 +4361,15 @@ export interface components {
              * @enum {string|null}
              */
             curatorStage?: "curator_1" | "curator_2" | "curator_3" | "curator_4" | "curator_5" | "curator_6" | null;
+            /** @description `[legacy-base-import]` WhatsApp-контакт лида, отдельно от Contact.phone/telegram. */
+            whatsapp?: string | null;
+            /**
+             * Format: date-time
+             * @description `[legacy-base-import]` дата последнего контакта ИЗ СТАРОЙ базы (колонка last_contact при импорте), историческая метка, не серверный лог contact-actions.
+             */
+            lastContactAt?: string | null;
         };
-        /** @description `[phase 3]` PATCH /leads/{leadId} — только сопутствующие поля лида, НИКОГДА stage (тот путь — PATCH /leads/{leadId}/stage). Все поля опциональны, изменяются только явно переданные. */
+        /** @description `[phase 3]` PATCH /leads/{leadId} — сопутствующие поля лида, НИКОГДА stage напрямую (тот путь — PATCH /leads/{leadId}/stage, `stage` меняется здесь только как побочный эффект смены `productType`, см. ниже). Все поля опциональны, изменяются только явно переданные. */
         UpdateLeadRequest: {
             city?: string;
             notes?: string;
@@ -4289,6 +4386,40 @@ export interface components {
             realtorStage?: "realtor_1" | "realtor_2" | "realtor_3" | "realtor_4" | "realtor_5" | "realtor_6";
             /** @enum {string} */
             curatorStage?: "curator_1" | "curator_2" | "curator_3" | "curator_4" | "curator_5" | "curator_6";
+            /** @description `[legacy-erp-crm]` Contact.name — контакт может быть общим для нескольких лидов, правка видна на всех них. */
+            name?: string;
+            /** @description `[legacy-erp-crm]` Contact.phone — уже занят ДРУГИМ контактом организации → 409 CONTACT_PHONE_TAKEN. */
+            phone?: string;
+            /** @description `[legacy-erp-crm]` Contact.email — null очищает поле. */
+            email?: string | null;
+            /**
+             * @description Смена продукта лида — сбрасывает stage в стадию "Новый лид" нового продукта (firstStageIdForProduct), фиксируется в истории стадий тем же механизмом, что PATCH /leads/{leadId}/stage. Если совпадает с текущим productType лида — no-op.
+             * @enum {string}
+             */
+            productType?: "sales" | "network" | "owner" | "agent";
+        };
+        LeadChecklistItem: {
+            stage: string;
+            index: number;
+            checked: boolean;
+        };
+        LeadStageNote: {
+            stage: string;
+            text: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description GET/PATCH /leads/{leadId}/checklist — одна и та же форма ответа. */
+        LeadChecklistResponse: {
+            items: components["schemas"]["LeadChecklistItem"][];
+            stageNotes: components["schemas"]["LeadStageNote"][];
+        };
+        UpdateLeadChecklistRequest: {
+            changes: {
+                stage: string;
+                index: number;
+                checked: boolean;
+            }[];
         };
         /** @description `[phase 3]` GET/POST/DELETE /leads/{leadId}/files item shape. fileName выводится из MediaAsset storage key (originalPath), не клиентское имя файла — MediaAssetDocument его не хранит. */
         LeadFile: {
@@ -4559,7 +4690,7 @@ export interface components {
             /** @description MAX_UPLOAD_SIZE_BYTES — 20 МБ */
             sizeBytes: number;
             /** @enum {string} */
-            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment";
+            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment" | "lead_attachment" | "note_attachment";
         };
         CreateMediaUploadIntentResponse: {
             assetId: string;
@@ -4808,6 +4939,11 @@ export interface components {
             priority?: "low" | "medium" | "high" | "critical";
             /** @enum {string} */
             taskCategory?: "work" | "personal";
+            /**
+             * @description Вид задачи. У документов без поля (до 14.09.2026) читается как 'standard'.
+             * @enum {string}
+             */
+            taskType?: "standard" | "call" | "meeting";
             /** @description Цветовая метка #rrggbb; null — метки нет */
             colorHex?: string | null;
             reminderOffsetsMinutes?: number[];
@@ -4863,6 +4999,11 @@ export interface components {
             isImportant?: boolean;
             /** @enum {string} */
             taskCategory?: "work" | "personal";
+            /**
+             * @description По умолчанию — 'standard'
+             * @enum {string}
+             */
+            taskType?: "standard" | "call" | "meeting";
             colorHex?: string | null;
             reminderOffsetsMinutes?: number[];
             subtasks?: {
@@ -4881,18 +5022,41 @@ export interface components {
             expectedVersion: number;
             title?: string;
             description?: string | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description null — снять срок
+             */
             dueAt?: string | null;
+            /**
+             * Format: date-time
+             * @description null — снять плановое начало
+             */
+            startAt?: string | null;
             /**
              * @description Завершение задачи сюда не входит: `completed` ставит только POST /tasks/{taskId}/complete — он пишет completedAt, completedByPositionId и событие TaskCompleted.
              * @enum {string}
              */
             status?: "open" | "in_progress" | "cancelled";
+            isUrgent?: boolean;
+            isImportant?: boolean;
+            /** @enum {string} */
+            taskCategory?: "work" | "personal";
+            /** @enum {string} */
+            taskType?: "standard" | "call" | "meeting";
+            /** @description null — снять цветовую метку */
+            colorHex?: string | null;
+            /** @description null — отвязать лид (снимает и leadId, и contactId, пришедший через лид) */
+            leadId?: string | null;
             /** @description Полный список подзадач; заменяет прежний целиком, а не сливается с ним. */
             subtasks?: {
                 id: string;
                 title: string;
                 done?: boolean;
+            }[];
+            /** @description Полный список вложений; заменяет прежний целиком. Сервер проверяет принадлежность организации и статус verified — тот же принцип, что CreateTaskRequest.attachments. */
+            attachments?: {
+                assetId: string;
+                fileName: string;
             }[];
         };
         ReassignTaskRequest: {
@@ -4902,6 +5066,72 @@ export interface components {
         };
         CompleteTaskRequest: {
             expectedVersion: number;
+        };
+        NoteView: {
+            id: string;
+            organizationId: string;
+            /** @description Автор и единственный видящий эту заметку — личный блокнот, не organization-wide CRM-ресурс */
+            authorPositionId: string;
+            title: string;
+            content: string;
+            isPinned: boolean;
+            /** @enum {string} */
+            category: "personal" | "work";
+            leadId?: string | null;
+            /** @description Ссылки на подтверждённые MediaAsset'ы (purpose note_attachment) с именами для экрана */
+            attachments?: {
+                assetId: string;
+                fileName: string;
+            }[];
+            /** @description conventions.md разд.5 optimistic concurrency — передать как expectedVersion в следующий PATCH */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt?: string | null;
+        };
+        NoteListResponse: {
+            items: components["schemas"]["NoteView"][];
+            nextCursor: string | null;
+        };
+        CreateNoteRequest: {
+            title: string;
+            /** @description По умолчанию пустая строка */
+            content?: string;
+            /** @description По умолчанию false */
+            isPinned?: boolean;
+            /**
+             * @description По умолчанию personal
+             * @enum {string}
+             */
+            category?: "personal" | "work";
+            leadId?: string;
+            /** @description Файлы загружаются заранее через POST /media/upload-intent с purpose note_attachment и подтверждаются; сюда приходят только ссылки. Сервер проверяет принадлежность организации и статус verified. */
+            attachments?: {
+                assetId: string;
+                fileName: string;
+            }[];
+        };
+        UpdateNoteRequest: {
+            expectedVersion: number;
+            title?: string;
+            content?: string;
+            isPinned?: boolean;
+            /** @enum {string} */
+            category?: "personal" | "work";
+            /** @description null — отвязать лид */
+            leadId?: string | null;
+            /** @description Полный новый список — заменяет прежний целиком */
+            attachments?: {
+                assetId: string;
+                fileName: string;
+            }[];
+        };
+        NoteAttachmentDownloadResponse: {
+            /** @description Подписанный GET-URL приватного бакета */
+            url: string;
+            /** @description Имя файла со связи заметка → вложение */
+            fileName: string;
         };
         /**
          * @description Легаси-контракт (apps/erp-web CalendarEvent.EventType) перенесён буквально. Фронтенд-адаптер строит собственную таблицу перевода в 4 легаси-типа CalEvent (showing/meeting/call/signing) — не 1:1.
@@ -8270,6 +8500,99 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    getLeadChecklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Чек-лист и заметки стадий */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadChecklistResponse"];
+                };
+            };
+            /** @description FORBIDDEN — нет lead.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — лид не существует или вне permission scope */
+            404: components["responses"]["Error"];
+        };
+    };
+    updateLeadChecklist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLeadChecklistRequest"];
+            };
+        };
+        responses: {
+            /** @description Чек-лист после обновления (полный, тот же формат, что GET) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadChecklistResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED — index вне 0..100 либо stage не входит в ALL_LEAD_STAGE_VALUES */
+            400: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет lead.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — лид не существует или вне permission scope */
+            404: components["responses"]["Error"];
+        };
+    };
+    setLeadStageNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leadId: string;
+                stage: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    text: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Заметка после установки (либо снятая — text пустой) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadStageNote"];
+                };
+            };
+            /** @description VALIDATION_FAILED — stage не входит в ALL_LEAD_STAGE_VALUES */
+            400: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет lead.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — лид не существует или вне permission scope */
+            404: components["responses"]["Error"];
+        };
+    };
     listLeads: {
         parameters: {
             query?: {
@@ -8368,7 +8691,9 @@ export interface operations {
     };
     importLeads: {
         parameters: {
-            query?: never;
+            query?: {
+                tag?: "old_base";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8402,7 +8727,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description VALIDATION_FAILED — файл не передан, формат не распознан, нет обязательной колонки phone, либо превышен потолок в 2000 строк */
+            /** @description VALIDATION_FAILED — файл не передан, формат не распознан, нет обязательной колонки phone, превышен потолок в 2000 строк, либо `tag` не равен `old_base` */
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             /** @description FORBIDDEN — нет import.run ЛИБО нет lead.create */
@@ -8814,6 +9139,193 @@ export interface operations {
             404: components["responses"]["Error"];
             /** @description VERSION_CONFLICT — expectedVersion устарел на ЕЩЁ ОТКРЫТОЙ задаче, обновите и повторите */
             409: components["responses"]["Error"];
+        };
+    };
+    listNotes: {
+        parameters: {
+            query?: {
+                leadId?: string;
+                /** @description Непрозрачный cursor из предыдущего ответа; для newest принимается legacy ObjectId. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Заметки вызывающего автора, newest-first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteListResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    createNote: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Заметка создана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.create, либо (при указанном leadId) нет lead.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — указанный leadId не найден в организации */
+            404: components["responses"]["Error"];
+        };
+    };
+    getNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Заметка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Заметка удалена */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.delete */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    updateNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Заметка обновлена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.update, либо (при указанном leadId) нет lead.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — заметка не существует/вне tenant, либо указанный leadId не найден */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT — expectedVersion устарел, обновите и повторите */
+            409: components["responses"]["Error"];
+        };
+    };
+    downloadNoteAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                noteId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка на скачивание */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteAttachmentDownloadResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет note.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — заметка не существует/вне scope, или assetId не входит в её attachments */
+            404: components["responses"]["Error"];
         };
     };
     listDeals: {

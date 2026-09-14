@@ -203,6 +203,52 @@ export class LeadDocument extends Document {
   curatorStage?: CuratorStage;
 
   /**
+   * `[legacy-base-import]`: WhatsApp-контакт лида — отдельное поле от
+   * `telegram` (уже существовало) и от `Contact.phone` (звонок/CRM-канал
+   * может быть один, а WhatsApp — другой номер). Заполняется вручную через
+   * PATCH /leads/:leadId (общий editableFields-путь) либо колонкой
+   * `whatsapp` при импорте старой базы (POST /leads/import).
+   */
+  @Prop({ required: false })
+  whatsapp?: string;
+
+  /**
+   * `[legacy-base-import]`: дата последнего контакта с лидом ИЗ СТАРОЙ
+   * базы (колонка `last_contact` при импорте) — историческая метка, НЕ
+   * серверная метка последнего contact-action в новом backend
+   * (recordContactAction её не трогает, это два независимых источника
+   * истины: одно "что перенесли из легаси", другое "что происходит здесь и
+   * сейчас").
+   */
+  @Prop({ required: false })
+  lastContactAt?: Date;
+
+  /**
+   * `[phase 3.1 — checklist]`: чек-лист стадий лида (LeadStageChecklist.tsx
+   * во фронте) — плоская карта `"<stage>:<index>" → checked`, НЕ массив с
+   * label'ами (в отличие от DealDocument.checklistItems): позиции и текст
+   * пунктов чек-листа для КАЖДОЙ стадии продукта — статичная UI-таблица на
+   * фронте, сервер хранит только состояние отметки, не сам список пунктов.
+   * `type: Object` (Mixed) — тот же приём, что LeadSource.utm, ключи с
+   * произвольным именем стадии не описываются decorator'ами. Отсутствующий
+   * ключ = не отмечен (не нужно предзаполнять весь набор пунктов при
+   * создании лида).
+   */
+  @Prop({ type: Object, required: false })
+  checklist?: Record<string, boolean>;
+
+  /**
+   * `[phase 3.1 — checklist]`: заметка, привязанная к КОНКРЕТНОЙ стадии
+   * (не к лиду в целом — `notes` уже существует для этого). Карта
+   * `stage → {text, updatedAt}`, тот же `type: Object` приём, что
+   * `checklist` выше. Пустой `text` в PUT .../stage-notes/:stage удаляет
+   * запись целиком (см. CrmService.setLeadStageNote), а не хранит пустую
+   * строку — отсутствие ключа и есть "заметки нет".
+   */
+  @Prop({ type: Object, required: false })
+  stageNotes?: Record<string, { text: string; updatedAt: Date }>;
+
+  /**
    * Файлы лида (легаси getLeadFiles/uploadAndRegisterFile/deleteLeadFileByName)
    * — переиспользует MediaModule (ADR-008), тот же паттерн, что
    * PositionDocument.avatarAssetId, только массив (лид может иметь

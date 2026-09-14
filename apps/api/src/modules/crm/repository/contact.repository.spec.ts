@@ -58,6 +58,60 @@ describe('ContactRepository.findByIdForOrganizationScoped', () => {
   });
 });
 
+describe('ContactRepository.updateFields', () => {
+  it('фильтр включает _id И organizationId', async () => {
+    const id = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+    const repository = new ContactRepository({ updateOne: updateOneSpy } as never);
+
+    await repository.updateFields(id, organizationId, { name: 'Пётр' });
+
+    expect(updateOneSpy).toHaveBeenCalledWith({ _id: id, organizationId }, { $set: { name: 'Пётр' } }, { session: undefined });
+  });
+
+  it('только переданные поля попадают в $set', async () => {
+    const id = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+    const repository = new ContactRepository({ updateOne: updateOneSpy } as never);
+
+    await repository.updateFields(id, organizationId, { phone: '+995500000009' });
+
+    expect(updateOneSpy).toHaveBeenCalledWith({ _id: id, organizationId }, { $set: { phone: '+995500000009' } }, { session: undefined });
+  });
+
+  it('email: null — $unset, не $set', async () => {
+    const id = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+    const repository = new ContactRepository({ updateOne: updateOneSpy } as never);
+
+    await repository.updateFields(id, organizationId, { email: null });
+
+    expect(updateOneSpy).toHaveBeenCalledWith({ _id: id, organizationId }, { $unset: { email: '' } }, { session: undefined });
+  });
+
+  it('email и name вместе — $set для name, $unset для email в одном вызове', async () => {
+    const id = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+    const repository = new ContactRepository({ updateOne: updateOneSpy } as never);
+
+    await repository.updateFields(id, organizationId, { name: 'Пётр', email: null });
+
+    expect(updateOneSpy).toHaveBeenCalledWith(
+      { _id: id, organizationId },
+      { $set: { name: 'Пётр' }, $unset: { email: '' } },
+      { session: undefined },
+    );
+  });
+});
+
 describe('ContactRepository.listForOrganization', () => {
   it('без contactIds/q/cursor — фильтр только organizationId', async () => {
     const organizationId = new Types.ObjectId();

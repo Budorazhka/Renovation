@@ -1,7 +1,7 @@
 import { MediaService } from '../media/media.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { CrmService } from './crm.service';
+import { CrmService, toTaskReadModel } from './crm.service';
 import { AppException } from '../../shared/errors/app-exception';
 import { ErrorCode } from '../../shared/errors/error-codes';
 import type { MarketplacePublicationRepository } from '@baza/publication';
@@ -1567,6 +1567,389 @@ describe('CrmService.changeLeadStage', () => {
   });
 });
 
+function makeFullLead(
+  overrides: Partial<{
+    organizationId: Types.ObjectId;
+    contactId: Types.ObjectId;
+    stage: string;
+    productType: 'sales' | 'network' | 'owner' | 'agent';
+    version: number;
+    checklist: Record<string, boolean>;
+    stageNotes: Record<string, { text: string; updatedAt: Date }>;
+  }> = {},
+) {
+  return {
+    _id: new Types.ObjectId(),
+    organizationId: overrides.organizationId ?? new Types.ObjectId(),
+    contactId: overrides.contactId ?? new Types.ObjectId(),
+    ownerPositionId: undefined,
+    productType: overrides.productType,
+    stage: overrides.stage ?? 'new',
+    version: overrides.version ?? 0,
+    source: { route: 'manual' },
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
+    checklist: overrides.checklist,
+    stageNotes: overrides.stageNotes,
+  };
+}
+
+describe('CrmService.updateLead — name/phone/email/productType (phase 4)', () => {
+  it('name/phone/email заданы, у лида уже есть контакт — обновляет Contact, а не Lead', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, contactId });
+    const contact = { _id: contactId, name: 'Старое имя', phone: '+995500000001', email: 'old@example.test' };
+    const findByIdForOrganization = jest.fn().mockResolvedValue(lead);
+    const findByIdForOrganizationContact = jest.fn().mockResolvedValue(contact);
+    const findByPhone = jest.fn().mockResolvedValue(null);
+    const updateContactFields = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const auditAppend = jest.fn().mockResolvedValue(undefined);
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization },
+      contactRepository: {
+        findByIdForOrganization: findByIdForOrganizationContact,
+        findByPhone,
+        updateFields: updateContactFields,
+      },
+      auditService: { append: auditAppend },
+    });
+
+    const result = await service.updateLead({
+      leadId: lead._id,
+      organizationId,
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+      name: 'Новое Имя',
+      phone: '+995500000002',
+      email: 'new@example.test',
+    });
+
+    expect(updateContactFields).toHaveBeenCalledWith(
+      contactId,
+      organizationId,
+      { name: 'Новое Имя', phone: '+995500000002', email: 'new@example.test' },
+      expect.anything(),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'lead.update',
+        before: expect.objectContaining({ name: 'Старое имя', phone: '+995500000001', email: 'old@example.test' }),
+        after: expect.objectContaining({ name: 'Новое Имя', phone: '+995500000002', email: 'new@example.test' }),
+      }),
+      expect.anything(),
+    );
+    expect(result.id).toBe(lead._id.toString());
+  });
+
+  it('новый phone уже занят ДРУГИМ контактом организации — 409 CONTACT_PHONE_TAKEN, Contact не меняется', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const otherContactId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, contactId });
+    const contact = { _id: contactId, name: 'Иван', phone: '+995500000001', email: undefined };
+    const takenByOther = { _id: otherContactId, name: 'Другой', phone: '+995500000009' };
+    const updateContactFields = jest.fn();
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead) },
+      contactRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValue(contact),
+        findByPhone: jest.fn().mockResolvedValue(takenByOther),
+        updateFields: updateContactFields,
+      },
+    });
+
+    await expect(
+      service.updateLead({
+        leadId: lead._id,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'test-correlation-id',
+        phone: '+995500000009',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.CONTACT_PHONE_TAKEN });
+    expect(updateContactFields).not.toHaveBeenCalled();
+  });
+
+  it('новый phone принадлежит ТОМУ ЖЕ контакту (не менялся) — не 409, апдейт проходит', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, contactId });
+    const contact = { _id: contactId, name: 'Иван', phone: '+995500000001', email: undefined };
+    const updateContactFields = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead) },
+      contactRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValue(contact),
+        findByPhone: jest.fn().mockResolvedValue(contact),
+        updateFields: updateContactFields,
+      },
+      auditService: { append: jest.fn().mockResolvedValue(undefined) },
+    });
+
+    await service.updateLead({
+      leadId: lead._id,
+      organizationId,
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+      phone: '+995500000001',
+    });
+
+    expect(updateContactFields).toHaveBeenCalled();
+  });
+
+  it('name — пустая после trim строка отклоняется как VALIDATION_FAILED, Contact не трогается', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId });
+    const updateContactFields = jest.fn();
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead) },
+      contactRepository: { updateFields: updateContactFields },
+    });
+
+    await expect(
+      service.updateLead({
+        leadId: lead._id,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'test-correlation-id',
+        name: '   ',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
+    expect(updateContactFields).not.toHaveBeenCalled();
+  });
+
+  it('productType меняется — сбрасывает stage на "Новый лид" нового продукта, пишет LeadEvent', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, stage: 'new', productType: undefined });
+    const updatedLead = makeFullLead({
+      organizationId,
+      contactId: lead.contactId,
+      stage: 'network_new_lead',
+      productType: 'network',
+    });
+    updatedLead._id = lead._id;
+    const updateFieldsWithProductReset = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const appendEvent = jest.fn().mockResolvedValue(undefined);
+    const actorPositionId = new Types.ObjectId();
+
+    const service = createTestCrmService({
+      leadRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValueOnce(lead).mockResolvedValueOnce(updatedLead),
+        updateFieldsWithProductReset,
+      },
+      contactRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      leadEventRepository: { append: appendEvent },
+      auditService: { append: jest.fn().mockResolvedValue(undefined) },
+    });
+
+    const result = await service.updateLead({
+      leadId: lead._id,
+      organizationId,
+      actorPositionId,
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+      productType: 'network',
+    });
+
+    expect(updateFieldsWithProductReset).toHaveBeenCalledWith(
+      lead._id,
+      organizationId,
+      {},
+      { productType: 'network', stage: 'network_new_lead' },
+      expect.anything(),
+    );
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'network_new_lead', changedBy: { type: 'position', positionId: actorPositionId } }),
+      expect.anything(),
+    );
+    expect(result.stage).toBe('network_new_lead');
+    expect(result.productType).toBe('network');
+  });
+
+  it('productType совпадает с текущим — no-op, stage не трогается, updateFieldsWithProductReset не вызывается', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, stage: 'network_new_lead', productType: 'network' });
+    const updateFieldsWithProductReset = jest.fn();
+    const appendEvent = jest.fn();
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead), updateFieldsWithProductReset },
+      contactRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      leadEventRepository: { append: appendEvent },
+    });
+
+    const result = await service.updateLead({
+      leadId: lead._id,
+      organizationId,
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+      productType: 'network',
+    });
+
+    expect(updateFieldsWithProductReset).not.toHaveBeenCalled();
+    expect(appendEvent).not.toHaveBeenCalled();
+    expect(result.stage).toBe('network_new_lead');
+  });
+});
+
+describe('CrmService — lead checklist / stage notes (phase 3.1)', () => {
+  it('getLeadChecklist — разбирает checklist/stageNotes лида в items/stageNotes', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({
+      organizationId,
+      checklist: { 'new:0': true, 'new:1': false, 'contacted:0': true },
+      stageNotes: { new: { text: 'Перезвонить', updatedAt: new Date('2026-09-01T10:00:00.000Z') } },
+    });
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead) },
+    });
+
+    const result = await service.getLeadChecklist({ leadId: lead._id, organizationId });
+
+    expect(result.items).toEqual([
+      { stage: 'contacted', index: 0, checked: true },
+      { stage: 'new', index: 0, checked: true },
+      { stage: 'new', index: 1, checked: false },
+    ]);
+    expect(result.stageNotes).toEqual([{ stage: 'new', text: 'Перезвонить', updatedAt: '2026-09-01T10:00:00.000Z' }]);
+  });
+
+  it('getLeadChecklist — лид без checklist/stageNotes — пустые массивы', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId });
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead) },
+    });
+
+    const result = await service.getLeadChecklist({ leadId: lead._id, organizationId });
+
+    expect(result).toEqual({ items: [], stageNotes: [] });
+  });
+
+  it('getLeadChecklist — чужая организация — NotFoundException', async () => {
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+    });
+
+    await expect(
+      service.getLeadChecklist({ leadId: new Types.ObjectId(), organizationId: new Types.ObjectId() }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('updateLeadChecklist — собирает dot-path ключи (stage:index) и передаёт в repository.updateChecklist', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, checklist: { 'new:0': true } });
+    const updatedLead = makeFullLead({ organizationId, checklist: { 'new:0': true, 'new:1': true, 'contacted:2': false } });
+    const updateChecklist = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const findByIdForOrganization = jest.fn().mockResolvedValueOnce(lead).mockResolvedValueOnce(updatedLead);
+    const auditAppend = jest.fn().mockResolvedValue(undefined);
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization, updateChecklist },
+      auditService: { append: auditAppend },
+    });
+
+    const result = await service.updateLeadChecklist({
+      leadId: lead._id,
+      organizationId,
+      changes: [
+        { stage: 'new', index: 1, checked: true },
+        { stage: 'contacted', index: 2, checked: false },
+      ],
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+    });
+
+    expect(updateChecklist).toHaveBeenCalledWith(
+      lead._id,
+      organizationId,
+      [
+        { key: 'new:1', checked: true },
+        { key: 'contacted:2', checked: false },
+      ],
+      expect.anything(),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(expect.objectContaining({ action: 'lead.checklist_update' }), expect.anything());
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        { stage: 'new', index: 0, checked: true },
+        { stage: 'new', index: 1, checked: true },
+        { stage: 'contacted', index: 2, checked: false },
+      ]),
+    );
+  });
+
+  it('setLeadStageNote — непустой text — сохраняет заметку', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId });
+    const setStageNote = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const auditAppend = jest.fn().mockResolvedValue(undefined);
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead), setStageNote },
+      auditService: { append: auditAppend },
+    });
+
+    const result = await service.setLeadStageNote({
+      leadId: lead._id,
+      organizationId,
+      stage: 'new',
+      text: '  Перезвонить завтра  ',
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+    });
+
+    expect(setStageNote).toHaveBeenCalledWith(
+      lead._id,
+      organizationId,
+      'new',
+      { text: 'Перезвонить завтра', updatedAt: expect.any(Date) },
+      expect.anything(),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(expect.objectContaining({ action: 'lead.stage_note_set' }), expect.anything());
+    expect(result).toMatchObject({ stage: 'new', text: 'Перезвонить завтра' });
+  });
+
+  it('setLeadStageNote — пустой text — удаляет заметку (note:null, $unset)', async () => {
+    const organizationId = new Types.ObjectId();
+    const lead = makeFullLead({ organizationId, stageNotes: { new: { text: 'старая', updatedAt: new Date() } } });
+    const setStageNote = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const auditAppend = jest.fn().mockResolvedValue(undefined);
+
+    const service = createTestCrmService({
+      leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(lead), setStageNote },
+      auditService: { append: auditAppend },
+    });
+
+    const result = await service.setLeadStageNote({
+      leadId: lead._id,
+      organizationId,
+      stage: 'new',
+      text: '',
+      actorPositionId: new Types.ObjectId(),
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'test-correlation-id',
+    });
+
+    expect(setStageNote).toHaveBeenCalledWith(lead._id, organizationId, 'new', null, expect.anything());
+    expect(auditAppend).toHaveBeenCalledWith(expect.objectContaining({ action: 'lead.stage_note_delete' }), expect.anything());
+    expect(result.text).toBe('');
+  });
+});
+
 describe('CrmService — read leads', () => {
   it('возвращает tenant-scoped лиды с контактами и передаёт owner/stage фильтры в repository', async () => {
     const organizationId = new Types.ObjectId();
@@ -1632,6 +2015,8 @@ describe('CrmService — read leads', () => {
           country: null,
           realtorStage: null,
           curatorStage: null,
+          whatsapp: null,
+          lastContactAt: null,
         },
       ],
       nextCursor: null,
@@ -1758,6 +2143,8 @@ describe('CrmService — read leads', () => {
       country: null,
       realtorStage: null,
       curatorStage: null,
+      whatsapp: null,
+      lastContactAt: null,
     });
   });
 
@@ -2813,6 +3200,287 @@ describe('CRM-004: Task outbox events', () => {
     });
   });
 
+  describe('updateTask', () => {
+    function makeUpdateTaskService(overrides: {
+      leadRepository?: unknown;
+      taskRepository?: unknown;
+      auditService?: unknown;
+      mediaService?: unknown;
+    }) {
+      return createTestCrmService(overrides) as unknown as {
+        updateTask(params: {
+          taskId: Types.ObjectId;
+          organizationId: Types.ObjectId;
+          actorPositionId: Types.ObjectId;
+          actorIdentityId: Types.ObjectId;
+          requiredScopePositionId?: Types.ObjectId;
+          expectedVersion: number;
+          title?: string;
+          description?: string | null;
+          dueAt?: Date | null;
+          startAt?: Date | null;
+          status?: 'open' | 'in_progress' | 'cancelled';
+          isUrgent?: boolean;
+          isImportant?: boolean;
+          taskCategory?: 'work' | 'personal';
+          taskType?: 'standard' | 'call' | 'meeting';
+          colorHex?: string | null;
+          leadId?: Types.ObjectId | null;
+          attachments?: Array<{ assetId: Types.ObjectId; fileName: string }>;
+          correlationId: string;
+        }): Promise<unknown>;
+      };
+    }
+
+    it('смена лида ставит contactId задачи в contactId лида', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const newLeadId = new Types.ObjectId();
+      const leadContactId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 0 });
+      const updatedTask = makeTaskDoc({ _id: taskId, organizationId, leadId: newLeadId, contactId: leadContactId, version: 1 });
+      const updateTaskSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+
+      const service = makeUpdateTaskService({
+        leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: newLeadId, contactId: leadContactId }) },
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValueOnce(existingTask).mockResolvedValueOnce(updatedTask),
+          updateTask: updateTaskSpy,
+        },
+        auditService: { append: jest.fn().mockResolvedValue(undefined) },
+      });
+
+      const result = (await service.updateTask({
+        taskId,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        expectedVersion: 0,
+        leadId: newLeadId,
+        correlationId: 'corr-upd-1',
+      })) as { leadId: string | null; contactId: string | null };
+
+      expect(updateTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        organizationId,
+        0,
+        expect.objectContaining({ leadId: newLeadId, contactId: leadContactId }),
+        expect.anything(),
+      );
+      expect(result.leadId).toBe(newLeadId.toString());
+      expect(result.contactId).toBe(leadContactId.toString());
+    });
+
+    it('отвязка лида (leadId:null) снимает и leadId, и contactId', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const oldLeadId = new Types.ObjectId();
+      const oldContactId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, leadId: oldLeadId, contactId: oldContactId, version: 0 });
+      const updatedTask = makeTaskDoc({ _id: taskId, organizationId, version: 1 });
+      const updateTaskSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+
+      const service = makeUpdateTaskService({
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValueOnce(existingTask).mockResolvedValueOnce(updatedTask),
+          updateTask: updateTaskSpy,
+        },
+        auditService: { append: jest.fn().mockResolvedValue(undefined) },
+      });
+
+      const result = (await service.updateTask({
+        taskId,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        expectedVersion: 0,
+        leadId: null,
+        correlationId: 'corr-upd-2',
+      })) as { leadId: string | null; contactId: string | null; entityType: string };
+
+      expect(updateTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        organizationId,
+        0,
+        expect.objectContaining({ leadId: null, contactId: null }),
+        expect.anything(),
+      );
+      expect(result.leadId).toBeNull();
+      expect(result.contactId).toBeNull();
+      expect(result.entityType).toBe('none');
+    });
+
+    it('чужой/несуществующий лид — NotFoundException, updateTask репозитория не вызывается', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 0 });
+      const updateTaskSpy = jest.fn();
+
+      const service = makeUpdateTaskService({
+        leadRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue(existingTask),
+          updateTask: updateTaskSpy,
+        },
+      });
+
+      await expect(
+        service.updateTask({
+          taskId,
+          organizationId,
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          expectedVersion: 0,
+          leadId: new Types.ObjectId(),
+          correlationId: 'corr-upd-3',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(updateTaskSpy).not.toHaveBeenCalled();
+    });
+
+    it('вложение не найдено в организации — NotFoundException', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 0 });
+      const updateTaskSpy = jest.fn();
+
+      const service = makeUpdateTaskService({
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue(existingTask),
+          updateTask: updateTaskSpy,
+        },
+        mediaService: { getAssetsForOwnerScope: jest.fn().mockResolvedValue(new Map()) },
+      });
+
+      await expect(
+        service.updateTask({
+          taskId,
+          organizationId,
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          expectedVersion: 0,
+          attachments: [{ assetId: new Types.ObjectId(), fileName: 'x.pdf' }],
+          correlationId: 'corr-upd-4',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(updateTaskSpy).not.toHaveBeenCalled();
+    });
+
+    it('вложение ещё не verified — VALIDATION_FAILED', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const assetId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 0 });
+      const updateTaskSpy = jest.fn();
+
+      const service = makeUpdateTaskService({
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue(existingTask),
+          updateTask: updateTaskSpy,
+        },
+        mediaService: {
+          getAssetsForOwnerScope: jest.fn().mockResolvedValue(
+            new Map([[assetId.toString(), { status: 'pending' }]]),
+          ),
+        },
+      });
+
+      await expect(
+        service.updateTask({
+          taskId,
+          organizationId,
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          expectedVersion: 0,
+          attachments: [{ assetId, fileName: 'x.pdf' }],
+          correlationId: 'corr-upd-5',
+        }),
+      ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
+      expect(updateTaskSpy).not.toHaveBeenCalled();
+    });
+
+    it('устаревший expectedVersion — ConflictException (409)', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 3 });
+
+      const service = makeUpdateTaskService({
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue(existingTask),
+          updateTask: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+        },
+      });
+
+      await expect(
+        service.updateTask({
+          taskId,
+          organizationId,
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          expectedVersion: 1,
+          title: 'Новое название',
+          correlationId: 'corr-upd-6',
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('isUrgent/isImportant/taskCategory/taskType передаются в репозиторий и попадают в audit before/after', async () => {
+      const taskId = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const existingTask = makeTaskDoc({ _id: taskId, organizationId, version: 0 });
+      const updatedTask = {
+        ...makeTaskDoc({ _id: taskId, organizationId, version: 1 }),
+        isUrgent: true,
+        isImportant: false,
+        taskCategory: 'personal',
+        taskType: 'call',
+      };
+      const updateTaskSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const auditAppend = jest.fn().mockResolvedValue(undefined);
+
+      const service = makeUpdateTaskService({
+        taskRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValueOnce(existingTask).mockResolvedValueOnce(updatedTask),
+          updateTask: updateTaskSpy,
+        },
+        auditService: { append: auditAppend },
+      });
+
+      await service.updateTask({
+        taskId,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        expectedVersion: 0,
+        isUrgent: true,
+        isImportant: false,
+        taskCategory: 'personal',
+        taskType: 'call',
+        correlationId: 'corr-upd-7',
+      });
+
+      expect(updateTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        organizationId,
+        0,
+        expect.objectContaining({
+          isUrgent: true,
+          isImportant: false,
+          taskCategory: 'personal',
+          taskType: 'call',
+        }),
+        expect.anything(),
+      );
+      expect(auditAppend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'task.update',
+          after: expect.objectContaining({ isUrgent: true, isImportant: false, taskCategory: 'personal', taskType: 'call' }),
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
   describe('completeTask', () => {
     function makeCompleteService(overrides: { taskRepository?: unknown; auditService?: unknown; outboxService?: unknown }) {
       return createTestCrmService(overrides) as unknown as {
@@ -3351,5 +4019,44 @@ describe('CrmService.getTeamPerformanceReport', () => {
         expect.objectContaining({ callerPositionId }),
       );
     });
+  });
+});
+
+describe('toTaskReadModel', () => {
+  it("taskType отсутствует в документе (легаси до 14.09.2026) — читается как 'standard'", () => {
+    const task = {
+      _id: new Types.ObjectId(),
+      organizationId: new Types.ObjectId(),
+      title: 'Задача',
+      status: 'open',
+      version: 0,
+      createdAt: new Date('2026-08-30T10:00:00Z'),
+      updatedAt: new Date('2026-08-30T10:00:00Z'),
+      attachments: [],
+      subtasks: [],
+    } as unknown as Parameters<typeof toTaskReadModel>[0];
+
+    const readModel = toTaskReadModel(task);
+
+    expect(readModel.taskType).toBe('standard');
+  });
+
+  it("taskType присутствует в документе — читается как есть", () => {
+    const task = {
+      _id: new Types.ObjectId(),
+      organizationId: new Types.ObjectId(),
+      title: 'Позвонить клиенту',
+      status: 'open',
+      taskType: 'call',
+      version: 0,
+      createdAt: new Date('2026-08-30T10:00:00Z'),
+      updatedAt: new Date('2026-08-30T10:00:00Z'),
+      attachments: [],
+      subtasks: [],
+    } as unknown as Parameters<typeof toTaskReadModel>[0];
+
+    const readModel = toTaskReadModel(task);
+
+    expect(readModel.taskType).toBe('call');
   });
 });

@@ -29,8 +29,9 @@ export class ContactRepository {
   async findByIdForOrganization(
     id: Types.ObjectId,
     organizationId: Types.ObjectId,
+    session?: ClientSession,
   ): Promise<ContactDocument | null> {
-    return this.model.findOne({ _id: id, organizationId }).exec();
+    return this.model.findOne({ _id: id, organizationId }, null, { session }).exec();
   }
 
   /**
@@ -64,6 +65,36 @@ export class ContactRepository {
       return null;
     }
     return this.model.findOne({ _id: id, organizationId }).exec();
+  }
+
+  /**
+   * PATCH /leads/:leadId — правка name/phone/email контакта, ПРИВЯЗАННОГО к
+   * лиду (не контакта по его собственному id — тот путь не существует
+   * сегодня). `email: null` очищает поле (`$unset`), отсутствие поля в
+   * `fields` — "не трогать" (тот же partial-PATCH принцип, что
+   * LeadRepository.updateFields). Дедупликация по телефону — забота
+   * вызывающего (CrmService.updateLead: findByPhone ДО вызова этого
+   * метода), сам repository ничего не проверяет.
+   */
+  async updateFields(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    fields: { name?: string; phone?: string; email?: string | null },
+    session?: ClientSession,
+  ): Promise<{ modifiedCount: number }> {
+    const set: Record<string, unknown> = {};
+    if (fields.name !== undefined) set.name = fields.name;
+    if (fields.phone !== undefined) set.phone = fields.phone;
+    if (fields.email !== undefined && fields.email !== null) set.email = fields.email;
+
+    const update: Record<string, unknown> = {};
+    if (Object.keys(set).length > 0) update.$set = set;
+    if (fields.email === null) update.$unset = { email: '' };
+
+    const result = await this.model
+      .updateOne({ _id: id, organizationId }, update, { session })
+      .exec();
+    return { modifiedCount: result.modifiedCount };
   }
 
   /**

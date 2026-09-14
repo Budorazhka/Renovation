@@ -190,6 +190,14 @@ export interface DefaultGrant {
  * существует и у неё есть владелец). `marketer` не получает — тот же круг,
  * что у `lead.create` (маркетинг не ведёт клиентов).
  *
+ * `note.*` (14.09.2026, модуль `notes` — личный блокнот менеджера, легаси-блок
+ * «Заметки» на фронте ERP) — ЕДИНСТВЕННЫЙ resource в этом файле со scope
+ * `own` у ВСЕХ семи ролей без исключения, включая `owner`/`director`: заметка
+ * — личный инструмент автора, не организационный CRM-ресурс вроде Task/Lead,
+ * и даже владелец организации чужую заметку не видит и не редактирует
+ * (permission-matrix.md разд.1.9). `organization`/`team`-scope здесь не имеет
+ * смысла в принципе — не "сужение до своего", а единственно возможный режим.
+ *
  * `client.reassign` у `developer` (14.09.2026) — permission-matrix.md разд.1
  * помечал сверку разделов 1.1–1.6 для `developer` открытым пунктом с
  * 11.09.2026; сверка нашла один реальный пробел: `developer` имел
@@ -284,6 +292,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'organization' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   director: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -363,6 +375,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'organization' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   rop: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -443,6 +459,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'organization' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   manager: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -511,6 +531,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'own' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'own' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   administrator: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -543,6 +567,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'organization' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   marketer: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -558,6 +586,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'own' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
   // 27.08.2026 (владелец подтвердил, D-07 vertical E2E): developer-организация
   // публикует свои ЖК на marketplace и получает лиды через reveal-contact на
@@ -642,5 +674,9 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'community_exchange', action: 'create', scope: 'organization' },
     { resource: 'community_event', action: 'read', scope: 'organization' },
     { resource: 'community_event', action: 'attend', scope: 'organization' },
+    { resource: 'note', action: 'read', scope: 'own' },
+    { resource: 'note', action: 'create', scope: 'own' },
+    { resource: 'note', action: 'update', scope: 'own' },
+    { resource: 'note', action: 'delete', scope: 'own' },
   ],
 };

@@ -1135,6 +1135,255 @@ describe('CrmService — Lead management integration (real MongoDB transactions)
     });
   });
 
+  describe('updateLead — name/phone/email/productType (phase 4, Contact + stage reset)', () => {
+    it('name/phone/email обновляют Contact лида, видно и через GET, и в самом Contact-документе', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId);
+      const lead = await connection.collection('leads').findOne({ _id: leadId });
+
+      const result = await crmService.updateLead({
+        leadId,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'integration-test-correlation-id',
+        name: 'Новое Имя',
+        phone: '+995500000099',
+        email: 'new@example.test',
+      });
+
+      expect(result.contact).toMatchObject({ name: 'Новое Имя', phone: '+995500000099', email: 'new@example.test' });
+      const contactDoc = await connection.collection('contacts').findOne({ _id: lead!.contactId });
+      expect(contactDoc).toMatchObject({ name: 'Новое Имя', phone: '+995500000099', email: 'new@example.test' });
+    });
+
+    it('Contact общий для двух лидов — правка через один лид видна на обоих', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId1 = await seedLead(organizationId);
+      const lead1 = await connection.collection('leads').findOne({ _id: leadId1 });
+      const leadId2 = new Types.ObjectId();
+      await connection.collection('leads').insertOne({
+        _id: leadId2,
+        organizationId,
+        contactId: lead1!.contactId,
+        stage: 'new',
+        version: 0,
+        source: { route: 'manual' },
+        createdAt: new Date(),
+      });
+
+      await crmService.updateLead({
+        leadId: leadId1,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'integration-test-correlation-id',
+        name: 'Общее Имя',
+      });
+
+      const secondLeadView = await crmService.getLead({ leadId: leadId2, organizationId });
+      expect(secondLeadView.contact?.name).toBe('Общее Имя');
+    });
+
+    it('новый phone уже занят ДРУГИМ контактом организации — CONTACT_PHONE_TAKEN, ничего не меняется', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId);
+      const otherContactId = new Types.ObjectId();
+      await connection.collection('contacts').insertOne({
+        _id: otherContactId,
+        organizationId,
+        name: 'Другой контакт',
+        phone: '+995500000077',
+        roles: ['buyer'],
+        createdAt: new Date(),
+      });
+
+      await expect(
+        crmService.updateLead({
+          leadId,
+          organizationId,
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'integration-test-correlation-id',
+          phone: '+995500000077',
+        }),
+      ).rejects.toMatchObject({ code: ErrorCode.CONTACT_PHONE_TAKEN });
+
+      const leadDoc = await connection.collection('leads').findOne({ _id: leadId });
+      const contactDoc = await connection.collection('contacts').findOne({ _id: leadDoc!.contactId });
+      expect(contactDoc!.phone).not.toBe('+995500000077');
+    });
+
+    it('productType меняется — stage сбрасывается на "Новый лид" нового продукта, version инкрементируется, пишет lead_event', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId, { stage: 'contacted' });
+      const actorPositionId = new Types.ObjectId();
+
+      const result = await crmService.updateLead({
+        leadId,
+        organizationId,
+        actorPositionId,
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'integration-test-correlation-id',
+        productType: 'network',
+      });
+
+      expect(result.stage).toBe('network_new_lead');
+      expect(result.productType).toBe('network');
+      expect(result.version).toBe(1);
+
+      const leadDoc = await connection.collection('leads').findOne({ _id: leadId });
+      expect(leadDoc).toMatchObject({ stage: 'network_new_lead', productType: 'network', version: 1 });
+
+      const events = await connection.collection('lead_events').find({ leadId }).toArray();
+      expect(events.some((e) => e.stage === 'network_new_lead')).toBe(true);
+    });
+
+    it('productType совпадает с текущим — no-op, stage/version не меняются', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId, { stage: 'network_new_lead', productType: 'network' });
+
+      const result = await crmService.updateLead({
+        leadId,
+        organizationId,
+        actorPositionId: new Types.ObjectId(),
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'integration-test-correlation-id',
+        productType: 'network',
+      });
+
+      expect(result.stage).toBe('network_new_lead');
+      expect(result.version).toBe(0);
+    });
+  });
+
+  describe('lead checklist / stage-notes (phase 3.1)', () => {
+    it('PATCH checklist отмечает пункты, GET отдаёт то же самое; повторный PATCH другого пункта НЕ затирает первый', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId);
+      const actorPositionId = new Types.ObjectId();
+      const actorIdentityId = new Types.ObjectId();
+
+      await crmService.updateLeadChecklist({
+        leadId,
+        organizationId,
+        changes: [{ stage: 'new', index: 0, checked: true }],
+        actorPositionId,
+        actorIdentityId,
+        correlationId: 'integration-test-correlation-id',
+      });
+
+      await crmService.updateLeadChecklist({
+        leadId,
+        organizationId,
+        changes: [{ stage: 'new', index: 1, checked: true }],
+        actorPositionId,
+        actorIdentityId,
+        correlationId: 'integration-test-correlation-id',
+      });
+
+      const checklist = await crmService.getLeadChecklist({ leadId, organizationId });
+      expect(checklist.items).toEqual(
+        expect.arrayContaining([
+          { stage: 'new', index: 0, checked: true },
+          { stage: 'new', index: 1, checked: true },
+        ]),
+      );
+    });
+
+    it('PUT stage-notes устанавливает заметку, повторный PUT с пустым text удаляет её', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const leadId = await seedLead(organizationId);
+      const actorPositionId = new Types.ObjectId();
+      const actorIdentityId = new Types.ObjectId();
+
+      const setResult = await crmService.setLeadStageNote({
+        leadId,
+        organizationId,
+        stage: 'new',
+        text: 'Перезвонить завтра',
+        actorPositionId,
+        actorIdentityId,
+        correlationId: 'integration-test-correlation-id',
+      });
+      expect(setResult.text).toBe('Перезвонить завтра');
+
+      const afterSet = await crmService.getLeadChecklist({ leadId, organizationId });
+      expect(afterSet.stageNotes).toEqual([{ stage: 'new', text: 'Перезвонить завтра', updatedAt: expect.any(String) }]);
+
+      await crmService.setLeadStageNote({
+        leadId,
+        organizationId,
+        stage: 'new',
+        text: '',
+        actorPositionId,
+        actorIdentityId,
+        correlationId: 'integration-test-correlation-id',
+      });
+
+      const afterDelete = await crmService.getLeadChecklist({ leadId, organizationId });
+      expect(afterDelete.stageNotes).toEqual([]);
+    });
+
+    it('чужая организация — NotFoundException и для checklist, и для stage-notes', async () => {
+      const orgA = new Types.ObjectId();
+      const orgB = new Types.ObjectId();
+      await seedOrganization(orgA);
+      await seedOrganization(orgB);
+      const leadId = await seedLead(orgA);
+
+      await expect(crmService.getLeadChecklist({ leadId, organizationId: orgB })).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        crmService.updateLeadChecklist({
+          leadId,
+          organizationId: orgB,
+          changes: [{ stage: 'new', index: 0, checked: true }],
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'integration-test-correlation-id',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        crmService.setLeadStageNote({
+          leadId,
+          organizationId: orgB,
+          stage: 'new',
+          text: 'x',
+          actorPositionId: new Types.ObjectId(),
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'integration-test-correlation-id',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('manager (own-scope) не может отметить чек-лист чужого лида', async () => {
+      const organizationId = new Types.ObjectId();
+      await seedOrganization(organizationId);
+      const managerPositionId = await seedVacantPosition(organizationId, 'manager');
+      const otherOwnerPositionId = await seedVacantPosition(organizationId, 'manager');
+      const leadId = await seedLead(organizationId, { ownerPositionId: otherOwnerPositionId });
+
+      await expect(
+        crmService.updateLeadChecklist({
+          leadId,
+          organizationId,
+          requiredOwnerPositionId: managerPositionId,
+          changes: [{ stage: 'new', index: 0, checked: true }],
+          actorPositionId: managerPositionId,
+          actorIdentityId: new Types.ObjectId(),
+          correlationId: 'integration-test-correlation-id',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('deleteLead — DELETE /leads/:leadId soft delete (phase 3)', () => {
     it('успешное удаление — лид перестаёт отдаваться в getLead/listLeads, но остаётся в базе с status:deleted', async () => {
       const organizationId = new Types.ObjectId();

@@ -821,6 +821,242 @@ describe('CRM Tasks / Next Action — HTTP Integration (AppModule)', () => {
     });
   });
 
+  describe('PATCH /tasks/:taskId — матрица Эйзенхауэра, taskType, colorHex, leadId, вложения', () => {
+    async function seedAsset(organizationId: Types.ObjectId, status: 'verified' | 'pending'): Promise<Types.ObjectId> {
+      const assetId = new Types.ObjectId();
+      await connection.collection('media_assets').insertOne({
+        _id: assetId,
+        ownerScope: { type: 'organization', organizationId },
+        status,
+        declaredMimeType: 'application/pdf',
+        sizeBytes: 1000,
+        bucket: 'private',
+        originalPath: `${assetId.toString()}/original.pdf`,
+        variants: [],
+        purpose: 'task_attachment',
+        createdAt: new Date(),
+      });
+      return assetId;
+    }
+
+    it('isUrgent/isImportant меняют priority в ответе', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, isUrgent: true, isImportant: true },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.isUrgent).toBe(true);
+      expect(body.isImportant).toBe(true);
+      expect(body.priority).toBe('critical');
+    });
+
+    it('taskType создаётся со значением по умолчанию и меняется PATCH', async () => {
+      const { cookie } = await seedOwnerSession();
+
+      const createRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        headers: { cookie, 'idempotency-key': `key-${new Types.ObjectId().toString()}` },
+        payload: { title: 'Обычная задача' },
+      });
+      expect(createRes.statusCode).toBe(201);
+      const created = JSON.parse(createRes.body);
+      expect(created.taskType).toBe('standard');
+
+      const createCallRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/tasks',
+        headers: { cookie, 'idempotency-key': `key-${new Types.ObjectId().toString()}` },
+        payload: { title: 'Позвонить клиенту', taskType: 'call' },
+      });
+      expect(createCallRes.statusCode).toBe(201);
+      expect(JSON.parse(createCallRes.body).taskType).toBe('call');
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${created.id}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, taskType: 'meeting' },
+      });
+      expect(patchRes.statusCode).toBe(200);
+      expect(JSON.parse(patchRes.body).taskType).toBe('meeting');
+    });
+
+    it('colorHex: null снимает метку', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+
+      const setRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, colorHex: '#ff00aa' },
+      });
+      expect(setRes.statusCode).toBe(200);
+      expect(JSON.parse(setRes.body).colorHex).toBe('#ff00aa');
+
+      const unsetRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 1, colorHex: null },
+      });
+      expect(unsetRes.statusCode).toBe(200);
+      expect(JSON.parse(unsetRes.body).colorHex).toBeNull();
+    });
+
+    it('leadId: привязка ставит contactId лида, отвязка (null) снимает оба, entityType становится none', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const contactId = await seedContact(organizationId);
+      const leadId = await seedLead(organizationId, contactId);
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+
+      const linkRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, leadId: leadId.toString() },
+      });
+      expect(linkRes.statusCode).toBe(200);
+      const linked = JSON.parse(linkRes.body);
+      expect(linked.leadId).toBe(leadId.toString());
+      expect(linked.contactId).toBe(contactId.toString());
+      expect(linked.entityType).toBe('lead');
+
+      const unlinkRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 1, leadId: null },
+      });
+      expect(unlinkRes.statusCode).toBe(200);
+      const unlinked = JSON.parse(unlinkRes.body);
+      expect(unlinked.leadId).toBeNull();
+      expect(unlinked.contactId).toBeNull();
+      expect(unlinked.entityType).toBe('none');
+    });
+
+    it('leadId чужой организации — 404, задача не меняется', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+      const foreignLeadId = new Types.ObjectId();
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, leadId: foreignLeadId.toString() },
+      });
+
+      expect(res.statusCode).toBe(404);
+      const taskDoc = await connection.collection('tasks').findOne({ _id: taskId });
+      // Native driver сериализует непереданный undefined-параметр как BSON null.
+      expect(taskDoc?.leadId).toBeNull();
+    });
+
+    it('startAt/dueAt: null снимает срок и плановое начало', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+
+      const setRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: {
+          expectedVersion: 0,
+          dueAt: new Date(Date.now() + 86400000).toISOString(),
+          startAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      expect(setRes.statusCode).toBe(200);
+      const set = JSON.parse(setRes.body);
+      expect(set.dueAt).not.toBeNull();
+      expect(set.startAt).not.toBeNull();
+
+      const unsetRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 1, dueAt: null, startAt: null },
+      });
+      expect(unsetRes.statusCode).toBe(200);
+      const unset = JSON.parse(unsetRes.body);
+      expect(unset.dueAt).toBeNull();
+      expect(unset.startAt).toBeNull();
+    });
+
+    it('attachments: PATCH заменяет список целиком', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+      const assetId = await seedAsset(organizationId, 'verified');
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: {
+          expectedVersion: 0,
+          attachments: [{ assetId: assetId.toString(), fileName: 'договор.pdf' }],
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.attachments).toEqual([{ assetId: assetId.toString(), fileName: 'договор.pdf' }]);
+    });
+
+    it('attachments: неверифицированный/чужой asset — 400/404, задача не меняется', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+      const pendingAsset = await seedAsset(organizationId, 'pending');
+
+      const pendingRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, attachments: [{ assetId: pendingAsset.toString(), fileName: 'x.pdf' }] },
+      });
+      expect(pendingRes.statusCode).toBe(400);
+
+      const foreignAsset = await seedAsset(new Types.ObjectId(), 'verified');
+      const foreignRes = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 0, attachments: [{ assetId: foreignAsset.toString(), fileName: 'x.pdf' }] },
+      });
+      expect(foreignRes.statusCode).toBe(404);
+
+      const taskDoc = await connection.collection('tasks').findOne({ _id: taskId });
+      expect(taskDoc?.attachments ?? []).toHaveLength(0);
+    });
+
+    it('устаревшая версия — 409, ни одно из новых полей не применяется', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const taskId = await seedTask(organizationId, { assignedPositionId: positionId });
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/tasks/${taskId.toString()}`,
+        headers: { cookie },
+        payload: { expectedVersion: 5, isUrgent: true, colorHex: '#ff0000', taskType: 'call' },
+      });
+
+      expect(res.statusCode).toBe(409);
+      const taskDoc = await connection.collection('tasks').findOne({ _id: taskId });
+      expect(taskDoc?.isUrgent).toBeUndefined();
+      expect(taskDoc?.colorHex).toBeUndefined();
+      expect(taskDoc?.taskType).toBeUndefined();
+    });
+  });
+
   describe('PATCH /tasks/:taskId/reassign — task.reassign (отдельный от task.edit)', () => {
     it('owner переназначает задачу на другую Position, пишет audit task.reassign', async () => {
       const { cookie, organizationId } = await seedOwnerSession();

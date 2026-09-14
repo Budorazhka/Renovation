@@ -28,6 +28,10 @@ export interface LeadWithStalled {
   realtorStage?: RealtorStage;
   curatorStage?: CuratorStage;
   attachedAssetIds?: Types.ObjectId[];
+  whatsapp?: string;
+  lastContactAt?: Date;
+  checklist?: Record<string, boolean>;
+  stageNotes?: Record<string, { text: string; updatedAt: Date }>;
 }
 
 /**
@@ -50,6 +54,12 @@ export class LeadRepository {
       source: LeadSource;
       productType?: LeadProductType;
       stage?: LeadStage;
+      /** `[legacy-base-import]` — см. CrmService.createLead докстринг у route/telegram/whatsapp/notes/tags/lastContactAt. */
+      telegram?: string;
+      whatsapp?: string;
+      notes?: string;
+      tags?: string[];
+      lastContactAt?: Date;
     },
     session?: ClientSession,
   ): Promise<LeadDocument> {
@@ -316,6 +326,84 @@ export class LeadRepository {
   ): Promise<{ modifiedCount: number }> {
     const result = await this.model
       .updateOne({ _id: id, organizationId, status: { $ne: 'deleted' } }, { $set: fields }, { session })
+      .exec();
+    return { modifiedCount: result.modifiedCount };
+  }
+
+  /**
+   * PATCH /leads/:leadId — смена productType (CrmService.updateLead
+   * докстринг): productType + сброс stage на "Новый лид" нового продукта —
+   * ЕДИНСТВЕННОЕ место, где updateLead трогает stage, и ровно поэтому (в
+   * отличие от остальных полей updateFields выше) инкрементирует `version`
+   * — то же поле, что changeStageWithVersionCheck использует для CAS: без
+   * инкремента здесь следующий PATCH /leads/:leadId/stage клиента со
+   * старым expectedVersion молча прошёл бы version-проверку, хотя stage
+   * фактически уже сменился этим путём.
+   */
+  async updateFieldsWithProductReset(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    fields: Record<string, unknown>,
+    productReset: { productType: LeadProductType; stage: LeadStage },
+    session?: ClientSession,
+  ): Promise<{ modifiedCount: number }> {
+    const result = await this.model
+      .updateOne(
+        { _id: id, organizationId, status: { $ne: 'deleted' } },
+        { $set: { ...fields, productType: productReset.productType, stage: productReset.stage }, $inc: { version: 1 } },
+        { session },
+      )
+      .exec();
+    return { modifiedCount: result.modifiedCount };
+  }
+
+  /**
+   * GET/PATCH /leads/:leadId/checklist. Атомарный per-item `$set` по dot-
+   * path (`checklist.<stage>:<index>`), НЕ read-merge-write целого массива
+   * (в отличие от DealRepository.updateChecklist + expectedVersion): чек-лист
+   * отмечают часто и независимо разными пунктами, CAS по версии ВСЕГО лида
+   * здесь давал бы ложные 409 между двумя менеджерами, отмечающими РАЗНЫЕ
+   * пункты одного лида одновременно, либо между отметкой пункта и, скажем,
+   * PATCH сопутствующих полей — конфликт, которого по сути нет. Каждый
+   * dot-path — независимая запись в документе, MongoDB применяет все $set
+   * одной операции атомарно, конкурентные PATCH на РАЗНЫЕ ключи никогда не
+   * затирают друг друга; на ОДИН и тот же ключ — last-write-wins, тот же
+   * компромисс, что assignOwner/unassignOwner (не версионировано).
+   */
+  async updateChecklist(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    changes: Array<{ key: string; checked: boolean }>,
+    session?: ClientSession,
+  ): Promise<{ modifiedCount: number }> {
+    const set: Record<string, boolean> = {};
+    for (const change of changes) {
+      set[`checklist.${change.key}`] = change.checked;
+    }
+    const result = await this.model
+      .updateOne({ _id: id, organizationId, status: { $ne: 'deleted' } }, { $set: set }, { session })
+      .exec();
+    return { modifiedCount: result.modifiedCount };
+  }
+
+  /**
+   * PUT /leads/:leadId/stage-notes/:stage. `note: null` удаляет запись
+   * (`$unset`) — пустой `text` из CrmService.setLeadStageNote докстринга,
+   * не версионировано — тот же принцип независимости от остального лида,
+   * что updateChecklist выше (заметка одной стадии не должна конфликтовать
+   * с правкой другой стадии или сопутствующих полей).
+   */
+  async setStageNote(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    stage: string,
+    note: { text: string; updatedAt: Date } | null,
+    session?: ClientSession,
+  ): Promise<{ modifiedCount: number }> {
+    const update: Record<string, unknown> =
+      note === null ? { $unset: { [`stageNotes.${stage}`]: '' } } : { $set: { [`stageNotes.${stage}`]: note } };
+    const result = await this.model
+      .updateOne({ _id: id, organizationId, status: { $ne: 'deleted' } }, update, { session })
       .exec();
     return { modifiedCount: result.modifiedCount };
   }

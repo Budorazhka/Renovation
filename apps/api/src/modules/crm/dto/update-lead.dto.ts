@@ -1,6 +1,7 @@
-import { ArrayMaxSize, IsArray, IsIn, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsEmail, IsIn, IsNumber, IsOptional, IsString, Length, Min } from 'class-validator';
 import { REALTOR_STAGE_VALUES, CURATOR_STAGE_VALUES } from '../lead-stage';
-import type { RealtorStage, CuratorStage } from '../schemas/lead.schema';
+import { PRODUCT_TYPES } from '../lead-stage-definitions';
+import type { RealtorStage, CuratorStage, LeadProductType } from '../schemas/lead.schema';
 
 /**
  * PATCH /leads/:leadId — сопутствующие поля лида (см. lead.schema.ts
@@ -12,12 +13,39 @@ import type { RealtorStage, CuratorStage } from '../schemas/lead.schema';
  * 6-шаговая номенклатура каждый, `@IsIn(REALTOR_STAGE_VALUES)`/
  * `@IsIn(CURATOR_STAGE_VALUES)`, независимо от `productType` лида (см.
  * lead.schema.ts докстринг у этих полей).
+ *
+ * `[legacy-erp-crm]`: `name`/`phone`/`email` — поля Contact, к которому
+ * привязан лид, НЕ поля самого Lead-документа (см. CrmService.updateLead
+ * докстринг). `phone` — тот же формат, что `CreateLeadDto.requesterPhone`
+ * (свободная строка 1..30, без отдельной нормализации — в этом backend её
+ * нет ни на создании лида, ни здесь). `email: null` явно очищает поле,
+ * отсутствие поля — "не трогать" (тот же принцип, что `UpdateTaskDto.
+ * dueAt`/`colorHex`). `productType` — смена продукта лида, сбрасывает
+ * `stage` в стадию "Новый лид" нового продукта (см. CrmService.updateLead).
  */
 export class UpdateLeadDto {
   @IsOptional()
   @IsString()
   @Length(1, 200)
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 30)
+  phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string | null;
+
+  @IsOptional()
+  @IsIn(PRODUCT_TYPES)
+  productType?: LeadProductType;
 
   @IsOptional()
   @IsString()

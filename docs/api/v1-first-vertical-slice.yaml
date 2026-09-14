@@ -2535,6 +2535,123 @@ paths:
           description: VERSION_CONFLICT — expectedVersion не совпадает с текущим
           $ref: '#/components/responses/Error'
 
+  /leads/{leadId}/checklist:
+    get:
+      operationId: getLeadChecklist
+      summary: >
+        `[phase 3.1]` Чек-лист стадий лида + заметки к стадиям (lead.read,
+        тот же own/organization scope, что GET /leads/{leadId}). Отдаёт
+        только пункты/заметки, которые хоть раз были установлены — пустой
+        чек-лист (новый лид) возвращает пустые массивы, сервер не
+        предзаполняет весь набор пунктов продукта.
+      tags: [erp-crm]
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Чек-лист и заметки стадий
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadChecklistResponse'
+        '403':
+          description: FORBIDDEN — нет lead.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — лид не существует или вне permission scope
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateLeadChecklist
+      summary: >
+        `[phase 3.1]` Атомарная отметка пунктов чек-листа (lead.update, тот
+        же own/organization scope, что PATCH /leads/{leadId}). НЕ
+        версионирован (в отличие от PATCH /deals/{dealId}/checklist):
+        пункты чек-листа отмечаются часто и независимо, CAS по версии
+        ВСЕГО лида давал бы ложные конфликты между двумя менеджерами,
+        отмечающими разные пункты одновременно, либо между отметкой пункта
+        и правкой сопутствующих полей лида. Каждое изменение — независимый
+        `$set` по ключу `(stage,index)`, конкурентные PATCH на РАЗНЫЕ
+        пункты никогда не затирают друг друга; на ОДИН и тот же пункт —
+        последняя запись побеждает.
+      tags: [erp-crm]
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLeadChecklistRequest'
+      responses:
+        '200':
+          description: Чек-лист после обновления (полный, тот же формат, что GET)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadChecklistResponse'
+        '400':
+          description: VALIDATION_FAILED — index вне 0..100 либо stage не входит в ALL_LEAD_STAGE_VALUES
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет lead.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — лид не существует или вне permission scope
+          $ref: '#/components/responses/Error'
+
+  /leads/{leadId}/stage-notes/{stage}:
+    put:
+      operationId: setLeadStageNote
+      summary: >
+        `[phase 3.1]` Заметка, привязанная к конкретной стадии лида (не к
+        лиду в целом — для этого уже есть `notes`, PATCH /leads/{leadId}).
+        Пустой `text` удаляет заметку этой стадии целиком (идемпотентно —
+        повторное удаление уже удалённой заметки не ошибка). `stage`
+        валидируется той же coarse-проверкой, что и PATCH .../stage:
+        известное значение хоть какого-то продукта (ALL_LEAD_STAGE_VALUES),
+        без привязки к productType КОНКРЕТНОГО лида.
+      tags: [erp-crm]
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: stage
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, maxLength: 5000}
+      responses:
+        '200':
+          description: Заметка после установки (либо снятая — text пустой)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadStageNote'
+        '400':
+          description: VALIDATION_FAILED — stage не входит в ALL_LEAD_STAGE_VALUES
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет lead.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — лид не существует или вне permission scope
+          $ref: '#/components/responses/Error'
+
   /leads:
     post:
       operationId: createLead
@@ -2673,21 +2790,40 @@ paths:
         export.run/<entity>.read (см. /exports/{entity} выше): без него
         403, даже если import.run выдан.
 
-        Колонки файла: `name` (опционально), `phone` (обязательно) —
-        первая строка заголовок, порядок колонок не важен, matching по
-        имени заголовка case-insensitive. Обработка СИНХРОННАЯ в рамках
-        HTTP-запроса (не фоновое задание) — потолок 2000 строк, превышение
-        отклоняется целиком, файл не обрезается молча (тот же принцип, что
-        у /exports/{entity}, но ниже: создание лида — транзакция, на
-        порядок тяжелее чтения проекции).
+        Колонки файла: `phone` (обязательно), `name`/`whatsapp`/`telegram`/
+        `comment`/`last_contact` (опционально) — первая строка заголовок,
+        порядок колонок не важен, matching по имени заголовка
+        case-insensitive. `telegram` кладётся в `Lead.telegram`, `comment` —
+        в `Lead.notes`, `whatsapp`/`last_contact` — в новые поля
+        `Lead.whatsapp`/`Lead.lastContactAt`. `last_contact` принимает ISO
+        (`YYYY-MM-DD` либо datetime) или `dd.mm.yyyy` — невалидная дата
+        отклоняет ТОЛЬКО эту строку (попадает в `errors[]`), не весь файл.
+        Обработка СИНХРОННАЯ в рамках HTTP-запроса (не фоновое задание) —
+        потолок 2000 строк, превышение отклоняется целиком, файл не
+        обрезается молча (тот же принцип, что у /exports/{entity}, но ниже:
+        создание лида — транзакция, на порядок тяжелее чтения проекции).
+
+        `?tag=old_base` (опционально, единственное допустимое значение —
+        другое отклоняется 400) помечает каждый СОЗДАННЫЙ этим запросом лид
+        `tags:['old_base']`. Источник лида (`source.route`) для импорта —
+        `'import'`, отличимо от ручного создания (`'manual'`) и от
+        marketplace-потоков (URL публикации).
 
         Идемпотентность: ключ на строку детерминированно вычисляется на
         сервере из (organizationId, phone) — повторная загрузка ТОГО ЖЕ
-        файла не создаёт вторую партию лидов, строки с уже импортированным
-        телефоном засчитываются как успешные без создания дубля.
+        телефона (даже в другом файле/с другим набором колонок, включая
+        появление `?tag=old_base` во втором проходе) не создаёт вторую
+        запись, строка засчитывается как успешная без создания дубля;
+        колонки второго прохода на уже существующий лид не переносятся —
+        это идемпотентность СОЗДАНИЯ, не upsert/merge существующего лида.
 
         `row` в `errors[]` — 1-indexed номер строки ДАННЫХ (без заголовка).
       tags: [erp-crm]
+      parameters:
+        - name: tag
+          in: query
+          required: false
+          schema: {type: string, enum: [old_base]}
       requestBody:
         required: true
         content:
@@ -2725,7 +2861,7 @@ paths:
                             row: {type: integer}
                             message: {type: string}
         '400':
-          description: VALIDATION_FAILED — файл не передан, формат не распознан, нет обязательной колонки phone, либо превышен потолок в 2000 строк
+          description: VALIDATION_FAILED — файл не передан, формат не распознан, нет обязательной колонки phone, превышен потолок в 2000 строк, либо `tag` не равен `old_base`
           $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Error'
@@ -3212,6 +3348,199 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           description: VERSION_CONFLICT — expectedVersion устарел на ЕЩЁ ОТКРЫТОЙ задаче, обновите и повторите
+          $ref: '#/components/responses/Error'
+
+  /notes:
+    get:
+      operationId: listNotes
+      summary: >
+        Список личных заметок вызывающего автора (личный блокнот, не
+        CRM-ресурс) — видны только заметки собственной Position в своей
+        организации, даже owner/director не видит чужие. Newest-first,
+        cursor-paginated.
+      tags: [erp-crm]
+      parameters:
+        - name: leadId
+          in: query
+          schema: {type: string}
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Заметки вызывающего автора, newest-first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteListResponse'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.read
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createNote
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      summary: Создание личной заметки с опциональной привязкой к лиду
+      tags: [erp-crm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteRequest'
+      responses:
+        '201':
+          description: Заметка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.create, либо (при указанном leadId) нет lead.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — указанный leadId не найден в организации
+          $ref: '#/components/responses/Error'
+
+  /notes/{noteId}:
+    get:
+      operationId: getNote
+      summary: >
+        Получение своей заметки по ID. Чужая заметка (другой автор либо
+        другая организация) — 404, non-disclosure.
+      tags: [erp-crm]
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Заметка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+    patch:
+      operationId: updateNote
+      summary: >
+        Частичное CAS-обновление своей заметки. expectedVersion обязателен
+        (conventions.md разд.5). leadId:null отвязывает лид, attachments —
+        полный новый список (заменяет прежний целиком).
+      tags: [erp-crm]
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+      responses:
+        '200':
+          description: Заметка обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.update, либо (при указанном leadId) нет lead.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — заметка не существует/вне tenant, либо указанный leadId не найден
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT — expectedVersion устарел, обновите и повторите
+          $ref: '#/components/responses/Error'
+
+    delete:
+      operationId: deleteNote
+      summary: Удаление своей заметки по id, идемпотентно (повторный вызов на уже удалённой — 404).
+      tags: [erp-crm]
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '204':
+          description: Заметка удалена
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.delete
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /notes/{noteId}/attachments/{assetId}/download:
+    get:
+      operationId: downloadNoteAttachment
+      summary: >
+        Короткоживущая подписанная ссылка на скачивание вложения заметки.
+        Тот же note.read grant и own-scope, что GET /notes/{noteId} — если
+        заметка не видна вызывающему, до вложения он не доходит.
+      tags: [erp-crm]
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: assetId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Ссылка на скачивание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteAttachmentDownloadResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет note.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — заметка не существует/вне scope, или assetId не входит в её attachments
           $ref: '#/components/responses/Error'
 
   /deals:
@@ -8814,13 +9143,24 @@ components:
           nullable: true
           enum: [curator_1, curator_2, curator_3, curator_4, curator_5, curator_6]
           description: Симметрично realtorStage — независимый указатель прогресса куратора, своя 6-шаговая номенклатура.
+        whatsapp:
+          type: string
+          nullable: true
+          description: "`[legacy-base-import]` WhatsApp-контакт лида, отдельно от Contact.phone/telegram."
+        lastContactAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "`[legacy-base-import]` дата последнего контакта ИЗ СТАРОЙ базы (колонка last_contact при импорте), историческая метка, не серверный лог contact-actions."
 
     UpdateLeadRequest:
       type: object
       description: >
-        `[phase 3]` PATCH /leads/{leadId} — только сопутствующие поля
-        лида, НИКОГДА stage (тот путь — PATCH /leads/{leadId}/stage).
-        Все поля опциональны, изменяются только явно переданные.
+        `[phase 3]` PATCH /leads/{leadId} — сопутствующие поля лида,
+        НИКОГДА stage напрямую (тот путь — PATCH /leads/{leadId}/stage,
+        `stage` меняется здесь только как побочный эффект смены
+        `productType`, см. ниже). Все поля опциональны, изменяются только
+        явно переданные.
       properties:
         city: {type: string}
         notes: {type: string}
@@ -8837,6 +9177,68 @@ components:
         country: {type: string}
         realtorStage: {type: string, enum: [realtor_1, realtor_2, realtor_3, realtor_4, realtor_5, realtor_6]}
         curatorStage: {type: string, enum: [curator_1, curator_2, curator_3, curator_4, curator_5, curator_6]}
+        name:
+          type: string
+          description: "`[legacy-erp-crm]` Contact.name — контакт может быть общим для нескольких лидов, правка видна на всех них."
+        phone:
+          type: string
+          description: "`[legacy-erp-crm]` Contact.phone — уже занят ДРУГИМ контактом организации → 409 CONTACT_PHONE_TAKEN."
+        email:
+          type: string
+          nullable: true
+          description: "`[legacy-erp-crm]` Contact.email — null очищает поле."
+        productType:
+          type: string
+          enum: [sales, network, owner, agent]
+          description: >
+            Смена продукта лида — сбрасывает stage в стадию "Новый лид"
+            нового продукта (firstStageIdForProduct), фиксируется в истории
+            стадий тем же механизмом, что PATCH /leads/{leadId}/stage. Если
+            совпадает с текущим productType лида — no-op.
+
+    LeadChecklistItem:
+      type: object
+      required: [stage, index, checked]
+      properties:
+        stage: {type: string}
+        index: {type: integer, minimum: 0, maximum: 100}
+        checked: {type: boolean}
+
+    LeadStageNote:
+      type: object
+      required: [stage, text, updatedAt]
+      properties:
+        stage: {type: string}
+        text: {type: string}
+        updatedAt: {type: string, format: date-time}
+
+    LeadChecklistResponse:
+      type: object
+      required: [items, stageNotes]
+      description: GET/PATCH /leads/{leadId}/checklist — одна и та же форма ответа.
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/LeadChecklistItem'}
+        stageNotes:
+          type: array
+          items: {$ref: '#/components/schemas/LeadStageNote'}
+
+    UpdateLeadChecklistRequest:
+      type: object
+      required: [changes]
+      properties:
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            required: [stage, index, checked]
+            properties:
+              stage: {type: string}
+              index: {type: integer, minimum: 0, maximum: 100}
+              checked: {type: boolean}
 
     LeadFile:
       type: object
@@ -9203,7 +9605,7 @@ components:
       properties:
         declaredMimeType: {type: string, enum: [image/jpeg, image/png, image/webp, application/pdf]}
         sizeBytes: {type: integer, maximum: 20971520, description: "MAX_UPLOAD_SIZE_BYTES — 20 МБ"}
-        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment]}
+        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment, lead_attachment, note_attachment]}
 
     CreateMediaUploadIntentResponse:
       type: object
@@ -9567,6 +9969,10 @@ components:
         taskCategory:
           type: string
           enum: [work, personal]
+        taskType:
+          type: string
+          enum: [standard, call, meeting]
+          description: "Вид задачи. У документов без поля (до 14.09.2026) читается как 'standard'."
         colorHex: {type: string, nullable: true, description: "Цветовая метка #rrggbb; null — метки нет"}
         reminderOffsetsMinutes:
           type: array
@@ -9637,6 +10043,10 @@ components:
         taskCategory:
           type: string
           enum: [work, personal]
+        taskType:
+          type: string
+          enum: [standard, call, meeting]
+          description: "По умолчанию — 'standard'"
         colorHex: {type: string, nullable: true}
         reminderOffsetsMinutes:
           type: array
@@ -9674,7 +10084,8 @@ components:
         expectedVersion: {type: integer, minimum: 0}
         title: {type: string, minLength: 1, maxLength: 255}
         description: {type: string, maxLength: 2000, nullable: true}
-        dueAt: {type: string, format: date-time, nullable: true}
+        dueAt: {type: string, format: date-time, nullable: true, description: "null — снять срок"}
+        startAt: {type: string, format: date-time, nullable: true, description: "null — снять плановое начало"}
         status:
           type: string
           description: >
@@ -9682,6 +10093,16 @@ components:
             POST /tasks/{taskId}/complete — он пишет completedAt,
             completedByPositionId и событие TaskCompleted.
           enum: [open, in_progress, cancelled]
+        isUrgent: {type: boolean}
+        isImportant: {type: boolean}
+        taskCategory:
+          type: string
+          enum: [work, personal]
+        taskType:
+          type: string
+          enum: [standard, call, meeting]
+        colorHex: {type: string, nullable: true, description: "null — снять цветовую метку"}
+        leadId: {type: string, nullable: true, description: "null — отвязать лид (снимает и leadId, и contactId, пришедший через лид)"}
         subtasks:
           type: array
           maxItems: 50
@@ -9695,6 +10116,19 @@ components:
               id: {type: string, maxLength: 120}
               title: {type: string, maxLength: 255}
               done: {type: boolean}
+        attachments:
+          type: array
+          maxItems: 20
+          description: >
+            Полный список вложений; заменяет прежний целиком. Сервер проверяет
+            принадлежность организации и статус verified — тот же принцип,
+            что CreateTaskRequest.attachments.
+          items:
+            type: object
+            required: [assetId, fileName]
+            properties:
+              assetId: {type: string}
+              fileName: {type: string, maxLength: 255}
 
     ReassignTaskRequest:
       type: object
@@ -9708,6 +10142,99 @@ components:
       required: [expectedVersion]
       properties:
         expectedVersion: {type: integer, minimum: 0}
+
+    NoteView:
+      type: object
+      required: [id, organizationId, authorPositionId, title, content, isPinned, category, version, createdAt]
+      properties:
+        id: {type: string}
+        organizationId: {type: string}
+        authorPositionId: {type: string, description: "Автор и единственный видящий эту заметку — личный блокнот, не organization-wide CRM-ресурс"}
+        title: {type: string}
+        content: {type: string}
+        isPinned: {type: boolean}
+        category:
+          type: string
+          enum: [personal, work]
+        leadId: {type: string, nullable: true}
+        attachments:
+          type: array
+          description: "Ссылки на подтверждённые MediaAsset'ы (purpose note_attachment) с именами для экрана"
+          items:
+            type: object
+            required: [assetId, fileName]
+            properties:
+              assetId: {type: string}
+              fileName: {type: string}
+        version: {type: integer, description: "conventions.md разд.5 optimistic concurrency — передать как expectedVersion в следующий PATCH"}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time, nullable: true}
+
+    NoteListResponse:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NoteView'
+        nextCursor: {type: string, nullable: true}
+
+    CreateNoteRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 255}
+        content: {type: string, maxLength: 20000, description: "По умолчанию пустая строка"}
+        isPinned: {type: boolean, description: "По умолчанию false"}
+        category:
+          type: string
+          enum: [personal, work]
+          description: "По умолчанию personal"
+        leadId: {type: string}
+        attachments:
+          type: array
+          maxItems: 10
+          description: >
+            Файлы загружаются заранее через POST /media/upload-intent с
+            purpose note_attachment и подтверждаются; сюда приходят только
+            ссылки. Сервер проверяет принадлежность организации и статус verified.
+          items:
+            type: object
+            required: [assetId, fileName]
+            properties:
+              assetId: {type: string}
+              fileName: {type: string, maxLength: 255}
+
+    UpdateNoteRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+        title: {type: string, minLength: 1, maxLength: 255}
+        content: {type: string, maxLength: 20000}
+        isPinned: {type: boolean}
+        category:
+          type: string
+          enum: [personal, work]
+        leadId: {type: string, nullable: true, description: "null — отвязать лид"}
+        attachments:
+          type: array
+          maxItems: 10
+          description: "Полный новый список — заменяет прежний целиком"
+          items:
+            type: object
+            required: [assetId, fileName]
+            properties:
+              assetId: {type: string}
+              fileName: {type: string, maxLength: 255}
+
+    NoteAttachmentDownloadResponse:
+      type: object
+      required: [url, fileName]
+      properties:
+        url: {type: string, description: "Подписанный GET-URL приватного бакета"}
+        fileName: {type: string, description: "Имя файла со связи заметка → вложение"}
 
     CalendarEventType:
       type: string

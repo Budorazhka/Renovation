@@ -333,6 +333,10 @@ describe('LeadController.updateLead', () => {
       country: undefined,
       realtorStage: undefined,
       curatorStage: undefined,
+      name: undefined,
+      phone: undefined,
+      email: undefined,
+      productType: undefined,
     });
   });
 
@@ -350,6 +354,109 @@ describe('LeadController.updateLead', () => {
     await controller.updateLead(makeRequest(organizationId, positionId) as never, leadId, {});
 
     expect(updateLead).toHaveBeenCalledWith(expect.objectContaining({ requiredOwnerPositionId: undefined }));
+  });
+
+  it('пробрасывает name/phone/email/productType', async () => {
+    const organizationId = new Types.ObjectId();
+    const positionId = new Types.ObjectId();
+    const leadId = new Types.ObjectId();
+    const updateLead = jest.fn().mockResolvedValue({ id: leadId.toString() });
+    const controller = new LeadController(
+      { updateLead } as unknown as CrmService,
+      { matchingScopes: jest.fn().mockResolvedValue(['organization']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+    );
+
+    await controller.updateLead(makeRequest(organizationId, positionId) as never, leadId, {
+      name: 'Иван',
+      phone: '+995500000001',
+      email: null,
+      productType: 'network',
+    });
+
+    expect(updateLead).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Иван', phone: '+995500000001', email: null, productType: 'network' }),
+    );
+  });
+});
+
+describe('LeadController — checklist/stage-notes (phase 3.1)', () => {
+  it('GET /leads/:leadId/checklist — lead.read, own-scope сужается', async () => {
+    const organizationId = new Types.ObjectId();
+    const positionId = new Types.ObjectId();
+    const leadId = new Types.ObjectId();
+    const getLeadChecklist = jest.fn().mockResolvedValue({ items: [], stageNotes: [] });
+    const controller = new LeadController(
+      { getLeadChecklist } as unknown as CrmService,
+      { matchingScopes: jest.fn().mockResolvedValue(['own']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+    );
+
+    await controller.getLeadChecklist(makeRequest(organizationId, positionId) as never, leadId);
+
+    expect(getLeadChecklist).toHaveBeenCalledWith({ leadId, organizationId, ownerPositionId: positionId });
+  });
+
+  it('PATCH /leads/:leadId/checklist — пробрасывает changes из DTO', async () => {
+    const organizationId = new Types.ObjectId();
+    const positionId = new Types.ObjectId();
+    const leadId = new Types.ObjectId();
+    const updateLeadChecklist = jest.fn().mockResolvedValue({ items: [], stageNotes: [] });
+    const controller = new LeadController(
+      { updateLeadChecklist } as unknown as CrmService,
+      { matchingScopes: jest.fn().mockResolvedValue(['organization']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+    );
+    const req = makeRequest(organizationId, positionId);
+
+    await controller.updateLeadChecklist(req as never, leadId, {
+      changes: [{ stage: 'new', index: 0, checked: true }],
+    });
+
+    expect(updateLeadChecklist).toHaveBeenCalledWith({
+      leadId,
+      organizationId,
+      requiredOwnerPositionId: undefined,
+      changes: [{ stage: 'new', index: 0, checked: true }],
+      actorPositionId: positionId,
+      actorIdentityId: new Types.ObjectId(req.tenantContext.identityId),
+      correlationId: undefined,
+    });
+  });
+
+  it('PUT /leads/:leadId/stage-notes/:stage — известная стадия проходит до сервиса', async () => {
+    const organizationId = new Types.ObjectId();
+    const positionId = new Types.ObjectId();
+    const leadId = new Types.ObjectId();
+    const setLeadStageNote = jest.fn().mockResolvedValue({ stage: 'new', text: 'x', updatedAt: '2026-01-01T00:00:00.000Z' });
+    const controller = new LeadController(
+      { setLeadStageNote } as unknown as CrmService,
+      { matchingScopes: jest.fn().mockResolvedValue(['organization']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+    );
+
+    await controller.setLeadStageNote(makeRequest(organizationId, positionId) as never, leadId, 'new', { text: 'x' });
+
+    expect(setLeadStageNote).toHaveBeenCalledWith(
+      expect.objectContaining({ leadId, organizationId, stage: 'new', text: 'x' }),
+    );
+  });
+
+  it('PUT /leads/:leadId/stage-notes/:stage — неизвестная стадия отклоняется до вызова сервиса', async () => {
+    const organizationId = new Types.ObjectId();
+    const positionId = new Types.ObjectId();
+    const leadId = new Types.ObjectId();
+    const setLeadStageNote = jest.fn();
+    const controller = new LeadController(
+      { setLeadStageNote } as unknown as CrmService,
+      { matchingScopes: jest.fn() } as unknown as PolicyEvaluatorService,
+      noReplay(),
+    );
+
+    await expect(
+      controller.setLeadStageNote(makeRequest(organizationId, positionId) as never, leadId, 'not_a_real_stage', { text: 'x' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(setLeadStageNote).not.toHaveBeenCalled();
   });
 });
 

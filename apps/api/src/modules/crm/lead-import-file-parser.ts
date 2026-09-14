@@ -19,6 +19,14 @@ export interface ParsedLeadImportRow {
   row: number;
   name?: string;
   phone?: string;
+  /** `[legacy-base-import]` — сырое значение колонки `whatsapp`, без обработки. */
+  whatsapp?: string;
+  /** `[legacy-base-import]` — сырое значение колонки `telegram`. */
+  telegram?: string;
+  /** `[legacy-base-import]` — сырое значение колонки `comment` (кладётся в Lead.notes). */
+  comment?: string;
+  /** `[legacy-base-import]` — сырое значение колонки `last_contact`, НЕ распарсено здесь (см. `parseImportContactDate`) — дата разбирается на уровне строки в LeadImportService, чтобы невалидная дата была ошибкой ЭТОЙ строки, а не всего файла. */
+  lastContactAt?: string;
 }
 
 const REQUIRED_HEADER = 'phone';
@@ -105,6 +113,10 @@ export async function parseLeadImportFile(
     );
   }
   const nameColumn = columnIndex.get(OPTIONAL_HEADER);
+  const whatsappColumn = columnIndex.get('whatsapp');
+  const telegramColumn = columnIndex.get('telegram');
+  const commentColumn = columnIndex.get('comment');
+  const lastContactColumn = columnIndex.get('last_contact');
 
   const rows: ParsedLeadImportRow[] = [];
   for (let excelRowNumber = 2; excelRowNumber <= sheet.rowCount; excelRowNumber += 1) {
@@ -115,8 +127,41 @@ export async function parseLeadImportFile(
       row: rows.length + 1,
       name: nameColumn ? cellToString(excelRow.getCell(nameColumn).value) : undefined,
       phone: cellToString(excelRow.getCell(phoneColumn).value),
+      whatsapp: whatsappColumn ? cellToString(excelRow.getCell(whatsappColumn).value) : undefined,
+      telegram: telegramColumn ? cellToString(excelRow.getCell(telegramColumn).value) : undefined,
+      comment: commentColumn ? cellToString(excelRow.getCell(commentColumn).value) : undefined,
+      lastContactAt: lastContactColumn ? cellToString(excelRow.getCell(lastContactColumn).value) : undefined,
     });
   }
 
   return rows;
+}
+
+/**
+ * `last_contact` колонка импорта — принимает ISO (`YYYY-MM-DD` либо полный
+ * datetime, в т.ч. уже конвертированный из xlsx-даты через `cellToString`
+ * выше) и легаси `dd.mm.yyyy`. Невалидная дата — ошибка ЭТОЙ строки (кидает
+ * `AppException`, пойманное в LeadImportService.importRow try/catch), не
+ * всего файла — тот же принцип, что пустой `phone`.
+ */
+export function parseImportContactDate(raw: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(raw)) {
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  const dmy = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    // Круговая проверка компонентов ловит невозможные даты вроде 31.02.2026
+    // — `Date.UTC` их молча "перекатывает" на следующий месяц.
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) {
+      return date;
+    }
+  }
+
+  throw new AppException(ErrorCode.VALIDATION_FAILED, `Некорректная дата last_contact: "${raw}" (ожидается ISO или dd.mm.yyyy)`);
 }

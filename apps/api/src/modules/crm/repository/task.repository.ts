@@ -6,6 +6,7 @@ import {
   UNFINISHED_TASK_STATUSES,
   type TaskStatus,
   type TaskCategory,
+  type TaskType,
 } from '../schemas/task.schema';
 
 export interface ListTasksFilter {
@@ -43,6 +44,7 @@ export interface CreateTaskParams {
   isUrgent?: boolean;
   isImportant?: boolean;
   taskCategory?: TaskCategory;
+  taskType?: TaskType;
   colorHex?: string | null;
   reminderOffsetsMinutes?: number[];
   subtasks?: Array<{ id: string; title: string; done: boolean }>;
@@ -55,7 +57,18 @@ export interface UpdateTaskParams {
   description?: string | null;
   status?: TaskStatus;
   dueAt?: Date | null;
+  startAt?: Date | null;
   subtasks?: Array<{ id: string; title: string; done: boolean }>;
+  isUrgent?: boolean;
+  isImportant?: boolean;
+  taskCategory?: TaskCategory;
+  taskType?: TaskType;
+  /** default схемы — null, поэтому явный null пишется напрямую, а не $unset. */
+  colorHex?: string | null;
+  /** null отвязывает лид и (см. contactId) снимает контакт, пришедший через него. */
+  leadId?: Types.ObjectId | null;
+  contactId?: Types.ObjectId | null;
+  attachments?: Array<{ assetId: Types.ObjectId; fileName: string }>;
 }
 
 /**
@@ -85,6 +98,7 @@ export class TaskRepository {
     if (params.isUrgent !== undefined) docData.isUrgent = params.isUrgent;
     if (params.isImportant !== undefined) docData.isImportant = params.isImportant;
     if (params.taskCategory !== undefined) docData.taskCategory = params.taskCategory;
+    if (params.taskType !== undefined) docData.taskType = params.taskType;
     if (params.colorHex !== undefined) docData.colorHex = params.colorHex;
     if (params.reminderOffsetsMinutes !== undefined) docData.reminderOffsetsMinutes = params.reminderOffsetsMinutes;
     if (params.subtasks !== undefined) docData.subtasks = params.subtasks;
@@ -196,6 +210,15 @@ export class TaskRepository {
     if (params.title !== undefined) $set.title = params.title;
     if (params.status !== undefined) $set.status = params.status;
     if (params.subtasks !== undefined) $set.subtasks = params.subtasks;
+    if (params.isUrgent !== undefined) $set.isUrgent = params.isUrgent;
+    if (params.isImportant !== undefined) $set.isImportant = params.isImportant;
+    if (params.taskCategory !== undefined) $set.taskCategory = params.taskCategory;
+    if (params.taskType !== undefined) $set.taskType = params.taskType;
+    if (params.attachments !== undefined) $set.attachments = params.attachments;
+    // colorHex по умолчанию в схеме — null, а не "поля нет", поэтому явный
+    // null пишется как обычное значение ($set), а не снимается ($unset), как
+    // остальные поля без default ниже.
+    if (params.colorHex !== undefined) $set.colorHex = params.colorHex;
 
     if (params.description === null) {
       $unset.description = 1;
@@ -207,6 +230,24 @@ export class TaskRepository {
       $unset.dueAt = 1;
     } else if (params.dueAt !== undefined) {
       $set.dueAt = params.dueAt;
+    }
+
+    if (params.startAt === null) {
+      $unset.startAt = 1;
+    } else if (params.startAt !== undefined) {
+      $set.startAt = params.startAt;
+    }
+
+    if (params.leadId === null) {
+      $unset.leadId = 1;
+    } else if (params.leadId !== undefined) {
+      $set.leadId = params.leadId;
+    }
+
+    if (params.contactId === null) {
+      $unset.contactId = 1;
+    } else if (params.contactId !== undefined) {
+      $set.contactId = params.contactId;
     }
 
     const updateDoc: Record<string, unknown> = { $inc: { version: 1 } };

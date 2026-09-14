@@ -154,11 +154,11 @@ describe('POST /leads/import — импорт лидов из CSV (real HTTP + r
     return { body: Buffer.from(body, 'utf8'), contentType: `multipart/form-data; boundary=${boundary}` };
   }
 
-  async function postImport(cookie: string, csv: string) {
+  async function postImport(cookie: string, csv: string, query = '') {
     const { body, contentType } = multipartCsvPayload(csv);
     return app.inject({
       method: 'POST',
-      url: '/api/v1/leads/import',
+      url: `/api/v1/leads/import${query}`,
       headers: { cookie, 'content-type': contentType },
       payload: body,
     });
@@ -259,5 +259,84 @@ describe('POST /leads/import — импорт лидов из CSV (real HTTP + r
 
     expect(res.statusCode).toBe(400);
     expect(await connection.collection('leads').countDocuments({ organizationId: owner.organizationId })).toBe(0);
+  });
+
+  describe('legacy-base-import: whatsapp/telegram/comment/last_contact, ?tag=old_base', () => {
+    it('новые колонки попадают в whatsapp/telegram/notes/lastContactAt лида', async () => {
+      const owner = await seedOwner();
+      const csv =
+        'phone,name,telegram,whatsapp,comment,last_contact\n' +
+        '+995500000001,Иван,@ivan,+995500000009,Старая заявка,2026-01-15\n';
+
+      const res = await postImport(owner.cookie, csv);
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data).toMatchObject({ total: 1, created: 1, failed: 0 });
+      const leadDoc = await connection.collection('leads').findOne({ organizationId: owner.organizationId });
+      expect(leadDoc).toMatchObject({
+        telegram: '@ivan',
+        whatsapp: '+995500000009',
+        notes: 'Старая заявка',
+      });
+      expect(new Date(leadDoc!.lastContactAt).toISOString()).toBe('2026-01-15T00:00:00.000Z');
+      expect(leadDoc!.source).toMatchObject({ route: 'import' });
+    });
+
+    it('?tag=old_base помечает созданные лиды tags:[old_base]', async () => {
+      const owner = await seedOwner();
+      const csv = 'phone,name\n+995500000001,Иван\n';
+
+      const res = await postImport(owner.cookie, csv, '?tag=old_base');
+
+      expect(res.statusCode).toBe(200);
+      const leadDoc = await connection.collection('leads').findOne({ organizationId: owner.organizationId });
+      expect(leadDoc!.tags).toEqual(['old_base']);
+    });
+
+    it('без tag — tags не проставляется', async () => {
+      const owner = await seedOwner();
+      const csv = 'phone,name\n+995500000001,Иван\n';
+
+      await postImport(owner.cookie, csv);
+
+      const leadDoc = await connection.collection('leads').findOne({ organizationId: owner.organizationId });
+      expect(leadDoc!.tags ?? []).toEqual([]);
+    });
+
+    it('?tag=что-то-ещё — 400, ни один лид не создаётся', async () => {
+      const owner = await seedOwner();
+      const csv = 'phone,name\n+995500000001,Иван\n';
+
+      const res = await postImport(owner.cookie, csv, '?tag=something_else');
+
+      expect(res.statusCode).toBe(400);
+      expect(await connection.collection('leads').countDocuments({ organizationId: owner.organizationId })).toBe(0);
+    });
+
+    it('невалидная дата last_contact — ошибка ТОЛЬКО этой строки, остальные создаются', async () => {
+      const owner = await seedOwner();
+      const csv = 'phone,name,last_contact\n+995500000001,Иван,31.02.2026\n+995500000002,Пётр,15.01.2026\n';
+
+      const res = await postImport(owner.cookie, csv);
+
+      expect(res.statusCode).toBe(200);
+      const parsed = JSON.parse(res.body);
+      expect(parsed.data).toMatchObject({ total: 2, created: 1, failed: 1 });
+      expect(parsed.data.errors).toEqual([{ row: 1, message: expect.stringContaining('дата') }]);
+    });
+
+    it('повторная загрузка того же телефона с tag=old_base ПОСЛЕ импорта без tag — не создаёт дубль', async () => {
+      const owner = await seedOwner();
+      const csvPlain = 'phone,name\n+995500000001,Иван\n';
+      const first = await postImport(owner.cookie, csvPlain);
+      expect(first.statusCode).toBe(200);
+      expect(JSON.parse(first.body).data).toMatchObject({ created: 1, failed: 0 });
+
+      const csvWithTag = 'phone,name,whatsapp\n+995500000001,Иван,+995500000009\n';
+      const second = await postImport(owner.cookie, csvWithTag, '?tag=old_base');
+      expect(second.statusCode).toBe(200);
+
+      expect(await connection.collection('leads').countDocuments({ organizationId: owner.organizationId })).toBe(1);
+    });
   });
 });

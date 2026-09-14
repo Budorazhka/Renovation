@@ -59,6 +59,12 @@
 | `DUPLICATE_DETECTED` | Явный дубль обнаружен, публикация заблокирована | `POST /listings/:id/publish` |
 | `DUPLICATE_OVERRIDE_REQUIRED` | То же, но с указанием, что доступен explicit override с логированием | Тот же endpoint, `details` содержит `duplicateCandidateId` |
 
+## CRM / Contact
+
+| Code | Смысл | Когда |
+|---|---|---|
+| `CONTACT_PHONE_TAKEN` | Новый телефон в PATCH /leads/:leadId уже принадлежит ДРУГОМУ контакту этой организации | `PATCH /leads/:leadId` (name/phone/email правка контакта) |
+
 ## Validation
 
 | Code | Смысл | Когда |

@@ -217,4 +217,120 @@ describe('LeadRepository', () => {
       );
     });
   });
+
+  describe('updateFieldsWithProductReset', () => {
+    it('фильтр включает organizationId, $set объединяет обычные поля и productType/stage, $inc version:1', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const fakeSession = {} as never;
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new LeadRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateFieldsWithProductReset(
+        id,
+        organizationId,
+        { city: 'Батуми' },
+        { productType: 'network', stage: 'network_new_lead' },
+        fakeSession,
+      );
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, status: { $ne: 'deleted' } },
+        { $set: { city: 'Батуми', productType: 'network', stage: 'network_new_lead' }, $inc: { version: 1 } },
+        { session: fakeSession },
+      );
+    });
+  });
+
+  describe('updateChecklist', () => {
+    it('фильтр включает organizationId, каждое изменение — свой dot-path ключ в $set', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new LeadRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateChecklist(id, organizationId, [
+        { key: 'new:0', checked: true },
+        { key: 'contacted:3', checked: false },
+      ]);
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, status: { $ne: 'deleted' } },
+        { $set: { 'checklist.new:0': true, 'checklist.contacted:3': false } },
+        { session: undefined },
+      );
+    });
+  });
+
+  describe('setStageNote', () => {
+    it('note задан — $set по dot-path checklist.stageNotes.<stage>', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const updatedAt = new Date('2026-09-14T10:00:00.000Z');
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new LeadRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.setStageNote(id, organizationId, 'new', { text: 'Перезвонить', updatedAt });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, status: { $ne: 'deleted' } },
+        { $set: { 'stageNotes.new': { text: 'Перезвонить', updatedAt } } },
+        { session: undefined },
+      );
+    });
+
+    it('note: null — $unset по тому же ключу (удаление заметки)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new LeadRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.setStageNote(id, organizationId, 'new', null);
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, status: { $ne: 'deleted' } },
+        { $unset: { 'stageNotes.new': '' } },
+        { session: undefined },
+      );
+    });
+  });
+
+  describe('create — legacy-base-import поля', () => {
+    it('telegram/whatsapp/notes/tags/lastContactAt проходят как есть', async () => {
+      const organizationId = new Types.ObjectId();
+      const contactId = new Types.ObjectId();
+      const lastContactAt = new Date('2026-01-01T00:00:00.000Z');
+      const createSpy = jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]);
+      const repository = new LeadRepository({ create: createSpy } as never);
+
+      await repository.create({
+        organizationId,
+        contactId,
+        source: { route: 'import' },
+        telegram: '@ivan',
+        whatsapp: '+995500000001',
+        notes: 'из старой базы',
+        tags: ['old_base'],
+        lastContactAt,
+      });
+
+      expect(createSpy).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            telegram: '@ivan',
+            whatsapp: '+995500000001',
+            notes: 'из старой базы',
+            tags: ['old_base'],
+            lastContactAt,
+            stage: 'new',
+          }),
+        ],
+        { session: undefined },
+      );
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, HttpCode, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
 import { TenantGuard } from '../../shared/tenant/tenant.guard';
@@ -8,6 +8,7 @@ import { RequirePermission } from '../authorization/require-permission.decorator
 import { AppException } from '../../shared/errors/app-exception';
 import { ErrorCode } from '../../shared/errors/error-codes';
 import { LeadImportService } from './lead-import.service';
+import { ImportLeadsQueryDto } from './dto/import-leads.dto';
 
 /**
  * POST /leads/import — отдельный контроллер (не LeadController), тот же
@@ -28,7 +29,7 @@ export class LeadImportController {
   @Post('import')
   @HttpCode(200)
   @RequirePermission('import', 'run')
-  async importLeads(@Req() req: FastifyRequest) {
+  async importLeads(@Req() req: FastifyRequest, @Query() query: ImportLeadsQueryDto) {
     const tenantContext = requireTenantContext(req);
 
     // @fastify/multipart .file() бросает свой собственный FastifyError
@@ -64,6 +65,7 @@ export class LeadImportController {
       fileBuffer,
       fileName: file.filename,
       mimetype: file.mimetype,
+      tag: query.tag,
     });
 
     return { success: true, data: result };

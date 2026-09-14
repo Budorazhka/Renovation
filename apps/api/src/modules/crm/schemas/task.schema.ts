@@ -62,6 +62,11 @@ export type TaskCategory = 'work' | 'personal';
 
 export const TASK_CATEGORIES: readonly TaskCategory[] = ['work', 'personal'] as const;
 
+/** Вид задачи — обычная, звонок или встреча. Отдельные иконки на экране. */
+export type TaskType = 'standard' | 'call' | 'meeting';
+
+export const TASK_TYPES: readonly TaskType[] = ['standard', 'call', 'meeting'] as const;
+
 /**
  * К чему привязана задача — понятие модели чтения. Выводится из `leadId` и
  * `contactId`, а не хранится рядом с ними: две пары полей про одну связь были
@@ -123,6 +128,10 @@ export class TaskDocument extends Document {
 
   @Prop({ required: true, enum: TASK_CATEGORIES, default: 'work' })
   taskCategory!: TaskCategory;
+
+  /** Вид задачи — обычная/звонок/встреча. Отсутствие у старых документов читается как 'standard'. */
+  @Prop({ required: true, enum: TASK_TYPES, default: 'standard' })
+  taskType!: TaskType;
 
   /** Цветовая метка задачи в формате #rrggbb; отсутствие метки — не цвет, а null. */
   @Prop({ required: false, type: String, default: null })

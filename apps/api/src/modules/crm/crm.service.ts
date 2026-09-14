@@ -34,6 +34,7 @@ import {
   type TaskStatus,
   type TaskPriority,
   type TaskCategory,
+  type TaskType,
   type TaskEntityType,
 } from './schemas/task.schema';
 import type { DealChecklistItem, DealDocument, DealParticipant } from './schemas/deal.schema';
@@ -78,6 +79,26 @@ export interface CrmLeadReadModel {
   /** См. LeadDocument.realtorStage/curatorStage докстринг — независимые указатели, не дубли `stage`. */
   realtorStage: RealtorStage | null;
   curatorStage: CuratorStage | null;
+  /** `[legacy-base-import]` — см. LeadDocument.whatsapp/lastContactAt докстринг. */
+  whatsapp: string | null;
+  lastContactAt: string | null;
+}
+
+export interface CrmLeadChecklistItemReadModel {
+  stage: string;
+  index: number;
+  checked: boolean;
+}
+
+export interface CrmLeadStageNoteReadModel {
+  stage: string;
+  text: string;
+  updatedAt: string;
+}
+
+export interface CrmLeadChecklistReadModel {
+  items: CrmLeadChecklistItemReadModel[];
+  stageNotes: CrmLeadStageNoteReadModel[];
 }
 
 export interface CrmDealParticipantReadModel {
@@ -198,6 +219,8 @@ export interface CrmTaskReadModel {
   /** Название квадранта для экрана. Выводится из признаков, не хранится. */
   priority: TaskPriority;
   taskCategory: TaskCategory;
+  /** Вид задачи. У документов без поля (до 14.09.2026) читается как 'standard'. */
+  taskType: TaskType;
   colorHex: string | null;
   reminderOffsetsMinutes: number[];
   subtasks: Array<{ id: string; title: string; done: boolean }>;
@@ -1052,6 +1075,35 @@ export class CrmService {
   }
 
   /**
+   * Общая проверка вложений задачи для createTask и updateTask: каждый
+   * asset обязан принадлежать этой организации и быть подтверждённым —
+   * ссылка на чужой или непроверенный файл это либо утечка, либо обещание
+   * файла, которого нет. Вынесена в один метод, чтобы правило не разъезжалось
+   * между созданием и правкой задачи.
+   */
+  private async validateTaskAttachmentsForOwnerScope(
+    attachments: Array<{ assetId: Types.ObjectId; fileName: string }> | undefined,
+    organizationId: Types.ObjectId,
+  ): Promise<void> {
+    if (!attachments || attachments.length === 0) {
+      return;
+    }
+    const found = await this.mediaService.getAssetsForOwnerScope(
+      attachments.map((item) => item.assetId),
+      { type: 'organization', organizationId },
+    );
+    for (const item of attachments) {
+      const asset = found.get(item.assetId.toString());
+      if (!asset) {
+        throw new NotFoundException('Attachment media asset not found');
+      }
+      if (asset.status !== 'verified') {
+        throw new AppException(ErrorCode.VALIDATION_FAILED, 'Attachment media asset is not verified yet');
+      }
+    }
+  }
+
+  /**
    * POST /tasks. Создание задачи с привязкой к Lead/Contact и аудитом.
    */
   async createTask(params: {
@@ -1069,6 +1121,7 @@ export class CrmService {
     isUrgent?: boolean;
     isImportant?: boolean;
     taskCategory?: TaskCategory;
+    taskType?: TaskType;
     colorHex?: string | null;
     reminderOffsetsMinutes?: number[];
     subtasks?: Array<{ id: string; title: string; done: boolean }>;
@@ -1095,21 +1148,7 @@ export class CrmService {
     // этой организации и быть подтверждённым: ссылка на чужой или
     // непроверенный файл — это либо утечка, либо обещание файла, которого
     // нет.
-    if (params.attachments && params.attachments.length > 0) {
-      const found = await this.mediaService.getAssetsForOwnerScope(
-        params.attachments.map((item) => item.assetId),
-        { type: 'organization', organizationId: params.organizationId },
-      );
-      for (const item of params.attachments) {
-        const asset = found.get(item.assetId.toString());
-        if (!asset) {
-          throw new NotFoundException('Attachment media asset not found');
-        }
-        if (asset.status !== 'verified') {
-          throw new AppException(ErrorCode.VALIDATION_FAILED, 'Attachment media asset is not verified yet');
-        }
-      }
-    }
+    await this.validateTaskAttachmentsForOwnerScope(params.attachments, params.organizationId);
 
     let resolvedContactId = params.contactId;
 
@@ -1170,6 +1209,7 @@ export class CrmService {
           isUrgent: params.isUrgent,
           isImportant: params.isImportant,
           taskCategory: params.taskCategory,
+          taskType: params.taskType,
           colorHex: params.colorHex,
           reminderOffsetsMinutes: params.reminderOffsetsMinutes,
           subtasks: params.subtasks,
@@ -1255,8 +1295,16 @@ export class CrmService {
     title?: string;
     description?: string | null;
     dueAt?: Date | null;
+    startAt?: Date | null;
     status?: TaskStatus;
     subtasks?: Array<{ id: string; title: string; done: boolean }>;
+    isUrgent?: boolean;
+    isImportant?: boolean;
+    taskCategory?: TaskCategory;
+    taskType?: TaskType;
+    colorHex?: string | null;
+    leadId?: Types.ObjectId | null;
+    attachments?: Array<{ assetId: Types.ObjectId; fileName: string }>;
     correlationId: string;
   }): Promise<CrmTaskReadModel> {
     const existingTask = await this.taskRepository.findByIdForOrganization(
@@ -1272,6 +1320,31 @@ export class CrmService {
       throw new BadRequestException('Cannot edit a completed task');
     }
 
+    await this.validateTaskAttachmentsForOwnerScope(params.attachments, params.organizationId);
+
+    // Смена лида — тот же принцип, что createTask: contactId задачи всегда
+    // берётся из lead.contactId, отдельно из запроса не принимается (PATCH
+    // его вообще не знает). Отвязка (null) снимает оба поля разом — contactId
+    // у задачи из CRM попадал сюда только через лид, самостоятельного смысла
+    // без leadId у него нет.
+    let resolvedLeadId: Types.ObjectId | null | undefined;
+    let resolvedContactId: Types.ObjectId | null | undefined;
+    if (params.leadId === null) {
+      resolvedLeadId = null;
+      resolvedContactId = null;
+    } else if (params.leadId !== undefined) {
+      const lead = await this.leadRepository.findByIdForOrganization(
+        params.leadId,
+        params.organizationId,
+        params.requiredScopePositionId,
+      );
+      if (!lead) {
+        throw new NotFoundException('Lead not found');
+      }
+      resolvedLeadId = params.leadId;
+      resolvedContactId = lead.contactId;
+    }
+
     return runInTransaction(this.connection, async (session) => {
       const { modifiedCount } = await this.taskRepository.updateTask(
         params.taskId,
@@ -1281,8 +1354,17 @@ export class CrmService {
           title: params.title,
           description: params.description,
           dueAt: params.dueAt,
+          startAt: params.startAt,
           status: params.status,
           subtasks: params.subtasks,
+          isUrgent: params.isUrgent,
+          isImportant: params.isImportant,
+          taskCategory: params.taskCategory,
+          taskType: params.taskType,
+          colorHex: params.colorHex,
+          leadId: resolvedLeadId,
+          contactId: resolvedContactId,
+          attachments: params.attachments,
         },
         session,
       );
@@ -1310,11 +1392,21 @@ export class CrmService {
             title: existingTask.title,
             dueAt: existingTask.dueAt?.toISOString() ?? null,
             status: existingTask.status,
+            isUrgent: Boolean(existingTask.isUrgent),
+            isImportant: existingTask.isImportant ?? true,
+            taskCategory: existingTask.taskCategory ?? 'work',
+            taskType: existingTask.taskType ?? 'standard',
+            leadId: existingTask.leadId?.toString() ?? null,
           },
           after: {
             title: updated!.title,
             dueAt: updated!.dueAt?.toISOString() ?? null,
             status: updated!.status,
+            isUrgent: Boolean(updated!.isUrgent),
+            isImportant: updated!.isImportant ?? true,
+            taskCategory: updated!.taskCategory ?? 'work',
+            taskType: updated!.taskType ?? 'standard',
+            leadId: updated!.leadId?.toString() ?? null,
           },
           correlationId: params.correlationId,
         },
@@ -2012,17 +2104,41 @@ export class CrmService {
 
   /**
    * PATCH /leads/:leadId — общее обновление сопутствующих полей лида (см.
-   * UpdateLeadDto докстринг: НИКОГДА `stage` — тот путь остаётся только за
-   * changeLeadStage/PATCH /leads/:leadId/stage). Только явно переданные в
-   * запросе поля попадают в $set (params.<field> === undefined значит "поле
-   * отсутствовало в теле запроса", не "клиент явно снёс значение" — тот же
-   * partial-PATCH принцип, что updateTask).
+   * UpdateLeadDto докстринг: НИКОГДА `stage` напрямую — тот путь остаётся
+   * за changeLeadStage/PATCH /leads/:leadId/stage, `stage` меняется здесь
+   * ТОЛЬКО как побочный эффект смены `productType`, см. ниже). Только явно
+   * переданные в запросе поля попадают в $set (params.<field> === undefined
+   * значит "поле отсутствовало в теле запроса", не "клиент явно снёс
+   * значение" — тот же partial-PATCH принцип, что updateTask).
    *
    * `[owner decision — 04.09.2026]`: `realtorStage`/`curatorStage`
    * валидируются СВОИМИ списками (`REALTOR_STAGE_VALUES`/
    * `CURATOR_STAGE_VALUES`, `lead-stage.ts`) — независимо от `productType`
    * лида, не общим справочником стадии продукта (временное решение,
    * снятое этим коммитом, см. LeadDocument докстринг у этих полей).
+   *
+   * `[legacy-erp-crm]`: `name`/`phone`/`email` принадлежат Contact, к
+   * которому привязан лид (`lead.contactId`), НЕ самому Lead-документу —
+   * сервер обновляет Contact в той же организации и той же транзакции.
+   * Contact может быть общим для нескольких лидов одного человека — имя и
+   * телефон человека одни для всех его лидов, поэтому правка здесь меняет
+   * контакт целиком, видимый на всех лидах, где он указан, не только на
+   * этом. Новый `phone`, уже занятый ДРУГИМ контактом организации —
+   * `CONTACT_PHONE_TAKEN` (409): сервер НИКОГДА не перепривязывает лид к
+   * чужому контакту молча. Если у лида (аномально) нет привязанного
+   * контакта — создаёт новый по тому же принципу, что
+   * CrmService.resolveContact, и привязывает к лиду.
+   *
+   * `productType`: смена продукта сбрасывает `stage` в стадию "Новый лид"
+   * НОВОГО продукта (`firstStageIdForProduct`) — это фиксируется в истории
+   * стадий тем же LeadEventRepository.append, что и обычная смена стадии
+   * (не молча). PATCH /leads/:leadId НЕ версионирован (в отличие от PATCH
+   * .../stage) — сохранена текущая семантика эндпоинта для существующих
+   * клиентов, но `Lead.version` всё равно инкрементируется при смене
+   * productType (LeadRepository.updateFieldsWithProductReset докстринг):
+   * `stage` реально меняется, и будущий PATCH .../stage должен видеть
+   * актуальную version для корректного CAS. Если `productType` совпадает с
+   * текущим — ничего не сбрасывается (no-op на этом поле).
    */
   async updateLead(params: {
     leadId: Types.ObjectId;
@@ -2044,6 +2160,10 @@ export class CrmService {
     country?: string;
     realtorStage?: RealtorStage;
     curatorStage?: CuratorStage;
+    name?: string;
+    phone?: string;
+    email?: string | null;
+    productType?: LeadProductType;
   }): Promise<CrmLeadReadModel> {
     const lead = await this.leadRepository.findByIdForOrganization(
       params.leadId,
@@ -2068,6 +2188,19 @@ export class CrmService {
         { field: 'curatorStage', value: params.curatorStage },
       );
     }
+
+    // `name` trim (UpdateLeadDto докстринг) — пробельная строка проходит
+    // `@Length(1,200)` (пробел — символ), но не является осмысленным именем.
+    const trimmedName = params.name !== undefined ? params.name.trim() : undefined;
+    if (trimmedName !== undefined && trimmedName.length === 0) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'name must not be blank', { field: 'name' });
+    }
+    const contactFieldsProvided = trimmedName !== undefined || params.phone !== undefined || params.email !== undefined;
+
+    const productTypeChanged = params.productType !== undefined && params.productType !== (lead.productType ?? undefined);
+    const stageReset = productTypeChanged
+      ? { productType: params.productType!, stage: firstStageIdForProduct(params.productType!) as LeadStage }
+      : undefined;
 
     const editableFields: Array<
       keyof Pick<
@@ -2113,7 +2246,7 @@ export class CrmService {
       setFields[field] = value;
     }
 
-    if (Object.keys(setFields).length === 0) {
+    if (Object.keys(setFields).length === 0 && !stageReset && !contactFieldsProvided) {
       // Ничего не передано для изменения — не открываем транзакцию впустую,
       // тот же short-circuit принцип, что reassignTask на no-op reassign.
       const contact = await this.contactRepository.findByIdForOrganization(lead.contactId, params.organizationId);
@@ -2127,14 +2260,80 @@ export class CrmService {
     }
 
     return runInTransaction(this.connection, async (session) => {
-      const { modifiedCount } = await this.leadRepository.updateFields(
-        params.leadId,
-        params.organizationId,
-        setFields,
-        session,
-      );
-      if (modifiedCount === 0) {
-        throw new NotFoundException('Lead not found');
+      if (contactFieldsProvided) {
+        let contact = await this.contactRepository.findByIdForOrganization(lead.contactId, params.organizationId, session);
+
+        if (params.phone !== undefined && (!contact || params.phone !== contact.phone)) {
+          const takenBy = await this.contactRepository.findByPhone(params.organizationId, params.phone);
+          if (takenBy && (!contact || !takenBy._id.equals(contact._id))) {
+            throw new AppException(
+              ErrorCode.CONTACT_PHONE_TAKEN,
+              `Phone "${params.phone}" is already used by another contact in this organization`,
+              { field: 'phone' },
+            );
+          }
+        }
+
+        const contactBefore = contact
+          ? { name: contact.name, phone: contact.phone, email: contact.email ?? null }
+          : { name: null, phone: null, email: null };
+
+        if (contact) {
+          await this.contactRepository.updateFields(
+            contact._id,
+            params.organizationId,
+            { name: trimmedName, phone: params.phone, email: params.email },
+            session,
+          );
+        } else {
+          // Аномалия схемы (contactId всегда required) — то же defensive
+          // поведение, что CrmService.resolveContact: без телефона Contact
+          // создать нечем.
+          if (!params.phone) {
+            throw new AppException(ErrorCode.VALIDATION_FAILED, 'phone is required to create a contact for this lead', {
+              field: 'phone',
+            });
+          }
+          contact = await this.contactRepository.create(
+            { organizationId: params.organizationId, name: trimmedName ?? 'Unknown', phone: params.phone, email: params.email ?? undefined, roles: ['buyer'] },
+            session,
+          );
+          await this.leadRepository.updateFields(params.leadId, params.organizationId, { contactId: contact._id }, session);
+        }
+
+        before.name = contactBefore.name;
+        before.phone = contactBefore.phone;
+        before.email = contactBefore.email;
+        after.name = trimmedName ?? contactBefore.name;
+        after.phone = params.phone ?? contactBefore.phone;
+        after.email = params.email !== undefined ? params.email : contactBefore.email;
+      }
+
+      if (Object.keys(setFields).length > 0 || stageReset) {
+        const { modifiedCount } = stageReset
+          ? await this.leadRepository.updateFieldsWithProductReset(params.leadId, params.organizationId, setFields, stageReset, session)
+          : await this.leadRepository.updateFields(params.leadId, params.organizationId, setFields, session);
+        if (modifiedCount === 0) {
+          throw new NotFoundException('Lead not found');
+        }
+      }
+
+      if (stageReset) {
+        before.productType = lead.productType ?? null;
+        before.stage = lead.stage;
+        after.productType = stageReset.productType;
+        after.stage = stageReset.stage;
+
+        await this.leadEventRepository.append(
+          {
+            leadId: params.leadId,
+            organizationId: params.organizationId,
+            stage: stageReset.stage,
+            changedBy: { type: 'position', positionId: params.actorPositionId },
+            comment: `productType changed to "${stageReset.productType}"`,
+          },
+          session,
+        );
       }
 
       await this.auditService.append(
@@ -2156,7 +2355,7 @@ export class CrmService {
         undefined,
         session,
       );
-      const contact = await this.contactRepository.findByIdForOrganization(updated!.contactId, params.organizationId);
+      const contact = await this.contactRepository.findByIdForOrganization(updated!.contactId, params.organizationId, session);
       const openTaskCount = isActiveLeadStage(updated!.stage, updated!.productType)
         ? await this.taskRepository.countOpenForLead(params.organizationId, updated!._id)
         : 0;
@@ -2165,6 +2364,149 @@ export class CrmService {
         stalled: isActiveLeadStage(updated!.stage, updated!.productType) && openTaskCount === 0,
         hasOpenNextAction: openTaskCount > 0,
       });
+    });
+  }
+
+  /**
+   * GET /leads/:leadId/checklist — см. CrmLeadChecklistReadModel/
+   * toLeadChecklistReadModel докстринг у ключа `<stage>:<index>`.
+   */
+  async getLeadChecklist(params: {
+    leadId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    ownerPositionId?: Types.ObjectId;
+  }): Promise<CrmLeadChecklistReadModel> {
+    const lead = await this.leadRepository.findByIdForOrganization(
+      params.leadId,
+      params.organizationId,
+      params.ownerPositionId,
+    );
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+    return toLeadChecklistReadModel(lead);
+  }
+
+  /**
+   * PATCH /leads/:leadId/checklist — см. LeadRepository.updateChecklist
+   * докстринг: атомарный per-item `$set`, НЕ версионировано (сознательно —
+   * CAS по версии всего лида дал бы ложные конфликты между независимыми
+   * пунктами чек-листа/сопутствующими правками, см. докстринг репозитория).
+   * Один audit-event на весь PATCH (не на каждый пункт) — тот же принцип,
+   * что LeadImportService на весь файл: важен факт batch-правки, не каждый
+   * чекбокс по отдельности.
+   */
+  async updateLeadChecklist(params: {
+    leadId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    requiredOwnerPositionId?: Types.ObjectId;
+    changes: Array<{ stage: string; index: number; checked: boolean }>;
+    actorPositionId: Types.ObjectId;
+    actorIdentityId: Types.ObjectId;
+    correlationId: string;
+  }): Promise<CrmLeadChecklistReadModel> {
+    const lead = await this.leadRepository.findByIdForOrganization(
+      params.leadId,
+      params.organizationId,
+      params.requiredOwnerPositionId,
+    );
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+
+    const changes = params.changes.map((change) => ({
+      key: leadChecklistKey(change.stage, change.index),
+      checked: change.checked,
+    }));
+
+    return runInTransaction(this.connection, async (session) => {
+      const { modifiedCount } = await this.leadRepository.updateChecklist(
+        params.leadId,
+        params.organizationId,
+        changes,
+        session,
+      );
+      if (modifiedCount === 0) {
+        throw new NotFoundException('Lead not found');
+      }
+
+      await this.auditService.append(
+        {
+          actor: { type: 'identity', id: params.actorIdentityId },
+          action: 'lead.checklist_update',
+          resource: 'lead',
+          resourceId: params.leadId,
+          after: { changes: params.changes },
+          correlationId: params.correlationId,
+        },
+        session,
+      );
+
+      const updated = await this.leadRepository.findByIdForOrganization(
+        params.leadId,
+        params.organizationId,
+        undefined,
+        session,
+      );
+      return toLeadChecklistReadModel(updated!);
+    });
+  }
+
+  /**
+   * PUT /leads/:leadId/stage-notes/:stage — см. LeadRepository.setStageNote
+   * докстринг. `text` пустой строкой удаляет заметку этой стадии целиком
+   * (отсутствие ключа в карте stageNotes и есть "заметки нет" — не хранит
+   * пустую строку как значение).
+   */
+  async setLeadStageNote(params: {
+    leadId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    requiredOwnerPositionId?: Types.ObjectId;
+    stage: string;
+    text: string;
+    actorPositionId: Types.ObjectId;
+    actorIdentityId: Types.ObjectId;
+    correlationId: string;
+  }): Promise<CrmLeadStageNoteReadModel> {
+    const lead = await this.leadRepository.findByIdForOrganization(
+      params.leadId,
+      params.organizationId,
+      params.requiredOwnerPositionId,
+    );
+    if (!lead) {
+      throw new NotFoundException('Lead not found');
+    }
+
+    const trimmedText = params.text.trim();
+    const note = trimmedText.length === 0 ? null : { text: trimmedText, updatedAt: new Date() };
+
+    return runInTransaction(this.connection, async (session) => {
+      const { modifiedCount } = await this.leadRepository.setStageNote(
+        params.leadId,
+        params.organizationId,
+        params.stage,
+        note,
+        session,
+      );
+      if (modifiedCount === 0) {
+        throw new NotFoundException('Lead not found');
+      }
+
+      await this.auditService.append(
+        {
+          actor: { type: 'identity', id: params.actorIdentityId },
+          action: note ? 'lead.stage_note_set' : 'lead.stage_note_delete',
+          resource: 'lead',
+          resourceId: params.leadId,
+          after: { stage: params.stage, hasText: note !== null },
+          correlationId: params.correlationId,
+        },
+        session,
+      );
+
+      return note
+        ? { stage: params.stage, text: note.text, updatedAt: note.updatedAt.toISOString() }
+        : { stage: params.stage, text: '', updatedAt: new Date().toISOString() };
     });
   }
 
@@ -2565,6 +2907,25 @@ export class CrmService {
      * будет мнимой.
      */
     idempotencyRequestBody: Record<string, unknown>;
+    /**
+     * `[legacy-base-import]`: `source.route` — по умолчанию `'manual'`, тот
+     * же путь, что ручная форма ERP использовала всегда. LeadImportService
+     * передаёт `'import'` явно, чтобы импортированные лиды были отличимы от
+     * заведённых вручную по `source.route` (ни один отчёт/фильтр route не
+     * перечисляет — проверено чтением crm-report/export-columns, значение
+     * произвольная строка).
+     */
+    route?: string;
+    /** `[legacy-base-import]` — колонка `telegram` CSV/XLSX (LeadDocument.telegram, то же поле, что PATCH /leads/:leadId). */
+    telegram?: string;
+    /** `[legacy-base-import]` — колонка `whatsapp` (LeadDocument.whatsapp). */
+    whatsapp?: string;
+    /** `[legacy-base-import]` — колонка `comment` кладётся в LeadDocument.notes. */
+    notes?: string;
+    /** `[legacy-base-import]` — `tags:['old_base']` при `?tag=old_base`. */
+    tags?: string[];
+    /** `[legacy-base-import]` — колонка `last_contact` (LeadDocument.lastContactAt). */
+    lastContactAt?: Date;
   }): Promise<CrmLeadReadModel> {
     return runInTransaction(this.connection, async (session) => {
       const contact = params.contactId
@@ -2580,14 +2941,20 @@ export class CrmService {
       const initialStage: LeadStage = params.productType
         ? (firstStageIdForProduct(params.productType) as LeadStage)
         : 'new';
+      const route = params.route ?? 'manual';
 
       const lead = await this.leadRepository.create(
         {
           organizationId: params.organizationId,
           contactId: contact._id,
-          source: { route: 'manual' },
+          source: { route },
           productType: params.productType,
           stage: initialStage,
+          telegram: params.telegram,
+          whatsapp: params.whatsapp,
+          notes: params.notes,
+          tags: params.tags,
+          lastContactAt: params.lastContactAt,
         },
         session,
       );
@@ -2608,7 +2975,7 @@ export class CrmService {
           action: 'lead.create',
           resource: 'lead',
           resourceId: lead._id,
-          after: { contactId: contact._id.toString(), source: 'manual' },
+          after: { contactId: contact._id.toString(), source: route },
           correlationId: params.correlationId,
         },
         session,
@@ -4280,6 +4647,8 @@ function toLeadReadModel(
     country?: string;
     realtorStage?: RealtorStage;
     curatorStage?: CuratorStage;
+    whatsapp?: string;
+    lastContactAt?: Date;
   },
   contact: { _id: Types.ObjectId; name: string; phone: string; email?: string } | null | undefined,
   state: { stalled?: boolean; hasOpenNextAction?: boolean } = {},
@@ -4311,7 +4680,42 @@ function toLeadReadModel(
     country: lead.country ?? null,
     realtorStage: lead.realtorStage ?? null,
     curatorStage: lead.curatorStage ?? null,
+    whatsapp: lead.whatsapp ?? null,
+    lastContactAt: lead.lastContactAt ? lead.lastContactAt.toISOString() : null,
   };
+}
+
+/** `<stage>:<index>` — см. LeadDocument.checklist докстринг. Отдельная функция: сборка и разбор ключа обязаны оставаться в одном месте. */
+function leadChecklistKey(stage: string, index: number): string {
+  return `${stage}:${index}`;
+}
+
+function parseLeadChecklistKey(key: string): { stage: string; index: number } | null {
+  const separatorIndex = key.lastIndexOf(':');
+  if (separatorIndex < 0) return null;
+  const stage = key.slice(0, separatorIndex);
+  const index = Number(key.slice(separatorIndex + 1));
+  if (!stage || !Number.isInteger(index)) return null;
+  return { stage, index };
+}
+
+function toLeadChecklistReadModel(lead: {
+  checklist?: Record<string, boolean>;
+  stageNotes?: Record<string, { text: string; updatedAt: Date }>;
+}): CrmLeadChecklistReadModel {
+  const items: CrmLeadChecklistItemReadModel[] = Object.entries(lead.checklist ?? {})
+    .map(([key, checked]) => {
+      const parsed = parseLeadChecklistKey(key);
+      return parsed ? { stage: parsed.stage, index: parsed.index, checked } : null;
+    })
+    .filter((item): item is CrmLeadChecklistItemReadModel => item !== null)
+    .sort((a, b) => (a.stage === b.stage ? a.index - b.index : a.stage.localeCompare(b.stage)));
+
+  const stageNotes: CrmLeadStageNoteReadModel[] = Object.entries(lead.stageNotes ?? {})
+    .map(([stage, note]) => ({ stage, text: note.text, updatedAt: note.updatedAt.toISOString() }))
+    .sort((a, b) => a.stage.localeCompare(b.stage));
+
+  return { items, stageNotes };
 }
 
 /**
@@ -4430,6 +4834,7 @@ export function toTaskReadModel(task: TaskDocument): CrmTaskReadModel {
     isImportant: task.isImportant ?? true,
     priority: priorityFromFlags(Boolean(task.isUrgent), task.isImportant ?? true),
     taskCategory: task.taskCategory ?? 'work',
+    taskType: task.taskType ?? 'standard',
     colorHex: task.colorHex ?? null,
     reminderOffsetsMinutes: task.reminderOffsetsMinutes ?? [],
     subtasks: (task.subtasks ?? []).map((item) => ({

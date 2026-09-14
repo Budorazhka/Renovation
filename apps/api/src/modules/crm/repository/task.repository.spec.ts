@@ -33,6 +33,20 @@ describe('TaskRepository', () => {
       );
       expect(result).toEqual(createdTask);
     });
+
+    it('передаёт taskType в docData, только если оно пришло', async () => {
+      const organizationId = new Types.ObjectId();
+      const createdTask = { _id: new Types.ObjectId(), organizationId, title: 'Call client', status: 'open' };
+      const createSpy = jest.fn().mockResolvedValue([createdTask]);
+      const repository = new TaskRepository({ create: createSpy } as never);
+
+      await repository.create({ organizationId, title: 'Call client', taskType: 'meeting' });
+
+      expect(createSpy).toHaveBeenCalledWith(
+        [expect.objectContaining({ taskType: 'meeting' })],
+        { session: undefined },
+      );
+    });
   });
 
   describe('findByIdForOrganization', () => {
@@ -186,6 +200,137 @@ describe('TaskRepository', () => {
       const result = await repository.updateTask(id, organizationId, 5, { title: 'x' });
 
       expect(result).toEqual({ modifiedCount: 0 });
+    });
+
+    it('isUrgent/isImportant/taskCategory/taskType/attachments — прямой $set', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const assetId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, {
+        isUrgent: true,
+        isImportant: false,
+        taskCategory: 'personal',
+        taskType: 'call',
+        attachments: [{ assetId, fileName: 'file.pdf' }],
+      });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        {
+          $inc: { version: 1 },
+          $set: {
+            isUrgent: true,
+            isImportant: false,
+            taskCategory: 'personal',
+            taskType: 'call',
+            attachments: [{ assetId, fileName: 'file.pdf' }],
+          },
+        },
+        { session: undefined },
+      );
+    });
+
+    it('colorHex:null — $set напрямую (default схемы — null, не $unset)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { colorHex: null });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $set: { colorHex: null } },
+        { session: undefined },
+      );
+    });
+
+    it('colorHex:значение — $set напрямую', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { colorHex: '#ff0000' });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $set: { colorHex: '#ff0000' } },
+        { session: undefined },
+      );
+    });
+
+    it('startAt:null — $unset (нет default в схеме)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { startAt: null });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $unset: { startAt: 1 } },
+        { session: undefined },
+      );
+    });
+
+    it('startAt:значение — $set', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const startAt = new Date();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { startAt });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $set: { startAt } },
+        { session: undefined },
+      );
+    });
+
+    it('leadId:null и contactId:null — оба $unset (отвязка лида)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { leadId: null, contactId: null });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $unset: { leadId: 1, contactId: 1 } },
+        { session: undefined },
+      );
+    });
+
+    it('leadId и contactId заданы — оба $set (привязка лида)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const leadId = new Types.ObjectId();
+      const contactId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+      const updateOneSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const repository = new TaskRepository({ updateOne: updateOneSpy } as never);
+
+      await repository.updateTask(id, organizationId, 1, { leadId, contactId });
+
+      expect(updateOneSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 1 },
+        { $inc: { version: 1 }, $set: { leadId, contactId } },
+        { session: undefined },
+      );
     });
   });
 

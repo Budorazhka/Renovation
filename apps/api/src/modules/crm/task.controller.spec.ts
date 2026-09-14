@@ -233,6 +233,70 @@ describe('TaskController', () => {
       );
       expect(updateTask.mock.calls[0]![0]).not.toHaveProperty('assignedPositionId');
     });
+
+    it('конвертирует leadId/attachments в ObjectId, null снимает dueAt/startAt/leadId/colorHex', async () => {
+      const organizationId = new Types.ObjectId();
+      const positionId = new Types.ObjectId();
+      const taskId = new Types.ObjectId();
+      const leadId = new Types.ObjectId();
+      const assetId = new Types.ObjectId();
+      const updateTask = jest.fn().mockResolvedValue({ id: taskId.toString() });
+      const controller = new TaskController(
+        { updateTask } as unknown as CrmService,
+        { matchingScopes: jest.fn().mockResolvedValue(['organization']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+      );
+
+      await controller.updateTask(makeRequest(organizationId, positionId) as never, taskId, {
+        expectedVersion: 2,
+        dueAt: null,
+        startAt: null,
+        colorHex: null,
+        leadId: leadId.toString(),
+        isUrgent: true,
+        isImportant: false,
+        taskCategory: 'personal',
+        taskType: 'call',
+        attachments: [{ assetId: assetId.toString(), fileName: 'contract.pdf' }],
+      });
+
+      expect(updateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId,
+          organizationId,
+          expectedVersion: 2,
+          dueAt: null,
+          startAt: null,
+          colorHex: null,
+          leadId,
+          isUrgent: true,
+          isImportant: false,
+          taskCategory: 'personal',
+          taskType: 'call',
+          attachments: [{ assetId, fileName: 'contract.pdf' }],
+        }),
+      );
+    });
+
+    it('leadId не передан — leadId в вызове сервиса undefined (поле не трогается)', async () => {
+      const organizationId = new Types.ObjectId();
+      const positionId = new Types.ObjectId();
+      const taskId = new Types.ObjectId();
+      const updateTask = jest.fn().mockResolvedValue({ id: taskId.toString() });
+      const controller = new TaskController(
+        { updateTask } as unknown as CrmService,
+        { matchingScopes: jest.fn().mockResolvedValue(['organization']) } as unknown as PolicyEvaluatorService,
+      noReplay(),
+      );
+
+      await controller.updateTask(makeRequest(organizationId, positionId) as never, taskId, {
+        expectedVersion: 2,
+        title: 'x',
+      });
+
+      expect(updateTask.mock.calls[0]![0].leadId).toBeUndefined();
+      expect(updateTask.mock.calls[0]![0].attachments).toBeUndefined();
+    });
   });
 
   describe('reassignTask', () => {

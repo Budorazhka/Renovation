@@ -7,7 +7,7 @@ import { PolicyEvaluatorService } from '../authorization/policy-evaluator.servic
 import { AuditService } from '../audit/audit.service';
 import { IdempotencyService } from '../../shared/idempotency/idempotency.service';
 import { CrmService } from './crm.service';
-import { parseLeadImportFile } from './lead-import-file-parser';
+import { parseLeadImportFile, parseImportContactDate, type ParsedLeadImportRow } from './lead-import-file-parser';
 
 /**
  * `import.run` — грант "импорт вообще", а НЕ право заводить лиды.
@@ -80,6 +80,12 @@ export class LeadImportService {
     fileBuffer: Buffer;
     fileName: string;
     mimetype: string | undefined;
+    /**
+     * `?tag=old_base` — единственное допустимое значение (валидируется DTO
+     * `@IsIn(['old_base'])` на контроллере, здесь только используется).
+     * Каждый созданный (не replay) лид получает `tags:['old_base']`.
+     */
+    tag?: 'old_base';
   }): Promise<LeadImportResult> {
     const allowed = await this.policyEvaluator.evaluate({
       subjectType: 'position',
@@ -112,9 +118,13 @@ export class LeadImportService {
         errors.push({ row: row.row, message: 'Отсутствует обязательное поле phone' });
         continue;
       }
+      if (!isPlausiblePhone(row.phone)) {
+        errors.push({ row: row.row, message: `Некорректный телефон: ${row.phone}` });
+        continue;
+      }
 
       try {
-        await this.importRow(params, row.phone, row.name);
+        await this.importRow(params, row);
         created += 1;
       } catch (error) {
         errors.push({ row: row.row, message: rowErrorMessage(error) });
@@ -138,15 +148,29 @@ export class LeadImportService {
     return { total: rows.length, created, failed: errors.length, errors };
   }
 
+  /**
+   * `whatsapp`/`telegram`/`comment`/`last_contact`/`tag` сознательно НЕ
+   * входят в `idempotencyRequestBody` (остаётся ровно тем же
+   * {organizationId, requesterName, requesterPhone}, что и до этого
+   * прохода): типичный сценарий повторной загрузки старой базы — сначала
+   * грузят "голый" phone/name, позже более полную версию файла с
+   * дополненными колонками для ТЕХ ЖЕ телефонов. Если бы новые поля
+   * участвовали в хэше, такой повтор считался бы "другим запросом" и падал
+   * в IDEMPOTENCY_KEY_CONFLICT вместо тихого no-op. Дубль лида при этом
+   * всё равно не создаётся — checkReplay ниже находит существующую запись
+   * по (identityId, operation, key) и возвращает без повторного
+   * createLead; новые поля из второго прохода на УЖЕ существующий лид не
+   * переносятся (это идемпотентность создания, не upsert/merge).
+   */
   private async importRow(
-    params: { organizationId: Types.ObjectId; actorPositionId: Types.ObjectId; actorIdentityId: Types.ObjectId; correlationId: string },
-    phone: string,
-    name: string | undefined,
+    params: { organizationId: Types.ObjectId; actorPositionId: Types.ObjectId; actorIdentityId: Types.ObjectId; correlationId: string; tag?: 'old_base' },
+    row: ParsedLeadImportRow,
   ): Promise<void> {
+    const phone = row.phone!;
     const idempotencyKey = rowIdempotencyKey(params.organizationId, phone);
     const idempotencyRequestBody = {
       organizationId: params.organizationId.toString(),
-      requesterName: name ?? null,
+      requesterName: row.name ?? null,
       requesterPhone: phone,
     };
 
@@ -163,15 +187,23 @@ export class LeadImportService {
       return;
     }
 
+    const lastContactAt = row.lastContactAt ? parseImportContactDate(row.lastContactAt) : undefined;
+
     await this.crmService.createLead({
       organizationId: params.organizationId,
-      requesterName: name,
+      requesterName: row.name,
       requesterPhone: phone,
       actorPositionId: params.actorPositionId,
       actorIdentityId: params.actorIdentityId,
       correlationId: params.correlationId,
       idempotencyKey,
       idempotencyRequestBody,
+      route: 'import',
+      telegram: row.telegram,
+      whatsapp: row.whatsapp,
+      notes: row.comment,
+      lastContactAt,
+      tags: params.tag === 'old_base' ? ['old_base'] : undefined,
     });
   }
 }
@@ -187,6 +219,17 @@ export class LeadImportService {
  * строка тоже обязана дедуплицироваться, а не породить второй лид только
  * потому что оказалась ниже в таблице.
  */
+/**
+ * Старые таблицы приходят с мусором в колонке телефона («нет», «см. выше»).
+ * Минимальная проверка правдоподобия: только цифры и +()-. и пробелы, не
+ * меньше 7 цифр. Формат номера CRM в целом не нормализует — это не валидация
+ * номера, а отсев явно не-телефонов при массовой загрузке.
+ */
+function isPlausiblePhone(phone: string): boolean {
+  if (!/^[+\d\s().-]+$/.test(phone)) return false;
+  return (phone.match(/\d/g) ?? []).length >= 7;
+}
+
 function rowIdempotencyKey(organizationId: Types.ObjectId, phone: string): string {
   return createHash('sha256').update(`${organizationId.toString()}|${phone}`).digest('hex');
 }

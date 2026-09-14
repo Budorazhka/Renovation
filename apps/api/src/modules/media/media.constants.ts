@@ -43,5 +43,9 @@ export const MEDIA_PURPOSE_BUCKET: Record<string, 'private' | 'public'> = {
   // listLeadFiles докстринг) — это возможно ТОЛЬКО для 'public' bucket'а
   // (ADR-008, тот же принцип, что unit_photo/property_photo/profile_avatar).
   lead_attachment: 'public',
+  // Личная заметка менеджера (модуль `notes`) — приватный бакет, тот же
+  // принцип, что task_attachment: вложение видно только автору заметки,
+  // не публикуется наружу.
+  note_attachment: 'private',
 };
 

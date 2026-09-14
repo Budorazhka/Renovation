@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
 import { TenantGuard } from '../../shared/tenant/tenant.guard';
@@ -15,6 +15,9 @@ import { RecordContactActionDto } from './dto/record-contact-action.dto';
 import { ListLeadsDto } from './dto/list-leads.dto';
 import { ListLeadEventsDto } from './dto/list-lead-events.dto';
 import { ListTimelineDto } from './dto/list-timeline.dto';
+import { UpdateLeadChecklistDto } from './dto/update-lead-checklist.dto';
+import { SetLeadStageNoteDto } from './dto/set-lead-stage-note.dto';
+import { ALL_LEAD_STAGE_VALUES } from './lead-stage';
 import { PolicyEvaluatorService } from '../authorization/policy-evaluator.service';
 import { ParseObjectIdPipe } from '../../shared/validation/parse-object-id.pipe';
 import { IdempotencyService } from '../../shared/idempotency/idempotency.service';
@@ -168,6 +171,81 @@ export class LeadController {
       country: dto.country,
       realtorStage: dto.realtorStage,
       curatorStage: dto.curatorStage,
+      name: dto.name,
+      phone: dto.phone,
+      email: dto.email,
+      productType: dto.productType,
+    });
+  }
+
+  /**
+   * GET /leads/:leadId/checklist — lead.read, тот же own/organization
+   * scope, что GET /leads/:leadId.
+   */
+  @Get(':leadId/checklist')
+  @RequirePermission('lead', 'read')
+  async getLeadChecklist(@Req() req: FastifyRequest, @Param('leadId', ParseObjectIdPipe) leadId: Types.ObjectId) {
+    const tenantContext = requireTenantContext(req);
+    return this.crmService.getLeadChecklist({
+      leadId,
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      ownerPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'read'),
+    });
+  }
+
+  /**
+   * PATCH /leads/:leadId/checklist — lead.update, тот же own/organization
+   * scope, что PATCH /leads/:leadId. Не версионирован намеренно — см.
+   * CrmService.updateLeadChecklist/LeadRepository.updateChecklist докстринг.
+   */
+  @Patch(':leadId/checklist')
+  @HttpCode(200)
+  @RequirePermission('lead', 'update')
+  async updateLeadChecklist(
+    @Req() req: FastifyRequest,
+    @Param('leadId', ParseObjectIdPipe) leadId: Types.ObjectId,
+    @Body() dto: UpdateLeadChecklistDto,
+  ) {
+    const tenantContext = requireTenantContext(req);
+    return this.crmService.updateLeadChecklist({
+      leadId,
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      requiredOwnerPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
+      changes: dto.changes,
+      actorPositionId: new Types.ObjectId(tenantContext.positionId),
+      actorIdentityId: new Types.ObjectId(tenantContext.identityId),
+      correlationId: req.correlationId,
+    });
+  }
+
+  /**
+   * PUT /leads/:leadId/stage-notes/:stage — lead.update. `stage` —
+   * path-параметр, та же coarse-проверка `ALL_LEAD_STAGE_VALUES`, что
+   * ChangeLeadStageDto/LeadChecklistChangeDto — здесь вручную, поскольку
+   * path-параметр class-validator не проверяет.
+   */
+  @Put(':leadId/stage-notes/:stage')
+  @HttpCode(200)
+  @RequirePermission('lead', 'update')
+  async setLeadStageNote(
+    @Req() req: FastifyRequest,
+    @Param('leadId', ParseObjectIdPipe) leadId: Types.ObjectId,
+    @Param('stage') stage: string,
+    @Body() dto: SetLeadStageNoteDto,
+  ) {
+    if (!ALL_LEAD_STAGE_VALUES.includes(stage)) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, `"${stage}" is not a known lead stage`, { field: 'stage' });
+    }
+    const tenantContext = requireTenantContext(req);
+    return this.crmService.setLeadStageNote({
+      leadId,
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      requiredOwnerPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
+      stage,
+      text: dto.text,
+      actorPositionId: new Types.ObjectId(tenantContext.positionId),
+      actorIdentityId: new Types.ObjectId(tenantContext.identityId),
+      correlationId: req.correlationId,
     });
   }
 
