@@ -44,9 +44,10 @@ export class MarketplaceApiError extends Error {
   }
 }
 
+/** Без requesterPhone — просто «Показать телефон» (лид не создаётся); с ним — заявка из формы. */
 export interface RevealContactPayload {
   requesterName?: string
-  requesterPhone: string
+  requesterPhone?: string
   utm?: Record<string, string>
 }
 
@@ -54,7 +55,8 @@ export interface RevealContactResponse {
   phone: string
   whatsapp?: string | null
   telegram?: string | null
-  leadId: string
+  /** Только у заявки из формы. */
+  leadId?: string
 }
 
 function normalizedBaseUrl(baseUrl: string): string {

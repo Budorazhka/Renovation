@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { marketplaceApi } from '../api/marketplace-api'
+import { marketplaceApi, MarketplaceApiError } from '../api/marketplace-api'
 import { useI18n } from '../i18n'
 
 export interface RevealContactCTAProps {
@@ -11,7 +11,10 @@ export interface RevealContactCTAProps {
 
 /**
  * RevealContactCTA Component (Figma: 4687:62533 / 4687:62538 / 3304:59895)
- * Displays masked phone and triggers API contact reveal flow.
+ * «Показать телефон» застройщика или менеджера объекта. Лид не создаётся —
+ * лид появляется только из формы заявки, где посетитель сам оставил телефон
+ * (ListingContactForm). Номер берётся только с сервера: при ошибке — сообщение
+ * и повтор, никаких подставных номеров.
  */
 export function RevealContactCTA({
   slug,
@@ -28,31 +31,20 @@ export function RevealContactCTA({
     setStatus('loading')
     setErrorMessage(null)
     try {
-      let response
-      if (type === 'development') {
-        response = await marketplaceApi.revealDevelopmentContact(slug, {
-          requesterPhone: '+995500000000',
-          requesterName: 'Посетитель сайта',
-        })
-      } else {
-        response = await marketplaceApi.revealListingContact(slug, {
-          requesterPhone: '+995500000000',
-          requesterName: 'Посетитель сайта',
-        })
-      }
+      const response =
+        type === 'development'
+          ? await marketplaceApi.revealDevelopmentContact(slug, {})
+          : await marketplaceApi.revealListingContact(slug, {})
 
       if (response?.phone) {
         setRevealedPhone(response.phone)
         setStatus('revealed')
       } else {
-        // Fallback default phone for test/mock envs
-        setRevealedPhone('+995 599 12 34 56')
-        setStatus('revealed')
+        setStatus('error')
       }
-    } catch (err: any) {
-      // In non-backend test environments, fallback gracefully to revealed mock
-      setRevealedPhone('+995 599 12 34 56')
-      setStatus('revealed')
+    } catch (err) {
+      setErrorMessage(err instanceof MarketplaceApiError ? err.message : null)
+      setStatus('error')
     }
   }
 
@@ -85,7 +77,7 @@ export function RevealContactCTA({
 
       {status === 'revealed' && revealedPhone && (
         <div className="figma-reveal-cta__revealed">
-          <span className="figma-dev-spec-label">{t('revealCta.directNumber')}</span>
+          <span className="figma-dev-spec-label">{t(type === 'development' ? 'revealCta.directNumber' : 'revealCta.directNumberListing')}</span>
           <a
             href={`tel:${revealedPhone.replace(/\s+/g, '')}`}
             className="figma-reveal-cta__phone-link"

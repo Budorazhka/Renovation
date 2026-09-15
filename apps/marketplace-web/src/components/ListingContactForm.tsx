@@ -4,6 +4,8 @@ import { useI18n } from '../i18n'
 
 export interface ListingContactFormProps {
   slug: string
+  /** development — заявка застройщику со страницы ЖК, listing — представителю объекта. */
+  type?: 'listing' | 'development'
 }
 
 export function extractUtmParams(search: string): Record<string, string> | undefined {
@@ -22,8 +24,14 @@ export function extractUtmParams(search: string): Record<string, string> | undef
   return hasUtm ? utm : undefined
 }
 
-export function ListingContactForm({ slug }: ListingContactFormProps) {
+/**
+ * Форма заявки: посетитель оставляет телефон — у застройщика или владельца
+ * объекта появляется лид (воронка «Продажи»), а посетитель видит прямой номер.
+ * Лиды с витрины создаются только отсюда, не кнопкой «Показать телефон».
+ */
+export function ListingContactForm({ slug, type = 'listing' }: ListingContactFormProps) {
   const { t } = useI18n()
+  const copy = type === 'development' ? 'devContact' : 'listingContact'
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
@@ -43,7 +51,7 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
     const trimmedPhone = phone.trim()
     if (!trimmedPhone) {
       setStatus('error')
-      setErrorMessage(t('listingContact.errorPhoneRequired'))
+      setErrorMessage(t(`${copy}.errorPhoneRequired`))
       setErrorStatus(400)
       return
     }
@@ -57,7 +65,9 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
       const search = typeof window !== 'undefined' ? window.location.search : ''
       const utm = extractUtmParams(search)
 
-      const response = await marketplaceApi.revealListingContact(slug, {
+      const reveal =
+        type === 'development' ? marketplaceApi.revealDevelopmentContact : marketplaceApi.revealListingContact
+      const response = await reveal(slug, {
         requesterName: name.trim() || undefined,
         requesterPhone: trimmedPhone,
         utm,
@@ -72,7 +82,7 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
         setErrorMessage(err.message)
       } else {
         setErrorStatus(500)
-        setErrorMessage(t('listingContact.errorGeneric'))
+        setErrorMessage(t(`${copy}.errorGeneric`))
       }
     } finally {
       isSubmittingRef.current = false
@@ -83,16 +93,16 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
     return (
       <section className="listing-lead-card listing-lead-card--success" aria-live="polite">
         <div className="listing-lead-card__header">
-          <span className="listing-lead-card__badge">{t('listingContact.submitted')}</span>
-          <h3>{t('listingContact.repContacts')}</h3>
-          <p>{t('listingContact.directPhone')}</p>
+          <span className="listing-lead-card__badge">{t(`${copy}.submitted`)}</span>
+          <h3>{t(`${copy}.repContacts`)}</h3>
+          <p>{t(`${copy}.directPhone`)}</p>
         </div>
         <div className="listing-lead-card__revealed-box">
           <a className="listing-lead-card__phone-link" href={`tel:${revealedPhone}`}>
             {revealedPhone}
           </a>
         </div>
-        <p className="listing-lead-card__subtext">{t('listingContact.managerNotified')}</p>
+        <p className="listing-lead-card__subtext">{t(`${copy}.managerNotified`)}</p>
       </section>
     )
   }
@@ -107,7 +117,7 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
         разных элемента с одинаковым именем.
       */}
       <div className="listing-lead-card__header">
-        <p>{t('listingContact.intro')}</p>
+        <p>{t(`${copy}.intro`)}</p>
       </div>
 
       <form className="listing-lead-form" onSubmit={handleSubmit} noValidate>
@@ -130,7 +140,7 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
         ) : null}
 
         <div className="listing-lead-form__field">
-          <label htmlFor="lead-phone">{t('listingContact.phoneLabel')}</label>
+          <label htmlFor="lead-phone">{t(`${copy}.phoneLabel`)}</label>
           <input
             id="lead-phone"
             name="phone"
@@ -145,13 +155,13 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
         </div>
 
         <div className="listing-lead-form__field">
-          <label htmlFor="lead-name">{t('listingContact.nameLabel')}</label>
+          <label htmlFor="lead-name">{t(`${copy}.nameLabel`)}</label>
           <input
             id="lead-name"
             name="name"
             type="text"
             autoComplete="name"
-            placeholder={t('listingContact.namePlaceholder')}
+            placeholder={t(`${copy}.namePlaceholder`)}
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={status === 'submitting'}
@@ -163,7 +173,7 @@ export function ListingContactForm({ slug }: ListingContactFormProps) {
           className="listing-lead-form__submit"
           disabled={status === 'submitting' || !phone.trim()}
         >
-          {status === 'submitting' ? t('listingContact.sending') : t('listingContact.submit')}
+          {status === 'submitting' ? t(`${copy}.sending`) : t(`${copy}.submit`)}
         </button>
       </form>
     </section>

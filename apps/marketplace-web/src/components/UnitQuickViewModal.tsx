@@ -14,6 +14,8 @@ export interface UnitQuickViewModalProps {
   unit: UnitInfo | null
   developmentName: string
   onClose: () => void
+  /** Переход к форме заявки застройщику — бронь без заявки не создаётся. */
+  onRequest: () => void
 }
 
 /**
@@ -24,6 +26,7 @@ export function UnitQuickViewModal({
   unit,
   developmentName,
   onClose,
+  onRequest,
 }: UnitQuickViewModalProps) {
   const { t } = useI18n()
 
@@ -133,7 +136,7 @@ export function UnitQuickViewModal({
             <button
               type="button"
               className="figma-reveal-cta__btn figma-reveal-cta__btn--primary"
-              onClick={() => alert(t('unitModal.bookingAlert', { title: unit.title }))}
+              onClick={onRequest}
             >
               {t('unitModal.bookPlan')}
             </button>

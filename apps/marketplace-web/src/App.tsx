@@ -593,11 +593,22 @@ function DevelopmentDetailPage() {
               </div>
             </section>
 
+            {/* Заявка застройщику: лид создаётся только отсюда */}
+            <section className="figma-listing-contacts" id="request" aria-labelledby="dev-request-heading">
+              <h2 id="dev-request-heading" className="figma-dev-section-title">{t('devDetail.requestHeading')}</h2>
+              <ListingContactForm slug={slug!} type="development" />
+            </section>
+
             {/* Quick View Modal (Figma 3314:203298) */}
             <UnitQuickViewModal
               unit={selectedUnit}
               developmentName={developmentTitle(state.item, t)}
               onClose={() => setSelectedUnit(null)}
+              onRequest={() => {
+                setSelectedUnit(null)
+                document.getElementById('request')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                document.getElementById('lead-phone')?.focus({ preventScroll: true })
+              }}
             />
           </>
         ) : null}
