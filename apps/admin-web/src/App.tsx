@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Link, Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import { useAdminAuth } from './hooks/useAdminAuth'
 import { RequireAdmin, RequireSuperAdmin } from './hooks/RequireAdmin'
 import { LoginPage } from './pages/LoginPage'
@@ -35,13 +35,13 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Link>
         {state.status === 'signed-in' ? (
           <nav className="site-nav">
-            <Link to="/publications">Публикации</Link>
-            <Link to="/organizations">Организации</Link>
-            <Link to="/complaints">Жалобы</Link>
-            <Link to="/duplicate-candidates">Дубликаты</Link>
-            <Link to="/realtor-reviews">Отзывы</Link>
-            <Link to="/audit">Журнал аудита</Link>
-            {isSuperAdmin ? <Link to="/accounts">Аккаунты</Link> : null}
+            <NavLink to="/publications">Публикации</NavLink>
+            <NavLink to="/organizations">Организации</NavLink>
+            <NavLink to="/complaints">Жалобы</NavLink>
+            <NavLink to="/duplicate-candidates">Дубликаты</NavLink>
+            <NavLink to="/realtor-reviews">Отзывы</NavLink>
+            <NavLink to="/audit">Журнал аудита</NavLink>
+            {isSuperAdmin ? <NavLink to="/accounts">Аккаунты</NavLink> : null}
             <span className="session-role">{isSuperAdmin ? 'super_admin' : 'admin'}</span>
             <button type="button" className="secondary" onClick={() => void handleLogout()} disabled={loggingOut}>
               {loggingOut ? 'Выходим…' : 'Выйти'}
