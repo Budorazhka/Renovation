@@ -1,17 +1,17 @@
 import React from 'react';
 import { useI18n } from '@/i18n';
 
-interface AskQuestionButtonProps {
-  onClick: () => void;
-}
+/** Техподдержка BAZA — Telegram. */
+const SUPPORT_TELEGRAM_URL = 'https://t.me/baza_GE';
 
-const AskQuestionButton: React.FC<AskQuestionButtonProps> = ({ onClick }) => {
+const AskQuestionButton: React.FC = () => {
   const { t } = useI18n();
   return (
     <div className="relative w-full">
-      <button
-        type="button"
-        onClick={onClick}
+      <a
+        href={SUPPORT_TELEGRAM_URL}
+        target="_blank"
+        rel="noopener noreferrer"
         className="flex w-full rounded-lg cursor-pointer px-5 py-4 items-center gap-2 border border-[color-mix(in_srgb,var(--primary)_45%,transparent)] bg-[var(--secondary)] text-left shadow-[inset_0_0_0_1px_rgba(201,168,76,0.12)] transition-colors hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--secondary))]"
       >
         <svg width="25" height="25" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 text-[var(--accent)]">
@@ -19,7 +19,7 @@ const AskQuestionButton: React.FC<AskQuestionButtonProps> = ({ onClick }) => {
           <path fillRule="evenodd" clipRule="evenodd" d="M15.5572 10.9311C16.1835 10.9311 16.6913 11.4388 16.6927 12.0669C16.6913 12.6933 16.1835 13.2025 15.5572 13.2025C14.9291 13.2025 14.4199 12.6933 14.4199 12.0669C14.4199 11.4391 14.9294 10.9311 15.5572 10.9311ZM12.4988 10.9311C13.1266 10.9311 13.6344 11.4388 13.6344 12.0669C13.6344 12.6933 13.1266 13.2025 12.4988 13.2025C11.8705 13.2025 11.3627 12.6933 11.3627 12.0669C11.3627 11.4391 11.8705 10.9311 12.4988 10.9311ZM9.4416 10.9311C10.068 10.9311 10.5772 11.4388 10.5772 12.0669C10.5772 12.6933 10.068 13.2025 9.4416 13.2025C8.81382 13.2025 8.30576 12.6933 8.30576 12.0669C8.30576 11.4391 8.81382 10.9311 9.4416 10.9311ZM12.4988 6.05273C9.16826 6.05273 6.48438 8.64829 6.48438 12.0669C6.48438 13.7088 7.10521 15.16 8.1166 16.2247L7.75771 17.8336C7.63937 18.363 8.0066 18.7191 8.48243 18.4541L10.0535 17.5777C10.8002 17.9019 11.626 18.0811 12.4988 18.0811C15.8305 18.0811 18.5127 15.4872 18.5127 12.0669C18.5127 8.64829 15.8305 6.05273 12.4988 6.05273Z" fill="currentColor"/>
         </svg>
         <span className="font-normal text-base text-[rgba(255,255,255,0.92)]">{t('askQuestion.button')}</span>
-      </button>
+      </a>
     </div>
   );
 };

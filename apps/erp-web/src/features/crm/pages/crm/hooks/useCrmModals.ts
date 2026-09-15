@@ -49,7 +49,6 @@ export function useCrmModals({
     return modalType === 'call' || modalType === 'meeting' ? modalType : null;
   });
   const [isCallMeetingModalOpen, setIsCallMeetingModalOpenState] = useState(() => searchParams.get('modal') === 'callMeeting');
-  const [isAskQuestionModalOpen, setIsAskQuestionModalOpen] = useState(() => searchParams.get('modal') === 'askQuestion');
   const [selectedTaskForView, setSelectedTaskForView] = useState<string | null>(() => searchParams.get('taskId') || null);
   const [isTaskViewModalOpen, setIsTaskViewModalOpen] = useState(() => searchParams.get('modal') === 'task' && !!searchParams.get('taskId'));
   const [isUnsavedChangesModalOpen, setIsUnsavedChangesModalOpen] = useState(false);
@@ -395,8 +394,6 @@ export function useCrmModals({
           setIsNewTaskModalOpenState(true);
           wasModalExplicitlyClosedRef.current = false;
         }
-      } else if (modalParam === 'askQuestion' && !isAskQuestionModalOpen) {
-        setIsAskQuestionModalOpen(true);
       }
     };
 
@@ -408,7 +405,6 @@ export function useCrmModals({
     showCreateTask,
     isNewTaskModalOpen,
     isCallMeetingModalOpen,
-    isAskQuestionModalOpen,
     isTaskViewModalOpen,
     selectedTaskForView,
     backendTasks,
@@ -439,8 +435,6 @@ export function useCrmModals({
     setIsSearchChecked,
     selectedTaskFilter,
     setSelectedTaskFilter,
-    isAskQuestionModalOpen,
-    setIsAskQuestionModalOpen,
     selectedTaskForView,
     setSelectedTaskForView,
     isTaskViewModalOpen,

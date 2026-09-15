@@ -1,4 +1,4 @@
-import { type ReactNode, Component, StrictMode, lazy, Suspense } from 'react'
+import { type ReactNode, Component, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-router-dom'
 import { DashboardProvider } from '@/context/DashboardContext'
@@ -9,7 +9,7 @@ import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { NewsFeedProvider } from '@/context/NewsFeedContext'
 import { ThemeProvider } from '@/context/ThemeContext'
 import { CrmSyncProvider } from '@/features/crm/context/CrmSyncContext'
-import { LanguageProvider, useI18n } from '@/i18n'
+import { LanguageProvider } from '@/i18n'
 import { ru as ruDictionary } from '@/i18n/dictionaries/ru'
 import { en as enDictionary } from '@/i18n/dictionaries/en'
 import { ka as kaDictionary } from '@/i18n/dictionaries/ka'
@@ -92,6 +92,7 @@ import NewBuildingsPartnersPage from '@/components/newbuild/NewBuildingsPartners
 import PrimaryPartnersReportPage from '@/components/newbuild/PrimaryPartnersReportPage'
 import NewBuildingsBookingsRegistrationsPage from '@/pages/modules/NewBuildingsBookingsRegistrationsPage'
 import TeamReportPage from '@/components/reports/TeamReportPage'
+import { CrmReportsPage } from '@/components/reports/CrmReportsPage'
 import AgencyStatusesPage from '@/components/settings/AgencyStatusesPage'
 import FinancePanelPage from '@/components/finance/FinancePanelPage'
 import FinanceReportPage from '@/components/finance/FinanceReportPage'
@@ -135,36 +136,6 @@ function LegacySelectionCardRedirect() {
     ? `/dashboard/objects/selections/${selectionId}`
     : '/dashboard/objects/selections'
   return <Navigate to={to} replace />
-}
-
-function LegacyAnalyticsPartnerRedirect() {
-  const { partnerId } = useParams<{ partnerId: string }>()
-  if (!partnerId) return <Navigate to="/dashboard/crm/analytics" replace />
-  return <Navigate to={`/dashboard/crm/analytics/partners/${encodeURIComponent(partnerId)}`} replace />
-}
-
-const CrmAnalyticsDashboard = lazy(() => import('@/features/crm/pages/crm/AnalyticsDashboard'))
-const CrmAnalyticsPartnerPage = lazy(() => import('@/features/crm/pages/crm/AnalyticsPartnerPage'))
-const CrmAnalyticsMePage = lazy(() => import('@/features/crm/pages/crm/AnalyticsMe'))
-
-function CrmAnalyticsSuspense({ children }: { children: ReactNode }) {
-  const { t } = useI18n()
-
-  return (
-    <Suspense
-      fallback={
-        <div className="crm-reports-surface flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-[color:var(--app-text-muted)]">
-          {t('common.loading')}
-        </div>
-      }
-    >
-      <div className="crm-reports-surface network-analytics-theme flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-reports-page">
-        <div className="reports-font-larger min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-          {children}
-        </div>
-      </div>
-    </Suspense>
-  )
 }
 
 function RequireAuth() {
@@ -260,11 +231,7 @@ createRoot(document.getElementById('root')!).render(
 
                         {/* Защищённые маршруты */}
                         <Route element={<RequireAuth />}>
-                          <Route path="/analytics" element={<Navigate to="/dashboard/crm/analytics" replace />} />
-                          <Route
-                            path="/analytics/partners/:partnerId"
-                            element={<LegacyAnalyticsPartnerRedirect />}
-                          />
+                          <Route path="/analytics/*" element={<Navigate to="/dashboard/crm/analytics" replace />} />
                           <Route path="/dashboard" element={<NewsFeedProvider><App /></NewsFeedProvider>}>
                             {/* Главный экран — наша новая HomePage */}
                             <Route index element={<DashboardErrorBoundary><HomePage /></DashboardErrorBoundary>} />
@@ -428,30 +395,8 @@ createRoot(document.getElementById('root')!).render(
                               <Route index element={<Navigate to="/dashboard/leads/poker" replace />} />
                               <Route path="classic" element={<Navigate to="/dashboard/leads/poker?view=classic" replace />} />
                               <Route path="old-leads" element={<Navigate to="/dashboard/leads/poker" replace />} />
-                              <Route
-                                path="analytics"
-                                element={
-                                  <CrmAnalyticsSuspense>
-                                    <CrmAnalyticsDashboard />
-                                  </CrmAnalyticsSuspense>
-                                }
-                              />
-                              <Route
-                                path="analytics/partners/:id"
-                                element={
-                                  <CrmAnalyticsSuspense>
-                                    <CrmAnalyticsPartnerPage />
-                                  </CrmAnalyticsSuspense>
-                                }
-                              />
-                              <Route
-                                path="analytics/me"
-                                element={
-                                  <CrmAnalyticsSuspense>
-                                    <CrmAnalyticsMePage />
-                                  </CrmAnalyticsSuspense>
-                                }
-                              />
+                              <Route path="analytics" element={<CrmReportsPage />} />
+                              <Route path="analytics/*" element={<Navigate to="/dashboard/crm/analytics" replace />} />
                             </Route>
                             <Route path="clients" element={<ClientsPage />} />
                             <Route path="clients/list" element={<ClientsListPage />} />

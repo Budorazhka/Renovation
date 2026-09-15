@@ -129,6 +129,30 @@ export function stageIdsForProduct(productType: ProductType): string[] {
 }
 
 /**
+ * Итог лида для отчётов по стадии: колонка `success` продуктовой воронки —
+ * сконвертирован, колонка `rejection` — потерян, плюс generic `converted`/`lost`.
+ * id стадий уникальны между продуктами (у sales без префикса, у остальных
+ * с префиксом продукта), поэтому productType для разбора не нужен. У network,
+ * owner и agent колонки `success` нет — их лиды сконвертированными не
+ * считаются, пока владелец не назовёт стадию успеха.
+ */
+const LEAD_STAGE_OUTCOMES: ReadonlyMap<string, 'converted' | 'lost'> = new Map<string, 'converted' | 'lost'>([
+  ['converted', 'converted'],
+  ['lost', 'lost'],
+  ...PRODUCT_TYPES.flatMap((productType) =>
+    LEAD_STAGE_DEFINITIONS[productType].flatMap((stage): Array<[string, 'converted' | 'lost']> => {
+      if (stage.column === 'success') return [[stage.id, 'converted']];
+      if (stage.column === 'rejection') return [[stage.id, 'lost']];
+      return [];
+    }),
+  ),
+]);
+
+export function leadStageOutcome(stage: string): 'converted' | 'lost' | null {
+  return LEAD_STAGE_OUTCOMES.get(stage) ?? null;
+}
+
+/**
  * Стартовая стадия нового лида с этим productType — первая стадия колонки
  * `in_progress`, НЕ `[0]` массива. `[0]` в исходной легаси-таксономии — это
  * стадии колонки `rejection` (`defective`/`refused` и их аналоги у трёх

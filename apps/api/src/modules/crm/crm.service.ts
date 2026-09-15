@@ -26,7 +26,13 @@ import { DealEventRepository } from './repository/deal-event.repository';
 import { CalendarEventRepository } from './repository/calendar-event.repository';
 import { DEAL_STAGE_TRANSITIONS, type DealStage } from './deal-stage';
 import type { LeadDocument, LeadStage, GenericLeadStage, LeadProductType, RealtorStage, CuratorStage } from './schemas/lead.schema';
-import { firstStageIdForProduct, stageIdsForProduct, LEAD_STAGE_DEFINITIONS, type ProductType } from './lead-stage-definitions';
+import {
+  firstStageIdForProduct,
+  leadStageOutcome,
+  stageIdsForProduct,
+  LEAD_STAGE_DEFINITIONS,
+  type ProductType,
+} from './lead-stage-definitions';
 import { REALTOR_STAGE_VALUES, CURATOR_STAGE_VALUES } from './lead-stage';
 import {
   priorityFromFlags,
@@ -4434,9 +4440,10 @@ export class CrmService {
     for (const row of leadRows) {
       const entry = entryFor(row.ownerPositionId);
       entry.leadsAdded += row.count;
-      if (row.stage === 'converted') {
+      const outcome = leadStageOutcome(row.stage);
+      if (outcome === 'converted') {
         entry.leadsConverted += row.count;
-      } else if (row.stage === 'lost') {
+      } else if (outcome === 'lost') {
         entry.leadsLost += row.count;
       }
     }

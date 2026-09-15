@@ -49,8 +49,6 @@ export interface CrmLeftSidebarProps {
     noteId?: string;
     files?: Array<{ originalName: string; filename: string; mimeType: string; size: number }>;
   }) => void;
-  // AskQuestion
-  onOpenAskQuestion: () => void;
   logout: () => void;
 }
 
@@ -78,7 +76,6 @@ const CrmLeftSidebar = ({
   onUpdateTaskEndDate,
   onOpenTaskView,
   onOpenNewTaskModalFromNote,
-  onOpenAskQuestion,
   logout,
 }: CrmLeftSidebarProps) => {
   const { t } = useI18n();
@@ -122,7 +119,7 @@ const CrmLeftSidebar = ({
         <NotesBlock onOpenNewTaskModalFromNote={onOpenNewTaskModalFromNote} />
       </div>
       <div className="crm-sidebar-ask mt-4 mb-5 hidden md:block">
-        <AskQuestionButton onClick={onOpenAskQuestion} />
+        <AskQuestionButton />
       </div>
 
       {/* Mobile blocks */}

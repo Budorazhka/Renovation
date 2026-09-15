@@ -19,7 +19,7 @@ const PageCrm = () => {
     }
   }, [s.isAuthenticated]);
   useDisableScroll(s.isNewTaskModalOpen || s.isTaskViewModalOpen || s.isUnsavedChangesModalOpen ||
-    s.isPropertyModalOpen || s.isColorModalOpen || s.isAskQuestionModalOpen);
+    s.isPropertyModalOpen || s.isColorModalOpen);
 
   if (!s.isAuthenticated) {
     return (
@@ -93,12 +93,6 @@ const PageCrm = () => {
             onUpdateTaskEndDate={s.updateTaskEndDate}
             onOpenTaskView={s.handleOpenTaskView}
             onOpenNewTaskModalFromNote={s.handleOpenNewTaskModalFromNote}
-            onOpenAskQuestion={() => {
-              s.setIsAskQuestionModalOpen(true);
-              const newParams = new URLSearchParams(s.searchParams);
-              newParams.set('modal', 'askQuestion');
-              s.setSearchParams(newParams, { replace: true });
-            }}
             logout={s.logout}
           />
         </Suspense>
@@ -287,13 +281,6 @@ const PageCrm = () => {
           setNewColorHex: s.setNewColorHex,
           isDraftLoaded: s.isDraftLoaded,
           setIsDraftLoaded: s.setIsDraftLoaded,
-        }}
-        isAskQuestionModalOpen={s.isAskQuestionModalOpen}
-        onCloseAskQuestion={() => {
-          s.setIsAskQuestionModalOpen(false);
-          const newParams = new URLSearchParams(s.searchParams);
-          newParams.delete('modal');
-          s.setSearchParams(newParams, { replace: true });
         }}
         isUnsavedChangesModalOpen={s.isUnsavedChangesModalOpen}
         onDiscardChanges={s.handleDiscardChanges}

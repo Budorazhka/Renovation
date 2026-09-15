@@ -1,6 +1,5 @@
 import TaskViewModal from '../../../components/crm/TaskViewModal';
 import LeadStageChecklist from '../../../components/crm/LeadStageChecklist';
-import AskQuestionModal from '../../../components/crm/AskQuestionModal';
 import { NewTaskModal } from '../../../components/crm/modals';
 import { CallMeetingTaskModal } from '../../../components/crm/modals/CallMeetingTaskModal';
 import CircularProgress from '../../../components/crm/CircularProgress';
@@ -22,9 +21,6 @@ export interface CrmModalsProps {
   // CallMeetingTaskModal
   selectedTaskType: 'standard' | 'call' | 'meeting' | null;
   callMeetingModalProps: Record<string, unknown>;
-  // AskQuestionModal
-  isAskQuestionModalOpen: boolean;
-  onCloseAskQuestion: () => void;
   // UnsavedChangesModal
   isUnsavedChangesModalOpen: boolean;
   onDiscardChanges: () => void;
@@ -64,8 +60,6 @@ const CrmModals = ({
   taskViewModalProps,
   selectedTaskType,
   callMeetingModalProps,
-  isAskQuestionModalOpen,
-  onCloseAskQuestion,
   isUnsavedChangesModalOpen,
   onDiscardChanges,
   onSaveAndClose,

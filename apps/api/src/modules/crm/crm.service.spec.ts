@@ -3993,6 +3993,38 @@ describe('CrmService.getTeamPerformanceReport', () => {
     ]);
   });
 
+  it('стадии продуктовых воронок: колонка «Успех» — конверсия, «Отказ» — потеря', async () => {
+    const positionId = new Types.ObjectId();
+    const service = createTestCrmService({
+      leadRepository: {
+        aggregateByOwnerPosition: jest.fn().mockResolvedValue([
+          { ownerPositionId: positionId, stage: 'kp_sent', count: 4 },
+          { ownerPositionId: positionId, stage: 'golden', count: 2 },
+          { ownerPositionId: positionId, stage: 'refused', count: 1 },
+          { ownerPositionId: positionId, stage: 'network_no_call_1', count: 1 },
+          { ownerPositionId: positionId, stage: 'network_work_started', count: 2 },
+        ]),
+        aggregateTimeseries: jest.fn().mockResolvedValue([]),
+      },
+      dealRepository: {
+        aggregateByOwnerPosition: jest.fn().mockResolvedValue([]),
+        aggregateTimeseries: jest.fn().mockResolvedValue([]),
+      },
+      taskRepository: {
+        aggregateByAssignedPosition: jest.fn().mockResolvedValue([]),
+        aggregateTimeseries: jest.fn().mockResolvedValue([]),
+      },
+    });
+
+    const result = await service.getTeamPerformanceReport({ organizationId: new Types.ObjectId() });
+
+    expect(result.positions[0]!.leadsAdded).toBe(10);
+    expect(result.positions[0]!.leadsConverted).toBe(2);
+    expect(result.positions[0]!.leadsLost).toBe(2);
+    expect(result.positions[0]!.leadsInWork).toBe(6);
+    expect(result.summary.conversionRatePercent).toBe(20);
+  });
+
   // ИСПРАВЛЕНО 11.09.2026 (task-model-audit-followup.md, седьмое наблюдение
   // аудита): объединённый календарь — тот же источник задач, что GET /tasks
   // (TaskRepository.listForOrganization), поэтому тот же риск отдать личные
