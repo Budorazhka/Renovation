@@ -51,7 +51,6 @@ export const DASHBOARD_RAIL_ITEMS: DashboardRailItem[] = [
     match: (p) =>
       p.startsWith('/dashboard/crm') ||
       p.startsWith('/dashboard/leads/poker') ||
-      p.startsWith('/dashboard/leads/inbox') ||
       p.startsWith('/dashboard/clients') ||
       p.startsWith('/dashboard/deals') ||
       p.startsWith('/dashboard/tasks'),

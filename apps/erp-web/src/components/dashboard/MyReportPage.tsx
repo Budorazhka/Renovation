@@ -1,325 +1,183 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { HOME_PROGRESS_MOCK, HOME_STREAK_MOCK } from '@/data/home-workspace-mock'
 import { useAuth } from '@/context/AuthContext'
-import { currentPeriod, type ManagerPlan, usePlans } from '@/context/PlansContext'
-import { MOCK_EMPLOYEES } from '@/data/personnel-mock'
-import { useI18n } from "@/i18n";
+import { useI18n } from '@/i18n'
+import { usePlanProgress } from '@/hooks/usePlanProgress'
+import { EMPTY_HOME_PROGRESS } from '@/lib/plan-progress'
+import { plansApiV2, type PlanActualsV2 } from '@/services/plansApiV2'
+import { PlanFields } from '@/components/dashboard/PlanFields'
+import { toPlanDraft, toPlanTargets, type PlanDraft } from '@/lib/plan-draft'
 
-const DAY_STATUS_LABEL = { done: 'Выполнено', on_track: 'В плане', at_risk: 'В зоне риска' } as const
-const DAY_STATUS_COLOR = { done: '#4ade80', on_track: '#60a5fa', at_risk: '#ef4444' } as const
+const PANEL = 'rounded-md bg-[var(--hub-card-bg)] p-5 shadow-[inset_0_0_0_1px_rgba(201,168,76,0.18)]'
+const MUTED = 'text-[color:var(--app-text-muted)]'
 
-const WEEKLY_HISTORY = [
-  { day: 'Пн', dayPct: 88, kpis: { leads: 7, calls: 14, meetings: 3, tasks: 5 } },
-  { day: 'Вт', dayPct: 72, kpis: { leads: 6, calls: 11, meetings: 2, tasks: 4 } },
-  { day: 'Ср', dayPct: 95, kpis: { leads: 9, calls: 16, meetings: 4, tasks: 7 } },
-  { day: 'Чт', dayPct: 81, kpis: { leads: 7, calls: 13, meetings: 3, tasks: 5 } },
-  { day: 'Пт', dayPct: 62, kpis: { leads: 5, calls: 12, meetings: 2, tasks: 4 } },
-]
-
-function Bar({ pct, color, h = 'h-2' }: { pct: number; color: string; h?: string }) {
+function Bar({ pct }: { pct: number }) {
   return (
-    <div className={`${h} w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.06)]`}>
-      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
+    <div className="h-2 w-full overflow-hidden rounded-sm bg-[var(--hub-progress-track)]">
+      <div className="h-full rounded-sm bg-[var(--gold)]" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
     </div>
   )
 }
 
-type PlanDraft = Omit<ManagerPlan, 'employeeId' | 'period'>
+type ActivityKey = 'leads' | 'deals' | 'calls' | 'meetings' | 'showings'
+const ACTIVITY_ROWS: readonly ActivityKey[] = ['leads', 'deals', 'calls', 'meetings', 'showings']
 
-function defaultSelfPlan(employeeId: string, plan?: ManagerPlan): ManagerPlan {
-  return plan ?? {
-    employeeId,
-    period: currentPeriod(),
-    revenueTarget: 6_000_000,
-    leadsTarget: 8,
-    dealsTarget: 2,
-    callsTarget: 15,
-    meetingsTarget: 3,
-    showingsTarget: 2,
-  }
-}
-
-function toDraft(plan: ManagerPlan): PlanDraft {
-  return {
-    revenueTarget: plan.revenueTarget,
-    leadsTarget: plan.leadsTarget,
-    dealsTarget: plan.dealsTarget,
-    callsTarget: plan.callsTarget,
-    meetingsTarget: plan.meetingsTarget,
-    showingsTarget: plan.showingsTarget,
-  }
-}
-
-function formatUsdShort(value: number) {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
-  return `$${Math.round(value / 1000)}K`
-}
-
+/**
+ * «Мой отчёт»: свой месячный план (ставит руководитель или сам сотрудник)
+ * и факт за сегодня, неделю и месяц с сервера (/plans/progress). Раньше
+ * здесь были мок-проценты, выдуманная история недели и серия дней.
+ */
 export function MyReportPage() {
-    const { t } = useI18n();
-  const p = HOME_PROGRESS_MOCK
-  const streak = HOME_STREAK_MOCK
+  const { t, formatDate } = useI18n()
   const { currentUser } = useAuth()
-  const { dispatch, getPlan } = usePlans()
-  const name = currentUser?.name ?? 'Сотрудник'
-  const selfEmployee = useMemo(
-    () => MOCK_EMPLOYEES.find((employee) => employee.name === currentUser?.name),
-    [currentUser?.name],
+  const { period, progress, metrics, failed, reload, myPositionId } = usePlanProgress('self')
+  const p = metrics ?? EMPTY_HOME_PROGRESS
+  const own = useMemo(
+    () => progress?.positions.find((position) => position.positionId === myPositionId) ?? null,
+    [myPositionId, progress],
   )
-  const selfEmployeeId = selfEmployee?.id ?? currentUser?.id ?? 'self'
-  const period = currentPeriod()
-  const savedSelfPlan = getPlan(selfEmployeeId, period)
-  const effectiveSelfPlan = useMemo(
-    () => defaultSelfPlan(selfEmployeeId, savedSelfPlan),
-    [savedSelfPlan, selfEmployeeId],
-  )
-  const [planOpen, setPlanOpen] = useState(false)
-  const [planSaved, setPlanSaved] = useState(false)
-  const [planDraft, setPlanDraft] = useState<PlanDraft>(() => toDraft(effectiveSelfPlan))
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<PlanDraft>(() => toPlanDraft(null))
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
-  useEffect(() => {
-    setPlanDraft(toDraft(effectiveSelfPlan))
-  }, [effectiveSelfPlan])
+  const monthLabel = formatDate(`${period}-01T00:00:00.000Z`, { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
-  function updatePlanDraft(field: keyof PlanDraft, value: number) {
-    setPlanDraft((prev) => ({ ...prev, [field]: Math.max(0, Number.isFinite(value) ? value : 0) }))
-    setPlanSaved(false)
+  function startEditing() {
+    setDraft(toPlanDraft(own?.plan))
+    setMessage(null)
+    setEditing(true)
   }
 
-  function saveSelfPlan() {
-    dispatch({
-      type: 'SET_PLAN',
-      plan: {
-        employeeId: selfEmployeeId,
-        period,
-        ...planDraft,
-      },
-    })
-    setPlanSaved(true)
-    setPlanOpen(false)
-    window.setTimeout(() => setPlanSaved(false), 1800)
+  async function saveOwnPlan() {
+    if (!myPositionId) return
+    setSaving(true)
+    setMessage(null)
+    try {
+      await plansApiV2.upsert(myPositionId, period, toPlanTargets(draft), own?.plan?.version)
+      setEditing(false)
+      setMessage({ tone: 'ok', text: t('plans.saved') })
+      reload()
+    } catch {
+      setMessage({ tone: 'error', text: t('plans.saveOwnFailed') })
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const actualsFor = (bucket: PlanActualsV2 | undefined, key: ActivityKey) => bucket?.[key] ?? 0
+  const targetFor = (key: ActivityKey) => (own?.plan ? own.plan[`${key}Target` as const] : 0)
 
   return (
     <DashboardShell>
-      <div style={{ padding: '16px 28px 48px', width: '100%', maxWidth: 'none', fontFamily: "'Montserrat', sans-serif" }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 26, fontWeight: 400, color: 'var(--theme-accent-heading)', marginBottom: 4 }}>
-              {t('dashboard.myReportPage.мой_отч_т')}</h1>
-            <p style={{ fontSize: 14, color: 'var(--app-text-muted)' }}>
-              {name} {t('dashboard.myReportPage.сводка_за_текущую_н')}</p>
+      <div className="flex w-full flex-col gap-6 px-6 pb-12 pt-6 text-[color:var(--app-text)]">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-[30px] font-normal leading-tight text-[color:var(--theme-accent-heading)]">{t('myReport.title')}</h1>
+            <p className={`mt-1 text-[17px] ${MUTED}`}>
+              {currentUser?.name ?? ''} · {monthLabel}
+            </p>
           </div>
           <button
             type="button"
-            onClick={() => setPlanOpen((open) => !open)}
-            style={{
-              border: '1px solid var(--hub-card-border)',
-              background: planOpen ? 'color-mix(in_srgb,var(--gold)_18%,transparent)' : 'var(--workspace-row-bg)',
-              color: 'var(--app-text)',
-              borderRadius: 8,
-              padding: '10px 14px',
-              fontSize: 13,
-              fontWeight: 400,
-              cursor: 'pointer',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
+            onClick={() => (editing ? setEditing(false) : startEditing())}
+            className="rounded-sm bg-[var(--gold)] px-4 py-2 text-[16px] font-medium text-[color:var(--gold-btn-text)]"
           >
-            {planSaved ? 'План сохранён' : 'Поставить себе планы'}
+            {editing ? t('plans.close') : own?.plan ? t('myReport.editPlan') : t('myReport.setOwnPlan')}
           </button>
-        </div>
+        </header>
 
-        {planOpen && (
-          <div style={{ background: 'var(--hub-card-bg)', border: '1px solid var(--hub-card-border)', borderRadius: 10, padding: '18px 20px', marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14 }}>
-              <div>
-                <h2 style={{ fontSize: 15, fontWeight: 400, color: 'var(--app-text)', marginBottom: 4 }}>{t('dashboard.myReportPage.личный_план_на_месяц')}</h2>
-                <p style={{ fontSize: 12, color: 'var(--app-text-muted)' }}>
-                  {t('dashboard.myReportPage.период')}{period}{t('dashboard.myReportPage.эти_значения_попаду')}</p>
-              </div>
+        {failed ? <p role="alert" className="text-[17px] text-[#ffb4ab]">{t('plans.loadFailed')}</p> : null}
+        {message ? (
+          <p role={message.tone === 'error' ? 'alert' : undefined} className={`text-[17px] ${message.tone === 'error' ? 'text-[#ffb4ab]' : MUTED}`}>
+            {message.text}
+          </p>
+        ) : null}
+
+        {editing ? (
+          <section className={`${PANEL} flex flex-col gap-4`}>
+            <div>
+              <h2 className="text-[24px] font-medium">{t('myReport.ownPlanTitle')}</h2>
+              <p className={`mt-1 text-[17px] ${MUTED}`}>{t('myReport.ownPlanHint')}</p>
+            </div>
+            <PlanFields idPrefix="own-plan" draft={draft} onChange={setDraft} />
+            <div>
               <button
                 type="button"
-                onClick={saveSelfPlan}
-                style={{
-                  border: '1px solid color-mix(in_srgb,var(--gold)_45%,transparent)',
-                  background: 'var(--gold)',
-                  color: 'var(--gold-btn-text)',
-                  borderRadius: 8,
-                  padding: '9px 13px',
-                  fontSize: 13,
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                }}
+                onClick={() => void saveOwnPlan()}
+                disabled={saving || !myPositionId}
+                className="rounded-sm bg-[var(--gold)] px-4 py-2 text-[16px] font-medium text-[color:var(--gold-btn-text)] disabled:opacity-60"
               >
-                {t('dashboard.myReportPage.сохранить_план')}</button>
+                {saving ? t('plans.saving') : t('plans.save')}
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 10 }}>
-              {([
-                { key: 'revenueTarget', label: 'Выручка, $', step: 100000 },
-                { key: 'leadsTarget', label: 'Лиды', step: 1 },
-                { key: 'dealsTarget', label: 'Сделки', step: 1 },
-                { key: 'callsTarget', label: 'Звонки', step: 1 },
-                { key: 'meetingsTarget', label: 'Встречи', step: 1 },
-                { key: 'showingsTarget', label: 'Показы', step: 1 },
-              ] as { key: keyof PlanDraft; label: string; step: number }[]).map((field) => (
-                <label key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--app-text-muted)' }}>
-                    {field.label}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={field.step}
-                    value={planDraft[field.key]}
-                    onChange={(event) => updatePlanDraft(field.key, Number(event.target.value))}
-                    style={{
-                      width: '100%',
-                      border: '1px solid var(--workspace-row-border)',
-                      background: 'var(--workspace-row-bg)',
-                      color: 'var(--app-text)',
-                      borderRadius: 8,
-                      padding: '9px 10px',
-                      fontSize: 13,
-                      outline: 'none',
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
+          </section>
+        ) : null}
 
-        <div style={{ background: 'color-mix(in_srgb,var(--gold)_7%,transparent)', border: '1px solid color-mix(in_srgb,var(--gold)_24%,transparent)', borderRadius: 10, padding: '12px 16px', marginBottom: 24 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr repeat(5, 1fr)', gap: 10, alignItems: 'center' }}>
-            <div>
-              <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--theme-accent-link-dim)', marginBottom: 4 }}>{t('dashboard.myReportPage.мой_план')}</p>
-              <p style={{ fontSize: 20, color: 'var(--app-text)', lineHeight: 1 }}>{formatUsdShort(effectiveSelfPlan.revenueTarget)}</p>
-            </div>
+        {!p.hasPlan && !editing ? (
+          <section className={PANEL}>
+            <h2 className="text-[24px] font-medium">{t('planProgress.noPlan')}</h2>
+            <p className={`mt-2 max-w-[70ch] text-[17px] ${MUTED}`}>{t('myReport.noPlanText')}</p>
+          </section>
+        ) : null}
+
+        {p.hasPlan ? (
+          <section aria-label={t('myReport.summary')} className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             {[
-              ['Лиды', effectiveSelfPlan.leadsTarget],
-              ['Сделки', effectiveSelfPlan.dealsTarget],
-              ['Звонки', effectiveSelfPlan.callsTarget],
-              ['Встречи', effectiveSelfPlan.meetingsTarget],
-              ['Показы', effectiveSelfPlan.showingsTarget],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--app-text-muted)', marginBottom: 4 }}>{label}</p>
-                <p style={{ fontSize: 18, color: 'var(--app-text)', lineHeight: 1 }}>{value}</p>
+              { label: t('myReport.dayPlan'), value: `${p.dayPlanPercent}%`, pct: p.dayPlanPercent },
+              { label: t('myReport.weekPlan'), value: `${p.weekPlanPercent}%`, pct: p.weekPlanPercent },
+              { label: t('myReport.revenue'), value: `${p.revenue.currentLabel} / ${p.revenue.planLabel}`, pct: p.revenue.percent },
+              { label: t('planProgress.deals'), value: p.funnelProgress.subtitle, pct: p.funnelProgress.percent },
+            ].map((card) => (
+              <div key={card.label} className={PANEL}>
+                <p className={`text-[16px] ${MUTED}`}>{card.label}</p>
+                <p className="mt-2 text-[24px] font-normal leading-tight">{card.value}</p>
+                <div className="mt-3">
+                  <Bar pct={card.pct} />
+                </div>
               </div>
             ))}
-          </div>
-        </div>
+          </section>
+        ) : null}
 
-        {/* ── Summary cards ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
-          {[
-            { label: 'План дня', value: `${p.dayPlanPercent}%`, sub: DAY_STATUS_LABEL[p.dayPlanStatus], color: DAY_STATUS_COLOR[p.dayPlanStatus], pct: p.dayPlanPercent, barColor: 'var(--gold)' },
-            { label: 'План недели', value: `${p.weekPlanPercent}%`, sub: '', color: '', pct: p.weekPlanPercent, barColor: '#60a5fa' },
-            { label: 'Выручка', value: p.revenue.currentLabel, sub: `/ ${p.revenue.planLabel}`, color: '', pct: p.revenue.percent, barColor: 'var(--gold)' },
-            { label: 'Воронка', value: `${p.funnelProgress.percent}%`, sub: p.funnelProgress.subtitle, color: '', pct: p.funnelProgress.percent, barColor: '#34d399' },
-          ].map((c) => (
-            <div
-              key={c.label}
-              style={{
-                background: 'var(--hub-card-bg)',
-                border: '1px solid var(--hub-card-border)',
-                borderRadius: 10,
-                padding: '14px 16px',
-              }}
-            >
-              <p style={{ fontSize: 11, fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--app-text-muted)', marginBottom: 6 }}>{c.label}</p>
-              <p style={{ fontSize: 24, fontWeight: 400, color: 'var(--app-text)', lineHeight: 1 }}>
-                {c.value}
-                {c.sub && <span style={{ fontSize: 12, fontWeight: 500, color: c.color || 'var(--app-text-muted)', marginLeft: 6 }}>{c.sub}</span>}
-              </p>
-              <div style={{ marginTop: 8 }}>
-                <Bar pct={c.pct} color={c.barColor} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Activity KPIs ── */}
-        <div style={{ background: 'var(--hub-card-bg)', border: '1px solid var(--hub-card-border)', borderRadius: 10, padding: '18px 20px', marginBottom: 24 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 400, color: 'var(--app-text)', marginBottom: 14 }}>{t('dashboard.myReportPage.нормативы_активности')}</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px 20px' }}>
-            {p.activityKpis.map((k) => {
-              const pct = k.plan > 0 ? Math.round((k.current / k.plan) * 100) : 0
-              return (
-                <div key={k.label}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--app-text)', marginBottom: 4 }}>
-                    <span>{k.label}</span>
-                    <span style={{ fontWeight: 400, fontVariantNumeric: 'tabular-nums' }}>{k.current}/{k.plan}</span>
-                  </div>
-                  <Bar pct={pct} color={pct >= 100 ? '#4ade80' : 'var(--gold)'} h="h-2.5" />
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* ── Weekly history ── */}
-        <div style={{ background: 'var(--hub-card-bg)', border: '1px solid var(--hub-card-border)', borderRadius: 10, padding: '18px 20px', marginBottom: 24 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 400, color: 'var(--app-text)', marginBottom: 14 }}>{t('dashboard.myReportPage.история_по_дням_неде')}</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--hub-card-border)' }}>
-                <th style={{ textAlign: 'left', padding: '6px 0', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('dashboard.myReportPage.день')}</th>
-                <th style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase' }}>{t('dashboard.myReportPage.плана')}</th>
-                <th style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase' }}>{t('dashboard.myReportPage.лиды')}</th>
-                <th style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase' }}>{t('dashboard.myReportPage.звонки')}</th>
-                <th style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase' }}>{t('dashboard.myReportPage.встречи')}</th>
-                <th style={{ textAlign: 'center', padding: '6px 8px', fontWeight: 400, color: 'var(--app-text-muted)', fontSize: 11, textTransform: 'uppercase' }}>{t('dashboard.myReportPage.задачи')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {WEEKLY_HISTORY.map((d) => (
-                <tr key={d.day} style={{ borderBottom: '1px solid var(--hub-card-border)' }}>
-                  <td style={{ padding: '8px 0', fontWeight: 400, color: 'var(--app-text)' }}>{d.day}</td>
-                  <td style={{ textAlign: 'center', padding: '8px' }}>
-                    <span style={{ fontWeight: 400, color: d.dayPct >= 80 ? '#4ade80' : d.dayPct >= 60 ? 'var(--gold)' : '#ef4444' }}>{d.dayPct}%</span>
-                  </td>
-                  <td style={{ textAlign: 'center', padding: '8px', color: 'var(--app-text)' }}>{d.kpis.leads}</td>
-                  <td style={{ textAlign: 'center', padding: '8px', color: 'var(--app-text)' }}>{d.kpis.calls}</td>
-                  <td style={{ textAlign: 'center', padding: '8px', color: 'var(--app-text)' }}>{d.kpis.meetings}</td>
-                  <td style={{ textAlign: 'center', padding: '8px', color: 'var(--app-text)' }}>{d.kpis.tasks}</td>
+        <section className="flex flex-col gap-3">
+          <h2 className="text-[24px] font-medium">{t('myReport.activityTitle')}</h2>
+          <div className="overflow-x-auto rounded-md shadow-[inset_0_0_0_1px_rgba(201,168,76,0.18)]">
+            <table className="w-full border-collapse text-left">
+              <thead className="bg-[var(--green-card-hover)]">
+                <tr>
+                  {['activity', 'today', 'week', 'month', 'plan'].map((key, index) => (
+                    <th
+                      key={key}
+                      scope="col"
+                      className={`whitespace-nowrap px-4 py-3 text-[16px] font-medium uppercase tracking-[0.04em] text-[color:var(--theme-accent-heading)] ${index === 0 ? '' : 'text-right'}`}
+                    >
+                      {t(`myReport.col.${key}`)}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ── Streak ── */}
-        <div style={{ background: 'var(--hub-card-bg)', border: '1px solid var(--hub-card-border)', borderRadius: 10, padding: '18px 20px' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 400, color: 'var(--app-text)', marginBottom: 10 }}>{t('dashboard.myReportPage.серия_активности')}</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div>
-              <span style={{ fontSize: 36, fontWeight: 400, color: '#fb923c' }}>{streak.currentStreak}</span>
-              <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--app-text-muted)', marginLeft: 6 }}>{t('dashboard.myReportPage.дн_подряд')}</span>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--app-text-muted)' }}>
-              {t('dashboard.myReportPage.рекорд')}<span style={{ fontWeight: 400, color: 'var(--app-text)' }}>{streak.bestStreak}</span> {t('dashboard.myReportPage.дн')}</div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-              {streak.slots.map((s, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 28, height: 28, borderRadius: '50%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 400,
-                    background: s.active ? '#f59e0b' : 'rgba(255,255,255,0.06)',
-                    color: s.active ? '#422006' : 'var(--app-text-muted)',
-                    border: s.isToday ? '2px dashed #fb923c' : '1px solid transparent',
-                  }}
-                >
-                  {s.weekday.slice(0, 2)}
-                </div>
-              ))}
-            </div>
+              </thead>
+              <tbody>
+                {ACTIVITY_ROWS.map((key, index) => {
+                  const month = actualsFor(own?.month, key)
+                  const target = targetFor(key)
+                  return (
+                    <tr key={key} className={index % 2 === 0 ? 'bg-[var(--workspace-row-bg)]' : 'bg-[var(--green-card)]'}>
+                      <th scope="row" className="px-4 py-3 text-[18px] font-normal">{t(`planProgress.${key}`)}</th>
+                      <td className="px-4 py-3 text-right text-[18px] tabular-nums">{actualsFor(own?.today, key)}</td>
+                      <td className="px-4 py-3 text-right text-[18px] tabular-nums">{actualsFor(own?.week, key)}</td>
+                      <td className="px-4 py-3 text-right text-[18px] tabular-nums">{month}</td>
+                      <td className={`px-4 py-3 text-right text-[18px] tabular-nums ${MUTED}`}>
+                        {target > 0 ? `${Math.round((month / target) * 100)}% · ${target}` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-        </div>
+          <p className={`max-w-[70ch] text-[16px] ${MUTED}`}>{t('myReport.howCounted')}</p>
+        </section>
       </div>
     </DashboardShell>
   )

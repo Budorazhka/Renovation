@@ -19,13 +19,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/features/crm/CRMPage": ["./src/types/crm-stub"],
-      "@/features/crm/pages/crm/AnalyticsDashboard": ["./src/types/crm-stub"],
-      "@/features/crm/pages/crm/AnalyticsPartnerPage": ["./src/types/crm-stub"],
-      "@/features/crm/pages/crm/AnalyticsMe": ["./src/types/crm-stub"],
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
-  "exclude": ["src/features/crm/**"]
+  "include": ["src"]
 }

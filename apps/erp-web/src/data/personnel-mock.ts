@@ -1,6 +1,6 @@
 /**
  * Тестовые данные ТОЛЬКО для ещё не переведённого на backend KPI/отчётного
- * контура (MyReportPage, SetPlansModal, lib/bi/manager-analytics-adapter) —
+ * контура (MyReportPage, SetPlansModal) —
  * см. docs/progress-report-2026-09-01.md, KPI и отчёты по позиции/человеку
  * backend не реализует (TEAM-001, этап 6 мастер-плана).
  *

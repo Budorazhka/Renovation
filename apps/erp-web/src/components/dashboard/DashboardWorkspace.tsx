@@ -40,9 +40,8 @@ import { useDeals } from '@/context/DealsContext'
 import { cn } from '@/lib/utils'
 import { useCrmSync } from '@/features/crm/context/CrmSyncContext'
 import { type NewsArticle, type Reminder } from '@/data/info-mock'
-import {
-  HOME_PROGRESS_MOCK,
-} from '@/data/home-workspace-mock'
+import { EMPTY_HOME_PROGRESS } from '@/lib/plan-progress'
+import { usePlanProgress } from '@/hooks/usePlanProgress'
 import { INITIAL_LEAD_MANAGERS } from '@/data/leads-mock'
 import { MiniCalendar } from '@/components/dashboard/MiniCalendar'
 import {
@@ -566,7 +565,9 @@ export function DashboardWorkspace() {
   const badgeNews = infoTab !== 'news' ? unread.news(newsIdsOrdered) : 0
 
   /* ── прогресс и показатели ── */
-  const progress = HOME_PROGRESS_MOCK
+  // План и факт с сервера: руководитель видит сумму по команде, сотрудник — себя.
+  const { metrics: planMetrics, reload: reloadPlanProgress } = usePlanProgress('team')
+  const progress = planMetrics ?? EMPTY_HOME_PROGRESS
   const dayPlanGapPct = Math.max(0, 100 - progress.dayPlanPercent)
   const focusKpi = useMemo(() => {
     if (!progress.activityKpis.length) return null
@@ -600,6 +601,7 @@ export function DashboardWorkspace() {
         color: 'var(--workspace-text)',
         href: deskShowLeads ? '/dashboard/leads/poker' : null,
         badge: leadGap > 0 ? `-${leadGap}` : t('dashboardWorkspace.badgeOk'),
+        tone: leadGap > 0 ? 'warning' : 'ok',
       },
       {
         id: 'tasks',
@@ -610,6 +612,7 @@ export function DashboardWorkspace() {
         color: overdueTasksCount > 0 ? '#f43f5e' : 'var(--workspace-text)',
         href: focusHref,
         badge: overdueTasksCount > 0 ? t('dashboardWorkspace.badgeSla') : t('dashboardWorkspace.day'),
+        tone: overdueTasksCount > 0 ? 'danger' : 'ok',
       },
     ]
   }, [canOpenMyReport, focusDeskHref, focusGap, focusKpi, mineTask, progress, todayIso, todayOverlayTasks.length, crmTasks, deskShowLeads])
@@ -977,9 +980,11 @@ export function DashboardWorkspace() {
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-[13px] font-normal text-[color:var(--workspace-text)] sm:text-[14px]">
-                  {t('dashboardWorkspace.dayPlanPct').replace('{{pct}}', dayPlanGapPct.toString())}
+                  {progress.hasPlan
+                    ? t('dashboardWorkspace.dayPlanPct').replace('{{pct}}', progress.dayPlanPercent.toString())
+                    : t('planProgress.noPlan')}
                 </span>
-                {dayPlanGapPct <= 0 && <CheckCircle2 className="size-3.5 text-emerald-400" />}
+                {progress.hasPlan && dayPlanGapPct <= 0 && <CheckCircle2 className="size-3.5 text-emerald-400" />}
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--workspace-row-bg)]">
                 <div
@@ -1011,7 +1016,11 @@ export function DashboardWorkspace() {
                     {item.badge && (
                       <span className={cn(
                         "rounded-md px-1.5 py-0.5 text-[10px] font-normal leading-none",
-                        item.badge === 'SLA' ? "bg-red-500/15 text-[color:var(--badge-danger-text)]" : "bg-emerald-500/15 text-[color:var(--badge-success-text)]"
+                        item.tone === 'danger'
+                          ? "bg-red-500/15 text-[color:var(--badge-danger-text)]"
+                          : item.tone === 'warning'
+                            ? "bg-[color-mix(in_srgb,var(--gold)_18%,transparent)] text-[color:var(--gold)]"
+                            : "bg-emerald-500/15 text-[color:var(--badge-success-text)]"
                       )}>
                         {item.badge}
                       </span>
@@ -1049,8 +1058,10 @@ export function DashboardWorkspace() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[12px] font-normal uppercase tracking-wide text-[color:var(--workspace-text-muted)] sm:text-[13px]">{t('dashboardWorkspace.recommendation')}</p>
                   <p className="mt-0.5 text-[13px] leading-snug text-[color:var(--workspace-text)] sm:text-[14px]">
-                    {focusGap > 0 && focusKpi
-                      ? t('dashboardWorkspace.needMoreToPlan').replace('{{gap}}', focusGap.toString()).replace('{{label}}', focusKpi.label.toLowerCase())
+                    {!progress.hasPlan
+                      ? t(canAccessTeamPlans ? 'planProgress.noPlanHintTeam' : 'planProgress.noPlanHintSelf')
+                      : focusGap > 0 && focusKpi
+                      ? t('dashboardWorkspace.needMoreToPlan').replace('{{gap}}', focusGap.toString()).replace('{{label}}', focusKpi.label)
                       : t('dashboardWorkspace.allMetricsNormal')}
                   </p>
                 </div>
@@ -1347,7 +1358,7 @@ export function DashboardWorkspace() {
         </DialogContent>
       </Dialog>
 
-      <SetPlansModal open={showSetPlans} onOpenChange={setShowSetPlans} />
+      <SetPlansModal open={showSetPlans} onOpenChange={setShowSetPlans} onSaved={reloadPlanProgress} />
     </div>
   )
 }

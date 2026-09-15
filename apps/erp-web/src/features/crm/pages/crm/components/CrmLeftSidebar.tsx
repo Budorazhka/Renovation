@@ -96,7 +96,7 @@ const CrmLeftSidebar = ({
       </div>
       {/* Desktop blocks */}
       <div className="crm-sidebar-report hidden md:block">
-        <ReportsBlock tasks={backendTasks} leads={backendLeads} onModalOpen={onModalOpen} />
+        <ReportsBlock tasks={backendTasks} onModalOpen={onModalOpen} />
       </div>
       <div className="crm-sidebar-library mt-3 hidden md:block">
         <LibrarySelectorBlock

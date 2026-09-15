@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Target } from 'lucide-react'
 import { DeskShell, DeskHeader, MiniBar, DESK_HEADER_LINK_CLASS, REPORT_LINKS } from '../desk-shared'
-import type { HomeProgressMetrics } from '@/data/home-workspace-mock'
+import type { HomeProgressMetrics } from '@/lib/plan-progress'
 import type { WidgetSlot } from '@/config/widgets-config'
 import { cn } from '@/lib/utils'
 import { useI18n } from "@/i18n";

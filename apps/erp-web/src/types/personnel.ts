@@ -5,8 +5,8 @@
  * фиктивные `MOCK_EMPLOYEES`, из-за чего продуктовый код (PersonnelPage,
  * teamApi) был вынужден импортировать «мок»-файл ради одних только типов.
  * `personnel-mock.ts` реэкспортирует эти типы для обратной совместимости с
- * KPI/отчётным контуром (MyReportPage, SetPlansModal,
- * lib/bi/manager-analytics-adapter), который по-прежнему работает на моке —
+ * KPI/отчётным контуром (MyReportPage, SetPlansModal), который по-прежнему
+ * работает на моке —
  * см. docs/progress-report-2026-09-01.md, KPI и отчёты backend не реализует.
  */
 

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { apiService, type LeadFile, type LibraryFolder, ProductType } from '../../services/api';
+import { type LeadFile, type LibraryFolder, ProductType } from '../../services/api';
+import { libraryCrmService } from '../../services/libraryCrmV2';
+import { findRejectedUpload, UPLOAD_ACCEPT } from '@/lib/open-signed-file';
 import { useToast } from '../common/Toast';
 import { useI18n } from '@/i18n';
 import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
@@ -15,6 +17,8 @@ import {
   Folder,
   FolderPlus,
   Download,
+  Trash2,
+  Upload,
 } from 'lucide-react';
 
 interface LibrarySelectorBlockProps {
@@ -26,12 +30,12 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
   const { t } = useI18n();
   const { showToast, ToastContainer } = useToast();
   const [selectedProductType, setSelectedProductType] = useState<ProductType>(initialProductType);
-  
+
   // Синхронизация с пропсом productType при его изменении
   useEffect(() => {
     setSelectedProductType(initialProductType);
   }, [initialProductType]);
-  
+
   const getProductTypeLabel = (type: ProductType): string => {
     switch (type) {
       case ProductType.SALES: return 'Продажи';
@@ -43,18 +47,21 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
   };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<'common' | 'library'>('common');
-  
+
   // Состояния для общей библиотеки (базовые файлы)
   const [baseFiles, setBaseFiles] = useState<Array<LeadFile & { _id?: string }>>([]);
   const [isLoadingBaseFiles, setIsLoadingBaseFiles] = useState(false);
-  
+  // Может ли сотрудник добавлять и удалять общие материалы (решает сервер по правам).
+  const [canUploadCommon, setCanUploadCommon] = useState(false);
+  const commonFileInputRef = useRef<HTMLInputElement>(null);
+
   // Состояния для личной библиотеки (библиотека риелтора)
   const [libraryFiles, setLibraryFiles] = useState<Array<LeadFile & { _id?: string }>>([]);
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
   const [isLoadingLibraryFiles, setIsLoadingLibraryFiles] = useState(false);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState<LibraryFolder[]>([]); // Для навигации
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingLibraryFiles, setIsUploadingLibraryFiles] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -70,16 +77,19 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
   const loadBaseFiles = useCallback(async () => {
     setIsLoadingBaseFiles(true);
     try {
-      const response = await apiService.getBaseFiles(selectedProductType);
+      const response = await libraryCrmService.getBaseFiles(selectedProductType);
       if (response.success && response.data) {
         setBaseFiles(response.data.files);
+        setCanUploadCommon(response.data.canUpload);
       } else {
         console.error('Failed to load base files:', response.message);
         setBaseFiles([]);
+        setCanUploadCommon(false);
       }
     } catch (error) {
       console.error('Failed to load base files:', error);
       setBaseFiles([]);
+      setCanUploadCommon(false);
     } finally {
       setIsLoadingBaseFiles(false);
     }
@@ -89,7 +99,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
   const loadLibraryFiles = useCallback(async (folderId?: string | null) => {
     setIsLoadingLibraryFiles(true);
     try {
-      const response = await apiService.getRealtorLibraryFiles(folderId || null, true, selectedProductType);
+      const response = await libraryCrmService.getRealtorLibraryFiles(folderId || null, true);
       if (response.success && response.data) {
         const files = response.data.files || [];
         const folders = response.data.folders || [];
@@ -107,7 +117,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
     } finally {
       setIsLoadingLibraryFiles(false);
     }
-  }, [selectedProductType]);
+  }, []);
 
   // Загрузка файлов в библиотеку
   const handleUploadLibraryFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,11 +129,9 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
 
     try {
       const filesArray = Array.from(selectedFiles);
-      
-      // Константы валидации
-      const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
       const MAX_FILES_PER_UPLOAD = 10;
-      
+
       // Проверка количества файлов
       if (filesArray.length > MAX_FILES_PER_UPLOAD) {
         setUploadError(`Можно загрузить максимум ${MAX_FILES_PER_UPLOAD} файлов за раз`);
@@ -131,19 +139,23 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
         return;
       }
 
-      const tooLarge = filesArray.find((f) => f.size > MAX_FILE_SIZE);
-      if (tooLarge) {
-        setUploadError(`Файл «${tooLarge.name}» превышает лимит 100 МБ`);
+      const rejected = findRejectedUpload(filesArray);
+      if (rejected) {
+        setUploadError(t('leadCard.fileTooLarge', { name: rejected.name }));
         setIsUploadingLibraryFiles(false);
         return;
       }
 
-      const response = await apiService.uploadLibraryFiles(filesArray, currentFolderId);
-      
+      const toCommon = selectedCategory === 'common';
+      const response = toCommon
+        ? await libraryCrmService.uploadBaseFiles(filesArray, selectedProductType)
+        : await libraryCrmService.uploadLibraryFiles(filesArray, currentFolderId);
+
       if (response.success) {
-        await loadLibraryFiles(currentFolderId);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
+        if (toCommon) {
+          await loadBaseFiles();
+        } else {
+          await loadLibraryFiles(currentFolderId);
         }
       } else {
         setUploadError(response.message || 'Ошибка при загрузке файлов в библиотеку');
@@ -153,6 +165,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
       setUploadError(error.response?.data?.message || 'Ошибка при загрузке файлов в библиотеку');
     } finally {
       setIsUploadingLibraryFiles(false);
+      event.target.value = '';
     }
   };
 
@@ -181,11 +194,13 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
     }
   };
 
-  const handleDownloadFile = useCallback((file: LeadFile) => {
-    if (file.url) {
-      window.open(file.url, '_blank');
-    }
-  }, []);
+  const handleDownloadFile = useCallback((file: LeadFile & { _id?: string }) => {
+    if (!file._id) return;
+    void libraryCrmService.openLibraryFile({ ...file, _id: file._id }).catch((error: unknown) => {
+      console.error('Failed to open library file:', error);
+      showToast(t('crmLibrary.openFailed'), 'error');
+    });
+  }, [showToast, t]);
 
   const handleDeleteFileClick = useCallback((file: LeadFile & { _id?: string }) => {
     if (!file._id && !file.filename) return;
@@ -194,18 +209,22 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
 
   const handleDeleteFileConfirm = useCallback(async () => {
     if (!deleteFileConfirm.file) return;
-    
+
     const file = deleteFileConfirm.file;
     const fileId = file._id || file.filename;
     if (!fileId) return;
 
     setDeleteFileConfirm({ isOpen: false, file: null });
     setDeletingFileId(fileId);
-    
+
     try {
-      const response = await apiService.deleteLibraryFile(fileId);
+      const response = await libraryCrmService.deleteLibraryFile(fileId);
       if (response.success) {
-        await loadLibraryFiles(currentFolderId);
+        if (selectedCategory === 'common') {
+          await loadBaseFiles();
+        } else {
+          await loadLibraryFiles(currentFolderId);
+        }
         showToast('Файл успешно удален', 'success');
       } else {
         showToast(response.message || 'Ошибка при удалении файла', 'error');
@@ -216,7 +235,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
     } finally {
       setDeletingFileId(null);
     }
-  }, [deleteFileConfirm.file, loadLibraryFiles, currentFolderId, showToast]);
+  }, [deleteFileConfirm.file, selectedCategory, loadBaseFiles, loadLibraryFiles, currentFolderId, showToast]);
 
   const handleCreateFolder = useCallback(async () => {
     if (!newFolderName.trim()) {
@@ -226,7 +245,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
 
     setIsCreatingFolder(true);
     try {
-      const response = await apiService.createLibraryFolder(newFolderName.trim(), currentFolderId);
+      const response = await libraryCrmService.createLibraryFolder(newFolderName.trim(), currentFolderId);
       if (response.success) {
         setNewFolderName('');
         setShowCreateFolderInput(false);
@@ -246,13 +265,13 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
   const handleDeleteFolderClick = useCallback(async (folder: LibraryFolder) => {
     // Проверяем, есть ли в папке файлы или подпапки
     try {
-      const checkResponse = await apiService.getRealtorLibraryFiles(folder._id, true, selectedProductType);
+      const checkResponse = await libraryCrmService.getRealtorLibraryFiles(folder._id, true);
       if (checkResponse.success && checkResponse.data) {
         const filesCount = checkResponse.data.files?.length || 0;
         const foldersCount = checkResponse.data.folders?.length || 0;
-        
+
         if (filesCount > 0 || foldersCount > 0) {
-          showToast(`Невозможно удалить папку "${folder.name}". В папке есть файлы (${filesCount}) или подпапки (${foldersCount}). Сначала удалите все содержимое папки.`, 'warning');
+          showToast(t('crmLibrary.folderNotEmpty', { name: folder.name, files: filesCount, folders: foldersCount }), 'warning');
           return;
         }
       }
@@ -262,7 +281,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
     }
 
     setDeleteFolderConfirm({ isOpen: true, folder });
-  }, [selectedProductType, showToast]);
+  }, [showToast, t]);
 
   const handleDeleteFolderConfirm = useCallback(async () => {
     if (!deleteFolderConfirm.folder) return;
@@ -270,9 +289,9 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
     const folder = deleteFolderConfirm.folder;
     setDeleteFolderConfirm({ isOpen: false, folder: null });
     setDeletingFolderId(folder._id);
-    
+
     try {
-      const response = await apiService.deleteLibraryFolder(folder._id, false);
+      const response = await libraryCrmService.deleteLibraryFolder(folder._id);
       if (response.success) {
         await loadLibraryFiles(currentFolderId);
         showToast('Папка успешно удалена', 'success');
@@ -455,7 +474,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
               >
                 {t('crm.crm.librarySelectorBlock.личная_библиотека')}</button>
             </div>
-            
+
             <div className="crm-library-modal__body flex-1 overflow-y-auto">
               {uploadError && (
                 <div className="w-full p-3 mb-4 rounded-md bg-[color-mix(in_srgb,var(--destructive)_14%,var(--card))] text-[color-mix(in_srgb,var(--destructive)_92%,transparent)] text-base border border-[color-mix(in_srgb,var(--destructive)_35%,transparent)]">
@@ -468,7 +487,10 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                 <div className="w-full">
                   <div className="crm-library-info">
                     <p>
-                      {t('crm.crm.librarySelectorBlock.библиотека_baza_sale')}{getProductTypeLabel(selectedProductType)}{t('crm.crm.librarySelectorBlock.файлы_доступны_толь')}</p>
+                      {t(canUploadCommon ? 'crmLibrary.commonManageHint' : 'crmLibrary.commonHint', {
+                        product: getProductTypeLabel(selectedProductType),
+                      })}
+                    </p>
                   </div>
                   {isLoading ? (
                     <div className="flex items-center justify-center py-8">
@@ -481,7 +503,6 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                   ) : currentFiles.length > 0 ? (
                     <div className="w-full flex flex-col gap-2">
                       {currentFiles.map((file, index) => {
-                          const { t } = useI18n();
                         const fileId = file._id || file.filename;
                         const isImage = file.mimeType?.includes('image');
                         return (
@@ -517,14 +538,45 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                               >
                                 <Download size={18} className="text-[var(--accent)]" />
                               </button>
+                              {canUploadCommon ? (
+                                <button
+                                  onClick={() => handleDeleteFileClick(file)}
+                                  disabled={deletingFileId === fileId}
+                                  className="cursor-pointer p-2 rounded-md hover:bg-[color-mix(in_srgb,var(--destructive)_16%,var(--secondary))] transition-colors disabled:opacity-50"
+                                  title={t('crm.crm.librarySelectorBlock.удалить')}
+                                >
+                                  <Trash2 size={18} className="text-[var(--accent)]" />
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="crm-library-empty">{t('crm.crm.librarySelectorBlock.нет_доступных_систем')}</div>
+                    <div className="crm-library-empty">{t('crmLibrary.emptyCommon')}</div>
                   )}
+                  {canUploadCommon ? (
+                    <div className="mt-4 flex flex-col items-center gap-2">
+                      <input
+                        ref={commonFileInputRef}
+                        type="file"
+                        multiple
+                        onChange={handleUploadLibraryFiles}
+                        className="hidden"
+                        accept={UPLOAD_ACCEPT}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => commonFileInputRef.current?.click()}
+                        disabled={isUploadingLibraryFiles}
+                        className="flex items-center justify-center gap-2 py-2 px-3 rounded-md border border-dashed border-[color:var(--border)] cursor-pointer hover:border-[color-mix(in_srgb,var(--accent)_55%,var(--border))] hover:bg-[color-mix(in_srgb,var(--primary)_8%,var(--secondary))] text-base text-[rgba(255,255,255,0.92)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-1/2"
+                      >
+                        <Upload size={20} className="shrink-0 text-[var(--accent)]" />
+                        <span>{isUploadingLibraryFiles ? t('crm.crm.librarySelectorBlock.загрузка') : t('crmLibrary.uploadCommon')}</span>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               )}
 
@@ -617,7 +669,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                           ))}
                         </>
                       )}
-                      
+
                       {/* Кнопка создания папки */}
                       {showCreateFolderInput ? (
                         <div className="flex items-center gap-2">
@@ -682,7 +734,6 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                           <h3 className="text-base font-medium text-[rgba(255,255,255,0.92)] mb-2">{t('crm.crm.librarySelectorBlock.файлы')}{currentFiles.length})</h3>
                           <div className="w-full flex flex-col gap-2">
                             {currentFiles.map((file, index) => {
-                                const { t } = useI18n();
                               const fileId = file._id || file.filename;
                               const isImage = file.mimeType?.includes('image');
                               return (
@@ -752,7 +803,7 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                       )}
                     </>
                   )}
-                  
+
                   {/* Кнопка загрузки файлов */}
                   <div className="flex flex-col gap-2 items-center">
                     <input
@@ -761,9 +812,9 @@ const LibrarySelectorBlock: React.FC<LibrarySelectorBlockProps> = ({ productType
                       multiple
                       onChange={handleUploadLibraryFiles}
                       className="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                     />
-                    
+
                     <button 
                       type="button"
                       onClick={() => fileInputRef.current?.click()}

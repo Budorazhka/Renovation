@@ -11,7 +11,7 @@ import { ROLE_BENTO, WIDGET_META, type WidgetId, type WidgetSlot, type BentoCell
 import type { AccountType, UserRole } from '@/types/auth'
 import type { Lead } from '@/types/leads'
 import type { Deal } from '@/types/deals'
-import type { HomeProgressMetrics } from '@/data/home-workspace-mock'
+import type { HomeProgressMetrics } from '@/lib/plan-progress'
 import { cn } from '@/lib/utils'
 
 import { WidgetFunnel }        from './widgets/WidgetFunnel'

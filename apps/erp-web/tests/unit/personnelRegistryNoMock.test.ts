@@ -13,10 +13,9 @@
  * `WidgetTeam.tsx` в список не входит: он не использует `personnel-mock`
  * вообще (его источник мока — `leads-mock`, отдельная нерешённая задача
  * миграции лидов, см. комментарий в самом файле).
- * `TeamReportPage.tsx`/`MyReportPage.tsx`/`SetPlansModal.tsx`/
- * `manager-analytics-adapter.ts` тоже не входят: KPI/отчёты по позиции и
- * человеку backend не реализует (см. docs/progress-report-2026-09-01.md),
- * это осознанно оставлено на моке отдельной задачей этапа 6 мастер-плана.
+ * `MyReportPage.tsx`/`SetPlansModal.tsx` тоже не входят: личный KPI
+ * пока на моке отдельной задачей этапа 6 мастер-плана. Отчёт по команде
+ * (бывший TeamReportPage) с 15.09.2026 — «Аналитика» на /crm/reports.
  */
 
 import { readFileSync } from 'node:fs'

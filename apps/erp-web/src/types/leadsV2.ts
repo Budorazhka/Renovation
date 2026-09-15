@@ -58,8 +58,8 @@ export interface LeadV2 {
   /**
    * generic-стадия (productType не задан) либо строковый id стадии
    * productType этого лида (см. lead-v2-poker-adapter.ts) — шире, чем
-   * LeadStageV2, тип оставлен узким ради автодополнения в
-   * features/leads-v2 (generic-инбокс); значения продуктовых стадий читай
+   * LeadStageV2, тип оставлен узким ради автодополнения generic-стадий;
+   * значения продуктовых стадий читай
    * как `string`, не полагайся на исчерпывающее сужение union здесь.
    */
   stage: LeadStageV2

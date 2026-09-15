@@ -1,7 +1,14 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { useAuth as useCrmAuth } from '../hooks/useAuth';
 import type { Task } from '@/types/tasks';
-import type { DashboardNotifPreview } from '@/data/home-workspace-mock';
+/** Уведомление-превью рабочего стола и колокольчика в шапке. */
+export interface DashboardNotifPreview {
+  id: string;
+  type: 'alert' | 'success' | 'info' | 'auto';
+  title: string;
+  body: string;
+  time: string;
+}
 import type { Reminder, NewsArticle } from '@/data/info-mock';
 import type { CalEvent } from '@/data/calendar-events-mock';
 import { calendarApiV2 } from '@/services/calendarApiV2';

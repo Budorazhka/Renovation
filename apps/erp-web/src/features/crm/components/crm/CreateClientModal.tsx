@@ -8,6 +8,7 @@ import { resolveDuplicateLeadForUser } from '../../utils/leadDuplicateHelper';
 import { addLeadHistoryEntryDebounced, flushLeadHistory } from '../../utils/leadHistoryDebounce';
 import { PhoneInput } from '../common/PhoneInput';
 import { useI18n } from '@/i18n';
+import { findRejectedUpload, UPLOAD_ACCEPT } from '@/lib/open-signed-file';
 import { 
   FileText, 
   Image as ImageIcon, 
@@ -922,7 +923,6 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
     const filesArray = Array.from(files);
     
     // Константы валидации
-    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
     const MAX_FILES_PER_UPLOAD = 10;
     const MAX_FILES_PER_LEAD = 10;
     
@@ -932,9 +932,9 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
       return;
     }
 
-    const tooLarge = filesArray.find((f) => f.size > MAX_FILE_SIZE);
+    const tooLarge = findRejectedUpload(filesArray);
     if (tooLarge) {
-      alert(`Файл «${tooLarge.name}» превышает лимит 100 МБ`);
+      alert(t('leadCard.fileTooLarge', { name: tooLarge.name }));
       return;
     }
 
@@ -2516,7 +2516,7 @@ const CreateClientModal: React.FC<CreateClientModalProps> = ({ isOpen, onClose, 
                     multiple
                     onChange={handleFileSelect}
                     className="hidden"
-                    accept="*/*"
+                    accept={UPLOAD_ACCEPT}
                   />
                   
                   <button 

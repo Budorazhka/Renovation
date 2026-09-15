@@ -16,7 +16,13 @@ const api = axios.create({
   withCredentials: true,
 })
 
-export type MediaPurpose = 'profile_avatar' | 'task_attachment' | 'agency_document' | 'lead_attachment' | 'note_attachment'
+export type MediaPurpose =
+  | 'profile_avatar'
+  | 'task_attachment'
+  | 'agency_document'
+  | 'lead_attachment'
+  | 'note_attachment'
+  | 'library_file'
 
 export class MediaUploadError extends Error {
   constructor(

@@ -125,7 +125,7 @@ export const leadsApiV2 = {
    * `idempotencyKey` опционален — генерируется на каждый вызов (одна
    * попытка смены стадии = один ключ), если вызывающий код не передал свой
    * (тот же паттерн, что tasksApiV2.create, но с дефолтом ради обратной
-   * совместимости существующего вызова в features/leads-v2/LeadDetailsModal.tsx).
+   * совместимости старых вызовов).
    */
   /**
    * `comment` — `[phase 3]` легаси createStageComment/getStageComments:
@@ -187,12 +187,19 @@ export const leadsApiV2 = {
    * POST /api/v1/leads/:id/files — легаси uploadAndRegisterFile. `assetId` —
    * id уже подтверждённого (`status:'verified'`) MediaAsset, полученного
    * двухфазной загрузкой через `mediaApiV2.uploadFile(file, 'lead_attachment')`
-   * (тот же паттерн, что вложения задач). Возвращает полный обновлённый
-   * список файлов лида.
+   * (тот же паттерн, что вложения задач) либо файла библиотеки материалов.
+   * `fileName` — имя для экрана; без него сервер показывает имя из storage
+   * key («original.pdf»). Возвращает полный обновлённый список файлов лида.
    */
-  async attachFile(id: string, assetId: string): Promise<LeadFileV2[]> {
-    const { data } = await api.post<LeadFileV2[]>(`/api/v1/leads/${id}/files`, { assetId })
+  async attachFile(id: string, assetId: string, fileName?: string): Promise<LeadFileV2[]> {
+    const { data } = await api.post<LeadFileV2[]>(`/api/v1/leads/${id}/files`, fileName ? { assetId, fileName } : { assetId })
     return data
+  },
+
+  /** GET /api/v1/leads/:id/files/:assetId/download — временная ссылка на оригинал файла (у PDF и файлов библиотеки нет `url` в списке). */
+  async getFileDownloadUrl(id: string, assetId: string): Promise<string> {
+    const { data } = await api.get<{ url: string; fileName: string }>(`/api/v1/leads/${id}/files/${assetId}/download`)
+    return data.url
   },
 
   /** DELETE /api/v1/leads/:id/files/:assetId — легаси deleteLeadFileByName (по assetId, не по имени файла). Возвращает обновлённый список файлов лида. */

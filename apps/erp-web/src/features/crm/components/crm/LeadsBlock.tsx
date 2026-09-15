@@ -838,9 +838,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
 
   const updateLeadStage = async (leadId: string, position: number) => {
     // В построчном режиме используем allStatusStages, иначе statusStages.
-    const statusList = viewMode === 'list' ? allStatusLabels : statusLabels;
     const stageList = viewMode === 'list' ? allStatusStages : statusStages;
-    const status = statusList[position - 1];
     const stage = stageList[position - 1];
     if (!stage) {
       console.warn('Invalid position for stage:', position, 'stageList length:', stageList.length);
@@ -852,13 +850,6 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
       console.warn('Lead not found:', leadId);
       return;
     }
-
-    // Сохраняем старый этап для логирования
-    const oldStage = lead.stage;
-    const oldStageLabel = getStageLabel(oldStage, lead.productType);
-
-    const newStageLabel = getStageLabel(stage, lead.productType);
-
 
     // Обновляем локальные данные через leadSync
     // Используем updateLead для отслеживания изменений пользователем (устанавливает блокировку на 3 секунды)
@@ -1300,7 +1291,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
             : { leftColor: 'rgb(255, 204, 0)', rightColor: 'rgb(255, 240, 179)' };
           
           groups.push({
-            name: category === 'leads' ? [t('leadsBlock.reject')] : category === 'inWork' ? [t('leadsBlock.inProgress')] : t('leadsBlock.bought'),
+            name: category === 'leads' ? t('leadsBlock.reject') : category === 'inWork' ? t('leadsBlock.inProgress') : t('leadsBlock.bought'),
             startIndex: currentIndex,
             endIndex: endIndex,
             ...colors
@@ -1320,7 +1311,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
           : { leftColor: 'rgb(22, 150, 0)', rightColor: 'rgb(162, 213, 153)' };
         
         groups.push({
-          name: selectedTab === 'leads' ? [t('leadsBlock.reject')] : selectedTab === 'inWork' ? [t('leadsBlock.inProgress')] : t('leadsBlock.bought'),
+          name: selectedTab === 'leads' ? t('leadsBlock.reject') : selectedTab === 'inWork' ? t('leadsBlock.inProgress') : t('leadsBlock.bought'),
           startIndex: 0,
           endIndex: props.length - 1,
           ...colors
@@ -1493,7 +1484,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                         }
                       }
                     }}
-                    onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? [t('leadsBlock.referralInfo')] : t('leadsBlock.clientInfo'), `${record.id}-info`)}
+                    onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? t('leadsBlock.referralInfo') : t('leadsBlock.clientInfo'), `${record.id}-info`)}
                     onMouseLeave={hideTooltip}
                   >
                     <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1510,7 +1501,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                       e.stopPropagation();
                       togglePinLead(record.id);
                     }}
-                    onMouseEnter={(e) => showTooltip(e, pinnedLeadId === record.id ? (record.type === 'Net' ? [t('leadsBlock.unpinReferral')] : t('leadsBlock.unpinLead')) : (record.type === 'Net' ? [t('leadsBlock.pinReferral')] : t('leadsBlock.pinLead')), `${record.id}-pin`)}
+                    onMouseEnter={(e) => showTooltip(e, pinnedLeadId === record.id ? (record.type === 'Net' ? t('leadsBlock.unpinReferral') : t('leadsBlock.unpinLead')) : (record.type === 'Net' ? t('leadsBlock.pinReferral') : t('leadsBlock.pinLead')), `${record.id}-pin`)}
                     onMouseLeave={hideTooltip}
                   >
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1549,7 +1540,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                 {((record.tags?.[0] != null ? [0, 1] : [0]) as number[]).map((slotIndex) => {
                   const tagValue = record.tags?.[slotIndex];
                   const isFilled = !!tagValue;
-                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
+                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? t('leadsBlock.addTag') : t('leadsBlock.tag2');
                   return (
                     <div key={slotIndex} className="relative">
                       <button
@@ -1603,7 +1594,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                 {((record.tags?.[0] != null ? [0, 1] : [0]) as number[]).map((slotIndex) => {
                   const tagValue = record.tags?.[slotIndex];
                   const isFilled = !!tagValue;
-                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? [t('leadsBlock.addTag')] : t('leadsBlock.tag2');
+                  const tooltipLabel = isFilled ? `#${tagLabel(tagValue)}` : slotIndex === 0 ? t('leadsBlock.addTag') : t('leadsBlock.tag2');
                   return (
                     <button
                       key={slotIndex}
@@ -1663,7 +1654,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                       }
                     }
                   }}
-                  onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? [t('leadsBlock.referralInfo')] : t('leadsBlock.clientInfo'), `${record.id}-info-list`)}
+                  onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? t('leadsBlock.referralInfo') : t('leadsBlock.clientInfo'), `${record.id}-info-list`)}
                   onMouseLeave={hideTooltip}
                 >
                   <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1699,7 +1690,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                     e.stopPropagation();
                     togglePinLead(record.id);
                   }}
-                  onMouseEnter={(e) => showTooltip(e, pinnedLeadId === record.id ? (record.type === 'Net' ? [t('leadsBlock.unpinReferral')] : t('leadsBlock.unpinLead')) : (record.type === 'Net' ? [t('leadsBlock.pinReferral')] : t('leadsBlock.pinLead')), `${record.id}-pin-list`)}
+                  onMouseEnter={(e) => showTooltip(e, pinnedLeadId === record.id ? (record.type === 'Net' ? t('leadsBlock.unpinReferral') : t('leadsBlock.unpinLead')) : (record.type === 'Net' ? t('leadsBlock.pinReferral') : t('leadsBlock.pinLead')), `${record.id}-pin-list`)}
                   onMouseLeave={hideTooltip}
                 >
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1728,7 +1719,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                       });
                     }
                   }}
-                  onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? [t('leadsBlock.contactReferral')] : t('leadsBlock.contactClient'), `${record.id}-contact`)}
+                  onMouseEnter={(e) => showTooltip(e, record.type === 'Net' ? t('leadsBlock.contactReferral') : t('leadsBlock.contactClient'), `${record.id}-contact`)}
                   onMouseLeave={hideTooltip}
                 >
                   <svg width="20" height="20" viewBox="25.25 8 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2056,7 +2047,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
             </button>
           </Tooltip>
           <Tooltip
-            text={showChecklist ? [t('leadsBlock.disableChecklist')] : t('leadsBlock.enableChecklist')}
+            text={showChecklist ? t('leadsBlock.disableChecklist') : t('leadsBlock.enableChecklist')}
             position="bottom"
           >
             <button
@@ -2110,7 +2101,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                 maxWidth: 'calc(100vw - 20px)'
               }}
             >
-              {viewMode === 'list' ? [t('leadsBlock.adjustFontSize')] : t('leadsBlock.adjustCardSize')}
+              {viewMode === 'list' ? t('leadsBlock.adjustFontSize') : t('leadsBlock.adjustCardSize')}
             </div>
             {isSizeMenuOpen &&
               sizeMenuPosition &&
@@ -2138,11 +2129,11 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
                   </div>
                   <div className='flex flex-col'>
                     <span className='text-dream-primary text-base'>
-                      {viewMode === 'list' ? [t('leadsBlock.adjustFontSize')] : t('leadsBlock.adjustCardSize')}
+                      {viewMode === 'list' ? t('leadsBlock.adjustFontSize') : t('leadsBlock.adjustCardSize')}
                     </span>
                     <span className='text-[var(--muted-foreground)] text-base leading-snug'>
                       {viewMode === 'list' 
-                        ? [t('leadsBlock.fontSizeDesc')] 
+                        ? t('leadsBlock.fontSizeDesc')
                         : t('leadsBlock.cardSizeDesc')}
                     </span>
                   </div>
@@ -2685,7 +2676,7 @@ const LeadsBlock: React.FC<LeadsBlockProps> = ({ backendLeads, onUpdateLeads, on
           setInitialStageForNewClient(null);
         }}
         initialProductType={selectedProduct}
-        onSubmit={(clientName) => {
+        onSubmit={() => {
           // Здесь можно добавить логику обработки созданного клиента
         }}
         initialStage={initialStageForNewClient?.stage}

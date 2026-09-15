@@ -2,7 +2,6 @@ import { useI18n } from '@/i18n';
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import NotificationsViewModal from './NotificationsViewModal';
 import TasksGridModal from './modals/TasksGridModal';
 import { apiService, NotificationType, type Task, EventType, TaskStatus, TaskPriority } from '../../services/api';
 import { listCrmTasks, setCrmTaskStatus } from '../../services/crmTasksV2';
@@ -30,15 +29,12 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
   const { t } = useI18n();
   const { user } = useAuth();
   const userId = user?.id;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'notifications' | 'reminders' | 'news'>(() => {
+  const [searchParams] = useSearchParams();
+  const [activeTab] = useState<'notifications' | 'reminders' | 'news'>(() => {
     const tab = searchParams.get('notificationsTab') as 'notifications' | 'reminders' | 'news' | null;
     return tab || 'notifications';
   });
   const [isNotificationsBlockCollapsed, setIsNotificationsBlockCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
-  const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(() => {
-    return searchParams.get('modal') === 'notifications';
-  });
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [optimizationSuggestions, setOptimizationSuggestions] = useState<OptimizationSuggestion[]>([]);
@@ -711,26 +707,6 @@ const NotificationsBlock: React.FC<NotificationsBlockProps> = ({ onOpenTaskView 
           </div>
         </div>
       </div>
-      {isNotificationsModalOpen && (
-        <NotificationsViewModal
-          activeTab={activeTab}
-          isOpen={isNotificationsModalOpen}
-          onClose={() => {
-            setIsNotificationsModalOpen(false);
-            const newParams = new URLSearchParams(searchParams);
-            newParams.delete('modal');
-            newParams.delete('notificationsTab');
-            setSearchParams(newParams, { replace: true });
-          }}
-          onTabChange={(t) => {
-            setActiveTab(t);
-            const newParams = new URLSearchParams(searchParams);
-            newParams.set('notificationsTab', t);
-            setSearchParams(newParams, { replace: true });
-          }}
-          onOpenTaskView={onOpenTaskView}
-        />
-      )}
       {isTasksGridModalOpen && (
         <TasksGridModal
           isOpen={isTasksGridModalOpen}

@@ -34,27 +34,27 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const touchStartElement = useRef<HTMLElement | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<t('calendarViewModal.week') | t('calendarViewModal.day') | t('calendarViewModal.month') | t('calendarViewModal.year') | t('calendarViewModal.schedule')>(t('calendarViewModal.week'));
-  const [isCreateEventModalOpen, setIsCreateEventModalOpen] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(t('calendarViewModal.week'));
+  const [isCreateEventModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   
   // Состояние формы создания события (вынесено на уровень родителя, чтобы не сбрасывалось)
-  const [eventFormTitle, setEventFormTitle] = useState('');
-  const [eventFormDescription, setEventFormDescription] = useState('');
+  const [, setEventFormTitle] = useState('');
+  const [, setEventFormDescription] = useState('');
   const [eventFormStartDate, setEventFormStartDate] = useState('');
-  const [eventFormStartTime, setEventFormStartTime] = useState('');
-  const [eventFormEndDate, setEventFormEndDate] = useState('');
-  const [eventFormEndTime, setEventFormEndTime] = useState('');
-  const [eventFormType, setEventFormType] = useState<EventType>(EventType.MEETING);
-  const [eventFormIsAllDay, setEventFormIsAllDay] = useState(false);
-  const [eventFormLocation, setEventFormLocation] = useState('');
-  const [eventFormMeetingUrl, setEventFormMeetingUrl] = useState('');
-  const [eventFormLeadId, setEventFormLeadId] = useState('');
-  const [eventFormParticipants, setEventFormParticipants] = useState<string[]>([]);
-  const [eventFormExternalParticipants, setEventFormExternalParticipants] = useState<string[]>([]);
-  const [eventFormReminderMinutes, setEventFormReminderMinutes] = useState<number[]>([1440, 360, 60]); // По умолчанию: 24ч, 6ч, 1ч
-  const [eventFormIsRecurring, setEventFormIsRecurring] = useState(false);
-  const [eventFormRecurringRule, setEventFormRecurringRule] = useState('');
+  const [, setEventFormStartTime] = useState('');
+  const [, setEventFormEndDate] = useState('');
+  const [, setEventFormEndTime] = useState('');
+  const [, setEventFormType] = useState<EventType>(EventType.MEETING);
+  const [, setEventFormIsAllDay] = useState(false);
+  const [, setEventFormLocation] = useState('');
+  const [, setEventFormMeetingUrl] = useState('');
+  const [, setEventFormLeadId] = useState('');
+  const [, setEventFormParticipants] = useState<string[]>([]);
+  const [, setEventFormExternalParticipants] = useState<string[]>([]);
+  const [, setEventFormReminderMinutes] = useState<number[]>([1440, 360, 60]); // По умолчанию: 24ч, 6ч, 1ч
+  const [, setEventFormIsRecurring] = useState(false);
+  const [, setEventFormRecurringRule] = useState('');
   const [isPeriodDropdownOpen, setIsPeriodDropdownOpen] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [_tasks, setTasks] = useState<Task[]>([]);
@@ -70,8 +70,6 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggedEventTime, setDraggedEventTime] = useState<{ event: CalendarEvent; initialY: number } | null>(null);
   const [_dragTimePreview, setDragTimePreview] = useState<number | null>(null);
-  const [_isCreatingTaskFromCalendar, setIsCreatingTaskFromCalendar] = useState(false);
-  const [_newTaskDate, setNewTaskDate] = useState<Date | null>(null);
   const [isEditingEvent, setIsEditingEvent] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<CalendarEvent | null>(null);
   const isFirstLoadRef = useRef(true); // чтобы не дергать интерфейс индикатором загрузки при автообновлении
@@ -81,13 +79,13 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
   
   // РЕАЛТАЙМ СИНХРОНИЗАЦИЯ: Подписываемся на события задач через WebSocket
   useTaskRealtimeSync({
-    onTaskCreated: useCallback((task: Task) => {
+    onTaskCreated: useCallback(() => {
       // Перезагружаем события для синхронизации
       if (isOpen) {
         loadEvents();
       }
     }, [isOpen]),
-    onTaskUpdated: useCallback((task: Task) => {
+    onTaskUpdated: useCallback(() => {
       // Перезагружаем события для синхронизации
       if (isOpen) {
         loadEvents();
@@ -135,7 +133,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     const listeners: Array<{ event: string; fn: (env: PushEnvelope<any>) => void }> = [];
     
     // Подписываемся на создание событий календаря
-    const onEventCreated = onPush<CalendarEvent>('calendar:event:created', (env) => {
+    const onEventCreated = onPush<CalendarEvent>('calendar:event:created', () => {
       if (isOpen) {
         loadEvents();
       }
@@ -143,7 +141,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     listeners.push({ event: 'calendar:event:created', fn: onEventCreated });
     
     // Подписываемся на обновление событий календаря
-    const onEventUpdated = onPush<CalendarEvent>('calendar:event:updated', (env) => {
+    const onEventUpdated = onPush<CalendarEvent>('calendar:event:updated', () => {
       if (isOpen) {
         loadEvents();
       }
@@ -301,7 +299,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     const isAllDay = useMemo(() => isAllDayEvent(event), [event.isAllDay, event.startTime, event.endTime]);
     const timeRange = useMemo(() => {
       return isAllDay 
-        ? [t('calendarViewModal.allDay')]: `${formatTime(event.startTime)} - ${formatTime(event.endTime)}`;
+        ? t('calendarViewModal.allDay'): `${formatTime(event.startTime)} - ${formatTime(event.endTime)}`;
     }, [isAllDay, event.startTime, event.endTime]);
     
     // Используем useRef для хранения стабильных ссылок, чтобы обработчики не пересоздавались
@@ -459,13 +457,13 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
           {/* Слот 2: Бейдж типа задачи Л/Р */}
           <div className="w-6 h-5 flex items-center justify-center flex-shrink-0">
             {taskData?.workType && (
-              <Tooltip text={taskData.workType === 'work' ? [t('calendarViewModal.working')]: t('calendarViewModal.personal')}>
+              <Tooltip text={taskData.workType === 'work' ? t('calendarViewModal.working'): t('calendarViewModal.personal')}>
                 <span className={`px-1.5 py-0.5 rounded-[4px] text-base flex-shrink-0 ${
                   taskData.workType === 'work'
                     ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--secondary))] text-[var(--accent)]'
                     : 'bg-[color-mix(in_srgb,var(--primary)_15%,var(--secondary))] text-[rgba(255,255,255,0.72)]'
                 }`}>
-                  {taskData.workType === 'work' ? [t('calendarViewModal.r')]: t('calendarViewModal.l')}
+                  {taskData.workType === 'work' ? t('calendarViewModal.r'): t('calendarViewModal.l')}
                 </span>
               </Tooltip>
             )}
@@ -1307,118 +1305,6 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     setEventFormType(EventType.MEETING);
   }, []);
 
-  // Функция для создания события (мемоизирована для стабильности)
-  const handleCreateEvent = useCallback(async (eventData: {
-    title: string;
-    description?: string;
-    startTime: string;
-    endTime: string;
-    type: EventType;
-    isAllDay?: boolean;
-    location?: string;
-    meetingUrl?: string;
-    leadId?: string;
-    participants?: string[];
-    externalParticipants?: string[];
-    reminderMinutes?: number[];
-    isRecurring?: boolean;
-    recurringRule?: string;
-  }) => {
-    if (!user?.id) return;
-
-    try {
-      // Подготавливаем данные для создания события
-      const createData: any = {
-        title: eventData.title,
-        description: eventData.description,
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-        type: eventData.type,
-        status: EventStatus.SCHEDULED,
-        isAllDay: eventData.isAllDay,
-      };
-
-      // Добавляем опциональные поля только если они заполнены
-      if (eventData.location) createData.location = eventData.location;
-      if (eventData.meetingUrl) createData.meetingUrl = eventData.meetingUrl;
-      if (eventData.leadId) createData.leadId = eventData.leadId;
-      if (eventData.participants && eventData.participants.length > 0) {
-        createData.participants = eventData.participants;
-      }
-      if (eventData.externalParticipants && eventData.externalParticipants.length > 0) {
-        createData.externalParticipants = eventData.externalParticipants;
-      }
-      if (eventData.reminderMinutes && eventData.reminderMinutes.length > 0) {
-        createData.reminderMinutes = eventData.reminderMinutes;
-      }
-      if (eventData.isRecurring) {
-        createData.isRecurring = true;
-        if (eventData.recurringRule) {
-          createData.recurringRule = eventData.recurringRule;
-        }
-      }
-
-      // Если создается задача, создаем событие типа TASK без taskId - автоматически создастся задача
-      if (eventData.type === EventType.TASK) {
-        const response = await calendarCrmService.createCalendarEvent(createData);
-
-        if (response.success) {
-          const eventStartDate = new Date(eventData.startTime);
-          setCurrentDate(eventStartDate);
-          if (selectedPeriod === t('calendarViewModal.week')) {
-            setSelectedPeriod(t('calendarViewModal.day'));
-          }
-          // Добавляем новую задачу в локальное состояние
-          setIsCreateEventModalOpen(false);
-          
-          // Обновляем данные с бэкенда после закрытия модального окна создания задачи
-          // Умное сравнение предотвратит лишние обновления
-          setTimeout(() => {
-            loadEvents();
-          }, 100);
-          setIsCreatingTaskFromCalendar(false);
-          setNewTaskDate(null);
-          // Очищаем форму
-          resetEventForm();
-          return;
-        } else {
-          alert(response.message || t('calendarViewModal.errorCreatingTask'));
-          return;
-        }
-      }
-
-      // Для остальных типов создаем событие календаря
-      const response = await calendarCrmService.createCalendarEvent(createData);
-
-      if (response.success) {
-        // Переключаемся на дату созданного события, чтобы увидеть его
-        const eventStartDate = new Date(eventData.startTime);
-        setCurrentDate(eventStartDate);
-        // Если был выбран режим "Неделя", переключаемся на "День" для просмотра созданного события
-        if (selectedPeriod === t('calendarViewModal.week')) {
-          setSelectedPeriod(t('calendarViewModal.day'));
-        }
-        // Добавляем новую задачу в локальное состояние
-        setIsCreateEventModalOpen(false);
-        
-        // Обновляем данные с бэкенда после закрытия модального окна создания задачи
-        // Умное сравнение предотвратит лишние обновления
-        setTimeout(() => {
-          loadEvents();
-        }, 100);
-        setIsCreatingTaskFromCalendar(false);
-        setNewTaskDate(null);
-        // Очищаем форму после успешного создания
-        resetEventForm();
-      } else {
-        alert(response.message || t('calendarViewModal.errorCreatingEvent'));
-      }
-    } catch (error: any) {
-      console.error('Error creating event:', error);
-      alert(error.message || t('calendarViewModal.errorCreatingEvent'));
-    }
-  }, [user?.id, loadEvents, selectedPeriod, resetEventForm]);
-
   // Функция для получения цвета события по типу
   const getEventColor = (type: EventType): string => {
     switch (type) {
@@ -2201,9 +2087,9 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                                         <span className="text-gray-700 font-normal flex-shrink-0 text-[10px] min-w-[50px]">{t('calendarViewModal.allDay')}</span>
                                         <span className="font-medium text-gray-900 truncate flex-1 min-w-0 text-[11px]">{event.title}</span>
                                         <span className="text-gray-500 text-[9px] flex-shrink-0 hidden sm:inline">
-                                          {event.type === EventType.MEETING ? [t('calendarViewModal.meeting1')]: 
-                                           event.type === EventType.CALL ? [t('calendarViewModal.call1')]: 
-                                           event.type === EventType.REMINDER ? [t('calendarViewModal.reminder')]: ''}
+                                          {event.type === EventType.MEETING ? t('calendarViewModal.meeting1'):
+                                           event.type === EventType.CALL ? t('calendarViewModal.call1'):
+                                           event.type === EventType.REMINDER ? t('calendarViewModal.reminder'): ''}
                                         </span>
                                       </div>
                                     ))}
@@ -2531,9 +2417,9 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                                                   <>
                                                     <span className="text-gray-400">•</span>
                                                     <span className="flex-shrink-0">
-                                                      {event.type === EventType.MEETING ? [t('calendarViewModal.meeting1')]: 
-                                                       event.type === EventType.CALL ? [t('calendarViewModal.call1')]: 
-                                                       event.type === EventType.REMINDER ? [t('calendarViewModal.reminder')]: ''}
+                                                      {event.type === EventType.MEETING ? t('calendarViewModal.meeting1'):
+                                                       event.type === EventType.CALL ? t('calendarViewModal.call1'):
+                                                       event.type === EventType.REMINDER ? t('calendarViewModal.reminder'): ''}
                                                     </span>
                                                   </>
                                                 )}
@@ -2559,12 +2445,6 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                                   // Проверяем, что клик не на событии и не идет перетаскивание
                                   const clickedEvent = (e.target as HTMLElement).closest('[data-event-item]');
                                   if (clickedEvent === null && !draggedEventTime) {
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    const y = e.clientY - rect.top;
-                                    const totalMinutes = Math.floor((y / rect.height) * 1440);
-                                    const hour = Math.floor(totalMinutes / 60);
-                                    const minute = Math.floor((totalMinutes % 60) / 15) * 15; // Округляем до 15 минут
-                                    
                                     // Календарь только отображает задачи, не создаёт их
                                   }
                                 }}
@@ -2991,7 +2871,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                                     </div>
                                     {dayEvents.length > 0 && (
                                       <div className="text-sm text-gray-500">
-                                        {dayEvents.length} {dayEvents.length === 1 ? [t('calendarViewModal.event')]: dayEvents.length < 5 ? [t('calendarViewModal.events')]: t('calendarViewModal.events1')}
+                                        {dayEvents.length} {dayEvents.length === 1 ? t('calendarViewModal.event'): dayEvents.length < 5 ? t('calendarViewModal.events'): t('calendarViewModal.events1')}
                                       </div>
                                     )}
                                   </div>
@@ -3052,9 +2932,9 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                                                 )}
                                                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                                                   <span className="text-base px-2 py-1 rounded-[4px] bg-[color-mix(in_srgb,var(--accent)_15%,var(--secondary))] text-[var(--accent)]">
-                                                    {event.type === EventType.MEETING ? [t('calendarViewModal.meeting1')]: 
-                                                     event.type === EventType.CALL ? [t('calendarViewModal.call1')]: 
-                                                     event.type === EventType.REMINDER ? [t('calendarViewModal.reminder')]: ''}
+                                                    {event.type === EventType.MEETING ? t('calendarViewModal.meeting1'):
+                                                     event.type === EventType.CALL ? t('calendarViewModal.call1'):
+                                                     event.type === EventType.REMINDER ? t('calendarViewModal.reminder'): ''}
                                                   </span>
                                                   {event.location && (
                                                     <span className="text-xs text-gray-500 flex items-center gap-1">
@@ -3591,7 +3471,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     }, [eventToDisplay.type, eventToDisplay.taskId, tasksDataMap]);
     const isAllDay = isAllDayEvent(eventToDisplay);
     const timeRange = isAllDay 
-      ? [t('calendarViewModal.allDay')]: `${formatTime(eventToDisplay.startTime)} - ${formatTime(eventToDisplay.endTime)}`;
+      ? t('calendarViewModal.allDay'): `${formatTime(eventToDisplay.startTime)} - ${formatTime(eventToDisplay.endTime)}`;
 
     const eventTypeLabels: Partial<Record<EventType, string>> = {
       [EventType.MEETING]: t('calendarViewModal.meeting1'),
@@ -3611,12 +3491,12 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     const formatReminderTime = (minutes: number): string => {
       if (minutes >= 1440) {
         const days = Math.floor(minutes / 1440);
-        return days === 1 ? [t('calendarViewModal.in1Day')]: `За ${days} ${days < 5 ? [t('calendarViewModal.day1')]: t('calendarViewModal.days')}`;
+        return days === 1 ? t('calendarViewModal.in1Day'): `За ${days} ${days < 5 ? t('calendarViewModal.day1'): t('calendarViewModal.days')}`;
       } else if (minutes >= 60) {
         const hours = Math.floor(minutes / 60);
-        return hours === 1 ? [t('calendarViewModal.in1Hour')]: `За ${hours} ${hours < 5 ? [t('calendarViewModal.hours')]: t('calendarViewModal.hours1')}`;
+        return hours === 1 ? t('calendarViewModal.in1Hour'): `За ${hours} ${hours < 5 ? t('calendarViewModal.hours'): t('calendarViewModal.hours1')}`;
       } else {
-        return minutes === 1 ? [t('calendarViewModal.in1Minute')]: `За ${minutes} ${minutes < 5 ? [t('calendarViewModal.minutes')]: t('calendarViewModal.minutes1')}`;
+        return minutes === 1 ? t('calendarViewModal.in1Minute'): `За ${minutes} ${minutes < 5 ? t('calendarViewModal.minutes'): t('calendarViewModal.minutes1')}`;
       }
     };
     
@@ -4410,7 +4290,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
                 disabled={isUpdating}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-dream-primary to-green-600 text-white rounded-xl hover:opacity-90 transition-all duration-200 ease-in-out font-normal shadow-lg hover:scale-105 active:scale-95 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isUpdating ? [t('calendarViewModal.saving')]: t('calendarViewModal.saveChanges')}
+                {isUpdating ? t('calendarViewModal.saving'): t('calendarViewModal.saveChanges')}
               </button>
             </div>
           </form>
@@ -4480,9 +4360,9 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
     //   при удалении события только удаляется связь, задача остается
     const hasTaskId = isTaskEvent && eventToDelete.taskId;
     const deleteMessage = isTaskFromUnifiedView
-      ? [t('calendarViewModal.whenYouDeleteThisTaskItWillBeC')]: isTaskEvent && hasTaskId
-      ? [t('calendarViewModal.whenThisEventIsDeletedTheConne')]: isTaskEvent
-      ? [t('calendarViewModal.deletingThisEventWillAlsoDelet')]: t('calendarViewModal.areYouSureYouWantToDeleteThisE');
+      ? t('calendarViewModal.whenYouDeleteThisTaskItWillBeC'): isTaskEvent && hasTaskId
+      ? t('calendarViewModal.whenThisEventIsDeletedTheConne'): isTaskEvent
+      ? t('calendarViewModal.deletingThisEventWillAlsoDelet'): t('calendarViewModal.areYouSureYouWantToDeleteThisE');
 
     return createPortal(
       <div 
@@ -4524,7 +4404,7 @@ const CalendarViewModal: React.FC<CalendarViewModalProps> = ({
               disabled={isDeleting}
               className="flex-1 px-6 py-3 bg-red-600 text-white rounded-full hover:bg-red-700 transition-all duration-200 ease-in-out font-normal disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95 disabled:hover:scale-100"
             >
-              {isDeleting ? [t('calendarViewModal.delete')]: t('calendarViewModal.delete1')}
+              {isDeleting ? t('calendarViewModal.delete'): t('calendarViewModal.delete1')}
             </button>
           </div>
         </div>

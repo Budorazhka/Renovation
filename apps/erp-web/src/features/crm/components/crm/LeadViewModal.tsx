@@ -27,6 +27,8 @@ import { NotesEditor } from './NotesEditor';
 import { parseDateFromAPI } from '../../utils/dateUtils';
 import { useI18n } from '@/i18n';
 import { leadsApiV2 } from '@/services/leadsApiV2';
+import { openLeadFile } from '../../services/leadsCrmV2';
+import { findRejectedUpload, UPLOAD_ACCEPT } from '@/lib/open-signed-file';
 import type { LeadEventV2 } from '@/types/leadsV2';
 import { tasksApiV2 } from '@/services/tasksApiV2';
 import { mediaApiV2 } from '@/services/mediaApiV2';
@@ -519,8 +521,12 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
   }, [displayLead?._id, loadLeadFiles]);
 
   const handleDownloadFile = useCallback((file: { filename: string; originalName: string; mimeType: string; size: number; url: string }) => {
-    window.open(file.url, '_blank');
-  }, []);
+    if (!displayLead?._id) return;
+    void openLeadFile(displayLead._id, file).catch((error: unknown) => {
+      console.error('Failed to open lead file:', error);
+      setUploadError(t('leadCard.failedOpenFile'));
+    });
+  }, [displayLead?._id, t]);
 
   // Загрузка файлов при открытии модалки
   useEffect(() => {
@@ -3344,9 +3350,7 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
                         try {
                           const filesArray = Array.from(selectedFiles);
                           
-                          // Константы валидации
-                          // `[phase 3]` 20MB — реальный лимит нового backend (media.constants.ts::MAX_UPLOAD_SIZE_BYTES), не 100MB, как было в легаси.
-                          const MAX_FILE_SIZE = 20 * 1024 * 1024;
+                          // Тип и размер проверяются по правилам хранилища платформы (findRejectedUpload).
                           const MAX_FILES_PER_LEAD = 10;
                           const MAX_FILES_PER_UPLOAD = 10;
                           
@@ -3366,7 +3370,7 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
                             return;
                           }
 
-                          const tooLarge = filesArray.find((f) => f.size > MAX_FILE_SIZE);
+                          const tooLarge = findRejectedUpload(filesArray);
                           if (tooLarge) {
                             setUploadError(formatMessage(t('leadCard.fileTooLarge'), { name: tooLarge.name }));
                             setIsUploading(false);
@@ -3383,7 +3387,7 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
                               // confirm), тот же паттерн, что аватар сотрудника (teamApi.uploadAvatar)
                               // и вложения задач — переиспользован mediaApiV2.uploadFile, не продублирован.
                               const { assetId } = await mediaApiV2.uploadFile(file, 'lead_attachment');
-                              await leadsApiV2.attachFile(displayLead._id, assetId);
+                              await leadsApiV2.attachFile(displayLead._id, assetId, file.name);
                               successCount++;
                             } catch (fileError: any) {
                               failedFiles.push(file.name);
@@ -3437,7 +3441,7 @@ const LeadViewModal: React.FC<LeadViewModalProps> = ({ isOpen, onClose, lead, on
                         }
                       }}
                       className="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                     />
                     
                     <button 

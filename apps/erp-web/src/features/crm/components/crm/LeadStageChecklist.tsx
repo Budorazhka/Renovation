@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { LeadStage, ProductType, apiService, type LeadFile, type LibraryFolder } from '../../services/api';
-import { leadCrmService } from '../../services/leadsCrmV2';
+import { LeadStage, ProductType, type LeadFile, type LibraryFolder } from '../../services/api';
+import { leadCrmService, openLeadFile } from '../../services/leadsCrmV2';
+import { libraryCrmService } from '../../services/libraryCrmV2';
+import { findRejectedUpload, UPLOAD_ACCEPT } from '@/lib/open-signed-file';
 import { useToast } from '../common/Toast';
 import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
 import {
@@ -908,7 +910,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
   const loadBaseFiles = useCallback(async () => {
     setIsLoadingBaseFiles(true);
     try {
-      const response = await apiService.getBaseFiles(selectedLibraryProductType);
+      const response = await libraryCrmService.getBaseFiles(selectedLibraryProductType);
       if (response.success && response.data) {
         setBaseFiles(response.data.files);
       } else {
@@ -943,7 +945,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
       }
 
       const fileIds = Array.from(selectedBaseFiles);
-      const response = await apiService.attachBaseFilesToLead(leadId, fileIds);
+      const response = await libraryCrmService.attachBaseFilesToLead(leadId, fileIds);
 
       if (response.success) {
         // Очищаем выбранные файлы
@@ -981,7 +983,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
   const loadLibraryFiles = useCallback(async (folderId?: string | null) => {
     setIsLoadingLibraryFiles(true);
     try {
-      const response = await apiService.getRealtorLibraryFiles(folderId || null, true, selectedLibraryProductType);
+      const response = await libraryCrmService.getRealtorLibraryFiles(folderId || null, true);
       if (response.success && response.data) {
         const files = response.data.files || [];
         const folders = response.data.folders || [];
@@ -1019,7 +1021,14 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
         return;
       }
 
-      const response = await apiService.uploadLibraryFiles(filesArray, currentFolderId);
+      const rejected = findRejectedUpload(filesArray);
+      if (rejected) {
+        setUploadError(formatMessage(t('checklist.fileTooLarge'), { name: rejected.name }));
+        setIsUploadingLibraryFiles(false);
+        return;
+      }
+
+      const response = await libraryCrmService.uploadLibraryFiles(filesArray, currentFolderId);
 
       if (response.success) {
         await loadLibraryFiles(currentFolderId);
@@ -1057,7 +1066,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
       }
 
       const fileIds = Array.from(selectedLibraryFiles);
-      const response = await apiService.attachLibraryFilesToLead(leadId, fileIds);
+      const response = await libraryCrmService.attachLibraryFilesToLead(leadId, fileIds);
 
       if (response.success) {
         // Очищаем выбранные файлы
@@ -1100,7 +1109,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
 
     setIsCreatingFolder(true);
     try {
-      const response = await apiService.createLibraryFolder(newFolderName.trim(), currentFolderId);
+      const response = await libraryCrmService.createLibraryFolder(newFolderName.trim(), currentFolderId);
       if (response.success) {
         setNewFolderName('');
         setShowCreateFolderInput(false);
@@ -1119,7 +1128,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
   const handleDeleteFolderClick = useCallback(async (folder: LibraryFolder) => {
     // Проверяем, есть ли в папке файлы или подпапки
     try {
-      const checkResponse = await apiService.getRealtorLibraryFiles(folder._id, true, selectedLibraryProductType);
+      const checkResponse = await libraryCrmService.getRealtorLibraryFiles(folder._id, true);
       if (checkResponse.success && checkResponse.data) {
         const filesCount = checkResponse.data.files?.length || 0;
         const foldersCount = checkResponse.data.folders?.length || 0;
@@ -1134,7 +1143,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     }
 
     setDeleteFolderConfirm({ isOpen: true, folder });
-  }, [selectedLibraryProductType, showToast]);
+  }, [showToast]);
 
   const handleDeleteFolderConfirm = useCallback(async () => {
     if (!deleteFolderConfirm.folder) return;
@@ -1144,7 +1153,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
     setDeletingFolderId(folder._id);
     
     try {
-      const response = await apiService.deleteLibraryFolder(folder._id, false);
+      const response = await libraryCrmService.deleteLibraryFolder(folder._id);
       if (response.success) {
         await loadLibraryFiles(currentFolderId);
         showToast(t('checklist.folderDeleted'), 'success');
@@ -1253,8 +1262,20 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
   }, []);
 
   const handleDownloadFile = useCallback((file: { filename: string; originalName: string; mimeType: string; size: number; url: string }) => {
-    window.open(file.url, '_blank');
-  }, []);
+    if (!leadId) return;
+    void openLeadFile(leadId, file).catch((error: unknown) => {
+      console.error('Failed to open lead file:', error);
+      setUploadError(t('crmLibrary.openFailed'));
+    });
+  }, [leadId, t]);
+
+  const handleOpenLibraryFile = useCallback((file: LeadFile & { _id?: string }) => {
+    if (!file._id) return;
+    void libraryCrmService.openLibraryFile({ ...file, _id: file._id }).catch((error: unknown) => {
+      console.error('Failed to open library file:', error);
+      setUploadError(t('crmLibrary.openFailed'));
+    });
+  }, [t]);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = event.target.files;
@@ -1267,7 +1288,6 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
       const filesArray = Array.from(selectedFiles);
       
       // Константы валидации
-      const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
       const MAX_FILES_PER_LEAD = 10;
       const MAX_FILES_PER_UPLOAD = 10;
       
@@ -1287,7 +1307,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
         return;
       }
 
-      const tooLarge = filesArray.find((f) => f.size > MAX_FILE_SIZE);
+      const tooLarge = findRejectedUpload(filesArray);
       if (tooLarge) {
         setUploadError(formatMessage(t('checklist.fileTooLarge'), { name: tooLarge.name }));
         setIsUploading(false);
@@ -1812,7 +1832,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
                                 </div>
                               </div>
                               <button
-                                onClick={() => handleDownloadFile(file)}
+                                onClick={() => handleOpenLibraryFile(file)}
                                 className="cursor-pointer p-2 hover:bg-gray-100 rounded transition-colors"
                                 title={t('common.download')}
                               >
@@ -2027,7 +2047,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
                                 </div>
                               </div>
                               <button
-                                onClick={() => handleDownloadFile(file)}
+                                onClick={() => handleOpenLibraryFile(file)}
                                 className="cursor-pointer p-2 hover:bg-gray-100 rounded transition-colors"
                                 title={t('common.download')}
                               >
@@ -2069,7 +2089,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
                       multiple
                       onChange={handleUploadLibraryFiles}
                       className="hidden"
-                      accept="*/*"
+                      accept={UPLOAD_ACCEPT}
                     />
                     
                     <button 
@@ -2169,7 +2189,7 @@ const LeadStageChecklist: React.FC<LeadStageChecklistProps> = ({
                     multiple
                     onChange={handleFileSelect}
                     className="hidden"
-                    accept="*/*"
+                    accept={UPLOAD_ACCEPT}
                   />
                   
                   <button 

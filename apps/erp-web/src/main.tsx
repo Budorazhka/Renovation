@@ -4,7 +4,6 @@ import { HashRouter, Routes, Route, Navigate, Outlet, useParams } from 'react-ro
 import { DashboardProvider } from '@/context/DashboardContext'
 import { LeadsProvider } from '@/context/LeadsContext'
 import { DealsProvider } from '@/context/DealsContext'
-import { PlansProvider } from '@/context/PlansContext'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { NewsFeedProvider } from '@/context/NewsFeedContext'
 import { ThemeProvider } from '@/context/ThemeContext'
@@ -28,7 +27,6 @@ import { SupremeOwnerDashboardPage } from '@/components/owner/SupremeOwnerDashbo
 import { ProductPage } from '@/components/product/ProductPage'
 import { SettingsPage } from '@/components/settings/SettingsPage'
 import { LeadsPokerPage } from '@/components/leads/LeadsPokerPage'
-import LeadsInboxV2Page from '@/pages/leads/LeadsInboxV2Page'
 import BuyerRequestsBoardPage from '@/pages/buyer-requests/BuyerRequestsBoardPage'
 import { RuntimeErrorBoundary } from '@/components/common/RuntimeErrorBoundary'
 import {
@@ -91,7 +89,6 @@ import NewBuildingsObjectsCommissionsPage from '@/components/newbuild/NewBuildin
 import NewBuildingsPartnersPage from '@/components/newbuild/NewBuildingsPartnersPage'
 import PrimaryPartnersReportPage from '@/components/newbuild/PrimaryPartnersReportPage'
 import NewBuildingsBookingsRegistrationsPage from '@/pages/modules/NewBuildingsBookingsRegistrationsPage'
-import TeamReportPage from '@/components/reports/TeamReportPage'
 import { CrmReportsPage } from '@/components/reports/CrmReportsPage'
 import AgencyStatusesPage from '@/components/settings/AgencyStatusesPage'
 import FinancePanelPage from '@/components/finance/FinancePanelPage'
@@ -216,7 +213,6 @@ createRoot(document.getElementById('root')!).render(
                     <DashboardProvider>
                       <LeadsProvider>
                       <DealsProvider>
-                      <PlansProvider>
                         <Routes>
                         {/* Публичные маршруты */}
                         <Route element={<Outlet />}>
@@ -441,7 +437,7 @@ createRoot(document.getElementById('root')!).render(
                             <Route path="team" element={<TeamOrgPage />} />
                             <Route path="team/org" element={<Navigate to="/dashboard/team" replace />} />
                             <Route path="team/branches" element={<BranchesPage />} />
-                            <Route path="team/kpi" element={<TeamReportPage />} />
+                            <Route path="team/kpi" element={<Navigate to="/dashboard/crm/analytics" replace />} />
                             <Route path="team/access" element={<TeamAccessPage />} />
                             <Route path="analytics" element={<Navigate to="/dashboard/crm/analytics" replace />} />
                             <Route path="reports/registry" element={<Navigate to="/dashboard/crm/analytics" replace />} />
@@ -502,7 +498,7 @@ createRoot(document.getElementById('root')!).render(
                             />
                             <Route path="leads" element={<Navigate to="/dashboard/leads/poker" replace />} />
                             <Route path="leads/poker" element={<LeadsErrorBoundary><RuntimeErrorBoundary><LeadsPokerPage /></RuntimeErrorBoundary></LeadsErrorBoundary>} />
-                            <Route path="leads/inbox" element={<LeadsErrorBoundary><RuntimeErrorBoundary><LeadsInboxV2Page /></RuntimeErrorBoundary></LeadsErrorBoundary>} />
+                            <Route path="leads/inbox" element={<Navigate to="/dashboard/leads/poker?view=list" replace />} />
                             <Route path="buyer-requests" element={<RuntimeErrorBoundary><BuyerRequestsBoardPage /></RuntimeErrorBoundary>} />
                             <Route path="leads/analytics" element={<Navigate to="/dashboard/leads/report/general" replace />} />
                             <Route path="my-properties" element={<MyPropertiesPage />} />
@@ -541,7 +537,6 @@ createRoot(document.getElementById('root')!).render(
 
                         <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
-                      </PlansProvider>
                       </DealsProvider>
                       </LeadsProvider>
                     </DashboardProvider>

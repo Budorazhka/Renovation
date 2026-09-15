@@ -108,6 +108,7 @@ test.describe('D-07 vertical acceptance', () => {
   let developmentId: string
   let developmentSlug: string
   let publicationId: string
+  let revealedLeadId: string
 
   test.beforeAll(async ({ request }) => {
     owner = await bootstrapDeveloperOwner(request)
@@ -219,47 +220,54 @@ test.describe('D-07 vertical acceptance', () => {
       expect(revealRes.ok()).toBeTruthy()
       const body = await revealRes.json()
       expect(body.leadId).toBeTruthy()
+      revealedLeadId = body.leadId
     })
 
-    await test.step('7a. Lead появляется в ERP своей организации — реальный UI (LeadsInboxV2Page)', async () => {
+    await test.step('7a. Lead появляется на столе CRM своей организации — реальный UI (список стола)', async () => {
       await loginViaForm(page, owner.login, owner.password)
-      await page.goto('/#/dashboard/leads/inbox')
-      await expect(page.getByTestId('leads-table')).toBeVisible({ timeout: 10_000 })
-      await expect(page.getByTestId('leads-table')).toContainText('+995500009999')
+      await page.goto('/#/dashboard/leads/poker?view=list')
+      // Заявка с витрины — сразу в воронке «Продажи» (15.09.2026), видна на столе по имени контакта.
+      await expect(page.locator('body')).toContainText('E2E Гость', { timeout: 10_000 })
     })
 
     await test.step('7b. Negative: чужая организация не видит этот lead', async () => {
       const stranger = await bootstrapDeveloperOwner(request)
       const strangerPage = await page.context().browser()!.newPage()
       await loginViaForm(strangerPage, stranger.login, stranger.password)
-      await strangerPage.goto('/#/dashboard/leads/inbox')
-      // leads-table testid не рендерится вовсе, когда список пуст (см.
-      // LeadsInboxV2View.tsx) — чужая организация должна увидеть пустой
-      // список, не 403/404 (non-disclosure), поэтому проверяем весь body,
-      // не конкретный testid, который в этом случае отсутствует.
-      await expect(strangerPage.locator('body')).not.toContainText('+995500009999')
+      await strangerPage.goto('/#/dashboard/leads/poker?view=list')
+      // Non-disclosure: чужая организация видит пустой стол, не 403/404.
+      await expect(strangerPage.locator('body')).not.toContainText('E2E Гость')
       await strangerPage.close()
     })
   })
 
-  test('8. РОП назначает lead на Position менеджера — реальный UI (LeadDetailsModal)', async ({ page }) => {
+  test('8. РОП назначает lead и переводит его по воронке продаж — API (optimistic concurrency)', async ({ page }) => {
     await loginViaForm(page, owner.login, owner.password)
-    await page.goto('/#/dashboard/leads/inbox')
-    await page.getByTestId('leads-table').getByText('+995500009999').click()
+    const headers = { Origin: ERP_ORIGIN }
 
-    await expect(page.getByTestId('assign-position-select')).toBeVisible({ timeout: 10_000 })
-    const select = page.getByTestId('assign-position-select')
-    await select.selectOption({ index: 1 })
-    await page.getByTestId('assign-submit-button').click()
-    await expect(page.getByTestId('assign-success-banner')).toBeVisible({ timeout: 10_000 })
+    const leadUrl = `${API_ORIGIN}/api/v1/leads/${revealedLeadId}`
 
-    // 27.08.2026: реальная проверка PATCH /leads/:id/stage с optimistic
-    // concurrency (expectedVersion) — этот UI-путь никогда не проверялся
-    // реальным браузером до этого прохода (leadsApiV2.changeStage раньше не
-    // отправлял expectedVersion вообще, backend теперь требует его строго).
-    await page.getByTestId('stage-button-contacted').click()
-    await expect(page.getByTestId('stage-success-banner')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByTestId('stage-error-banner')).toHaveCount(0)
+    const assignRes = await page.request.post(`${leadUrl}/assign`, {
+      headers,
+      data: { assigneePositionId: owner.positionId },
+    })
+    expect(assignRes.ok()).toBeTruthy()
+
+    const leadRes = await page.request.get(leadUrl, { headers })
+    const lead = await leadRes.json()
+    expect(lead.productType).toBe('sales')
+
+    // Стадия продаж с expectedVersion (backend требует его строго).
+    const stageRes = await page.request.patch(`${leadUrl}/stage`, {
+      headers: { ...headers, 'Idempotency-Key': `d07-stage-${shortId()}` },
+      data: { stage: 'callback', expectedVersion: lead.version },
+    })
+    expect(stageRes.ok()).toBeTruthy()
+    const stale = await page.request.patch(`${leadUrl}/stage`, {
+      headers: { ...headers, 'Idempotency-Key': `d07-stage-${shortId()}` },
+      data: { stage: 'presented', expectedVersion: lead.version },
+    })
+    expect(stale.status()).toBe(409)
   })
 
   test('9-10. Admin снимает публикацию с причиной (API-only), marketplace её больше не отдаёт, ERP видит причину, audit полон', async ({

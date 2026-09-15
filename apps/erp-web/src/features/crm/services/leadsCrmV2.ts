@@ -1,5 +1,6 @@
 import { leadChecklistApiV2, leadsApiV2, newIdempotencyKey } from '@/services/leadsApiV2';
 import { mediaApiV2 } from '@/services/mediaApiV2';
+import { openSignedFile } from '@/lib/open-signed-file';
 import { mapLeadV2ToCrmLead, mapProductTypeCrmToV2, stageCrmToV2, stageV2ToCrm } from '@/lib/lead-v2-legacy-adapter';
 import type { LeadFileV2, UpdateLeadV2Payload } from '@/types/leadsV2';
 import type { ApiResponse, CreateLeadDto, Lead, LeadFile, LeadStage, UpdateLeadDto, UpdateLeadStageDto } from './api';
@@ -9,6 +10,11 @@ import type { ApiResponse, CreateLeadDto, Lead, LeadFile, LeadStage, UpdateLeadD
  * {success, data} как у старого apiService) — для CreateClientModal и
  * LeadStageChecklist.
  */
+
+/** Открывает файл лида: изображение — по публичному url, PDF и файлы библиотеки — по временной ссылке сервера. */
+export function openLeadFile(leadId: string, file: Pick<LeadFile, 'filename' | 'url'>): Promise<void> {
+  return openSignedFile(() => leadsApiV2.getFileDownloadUrl(leadId, file.filename), file.url);
+}
 
 function failure<T>(error: unknown): ApiResponse<T> {
   const err = error as { response?: { data?: { message?: string } }; message?: string };
@@ -180,7 +186,7 @@ export const leadCrmService = {
       let current: LeadFileV2[] = [];
       for (const file of files) {
         const { assetId } = await mediaApiV2.uploadFile(file, 'lead_attachment');
-        current = await leadsApiV2.attachFile(leadId, assetId);
+        current = await leadsApiV2.attachFile(leadId, assetId, file.name);
       }
       return { success: true, data: { files: current.map(mapLeadFileV2ToCrm) } };
     } catch (error) {

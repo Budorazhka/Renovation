@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { DASHBOARD_NOTIFICATIONS_PREVIEW } from '@/data/home-workspace-mock'
+import { useCrmSync } from '@/features/crm/context/CrmSyncContext'
 import { useTheme } from '@/hooks/useTheme'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -53,6 +53,8 @@ export function DashboardTopHeader() {
   const { activeScreen, setActiveScreen } = useWorkspaceDeskScreen()
   const { currentUser } = useAuth()
   const { isLightTheme: isLight } = useTheme()
+  // Настоящие уведомления: просроченные задачи и задачи на сегодня (CrmSyncContext).
+  const { notifications } = useCrmSync()
   const { language, setLanguage, t } = useI18n()
   const role = currentUser?.role ?? 'manager'
   const canInfo = isDashboardPathAllowedForRole('/dashboard/settings/info', role)
@@ -272,7 +274,10 @@ export function DashboardTopHeader() {
               {t('shell.notifications')}
             </DropdownMenuLabel>
             <div className="max-h-[min(52vh,18rem)] overflow-y-auto px-1 pb-1">
-              {DASHBOARD_NOTIFICATIONS_PREVIEW.slice(0, 5).map((n) => (
+              {notifications.length === 0 ? (
+                <p className={cn('px-2 py-3 text-center text-[16px]', notifMuted)}>{t('shell.noNotifications')}</p>
+              ) : null}
+              {notifications.slice(0, 5).map((n) => (
                 <DropdownMenuItem
                   key={n.id}
                   className={cn(
