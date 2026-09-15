@@ -301,7 +301,8 @@ describe('P1-05: Полный пользовательский путь прод
     });
     expect(revealResult.phone).toBe('+995555112233');
     expect(revealResult.leadId).toBeDefined();
-    const leadId = revealResult.leadId;
+    // Заявка с телефоном посетителя всегда создаёт лид (без телефона — только показ номера).
+    const leadId = revealResult.leadId!;
 
     // 8. Менеджер в ERP видит входящий лид в CRM
     const leadsList = await crmService.listLeads({

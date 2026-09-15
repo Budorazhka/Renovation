@@ -348,6 +348,32 @@ export class TaskRepository {
       .exec();
   }
 
+  /**
+   * Факт по плану сотрудника: сколько задач-звонков и задач-встреч
+   * исполнитель закрыл в периоде (по completedAt, не по createdAt — план
+   * меряет сделанное, а не поставленное).
+   */
+  async aggregateCompletedActivitiesByPosition(
+    organizationId: Types.ObjectId,
+    params: { from: Date; to: Date },
+  ): Promise<Array<{ assignedPositionId: Types.ObjectId; taskType: 'call' | 'meeting'; count: number }>> {
+    return this.model
+      .aggregate<{ assignedPositionId: Types.ObjectId; taskType: 'call' | 'meeting'; count: number }>([
+        {
+          $match: {
+            organizationId,
+            status: 'completed',
+            taskType: { $in: ['call', 'meeting'] },
+            assignedPositionId: { $ne: null },
+            completedAt: { $gte: params.from, $lte: params.to },
+          },
+        },
+        { $group: { _id: { assignedPositionId: '$assignedPositionId', taskType: '$taskType' }, count: { $sum: 1 } } },
+        { $project: { _id: 0, assignedPositionId: '$_id.assignedPositionId', taskType: '$_id.taskType', count: 1 } },
+      ])
+      .exec();
+  }
+
   async aggregateByAssignedPosition(
     organizationId: Types.ObjectId,
     params: { from?: Date; to?: Date },

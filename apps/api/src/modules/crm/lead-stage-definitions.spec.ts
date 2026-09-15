@@ -1,5 +1,7 @@
 import {
+  CONVERSION_STAGE_BY_PRODUCT,
   LEAD_STAGE_DEFINITIONS,
+  leadStageOutcome,
   PRODUCT_TYPES,
   firstStageIdForProduct,
   stageIdsForProduct,
@@ -108,5 +110,33 @@ describe('lead-stage-definitions', () => {
         expect(definition?.column).toBe('in_progress');
       },
     );
+  });
+});
+
+describe('leadStageOutcome — стадии успеха (owner decision 15.09.2026)', () => {
+  it.each([
+    ['golden', 'converted'],
+    ['new_deals', 'converted'],
+    ['deal', null],
+    ['refused', 'lost'],
+    ['network_work_started', 'converted'],
+    ['network_offer_signed', null],
+    ['owner_active_for_sale', 'converted'],
+    ['owner_new_object_inquiry', 'converted'],
+    ['owner_agreed', null],
+    ['agent_active', 'converted'],
+    ['agent_no_call_1', 'lost'],
+    ['converted', 'converted'],
+    ['lost', 'lost'],
+  ])('%s → %s', (stage, outcome) => {
+    expect(leadStageOutcome(stage)).toBe(outcome);
+  });
+
+  it('стадия успеха каждого продукта существует в его воронке и не в колонке отказа', () => {
+    for (const productType of PRODUCT_TYPES) {
+      const stage = LEAD_STAGE_DEFINITIONS[productType].find((s) => s.id === CONVERSION_STAGE_BY_PRODUCT[productType]);
+      expect(stage).toBeDefined();
+      expect(stage!.column).not.toBe('rejection');
+    }
   });
 });

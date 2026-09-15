@@ -438,13 +438,14 @@ export class LeadRepository {
     organizationId: Types.ObjectId,
     assetId: Types.ObjectId,
     session?: ClientSession,
+    fileName?: string,
   ): Promise<{ modifiedCount: number }> {
+    const update: Record<string, unknown> = { $addToSet: { attachedAssetIds: assetId } };
+    if (fileName) {
+      update.$set = { [`attachedFileNames.${assetId.toString()}`]: fileName };
+    }
     const result = await this.model
-      .updateOne(
-        { _id: id, organizationId, status: { $ne: 'deleted' } },
-        { $addToSet: { attachedAssetIds: assetId } },
-        { session },
-      )
+      .updateOne({ _id: id, organizationId, status: { $ne: 'deleted' } }, update, { session })
       .exec();
     return { modifiedCount: result.modifiedCount };
   }
@@ -459,7 +460,7 @@ export class LeadRepository {
     const result = await this.model
       .updateOne(
         { _id: id, organizationId, status: { $ne: 'deleted' } },
-        { $pull: { attachedAssetIds: assetId } },
+        { $pull: { attachedAssetIds: assetId }, $unset: { [`attachedFileNames.${assetId.toString()}`]: 1 } },
         { session },
       )
       .exec();

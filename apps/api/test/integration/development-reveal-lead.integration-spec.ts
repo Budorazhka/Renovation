@@ -223,6 +223,7 @@ describe('Public development lead reveal flow — Integration (real HTTP + real 
     expect(lead).toBeTruthy();
     expect(lead!.organizationId.toString()).toBe(owner.organizationId);
     expect(lead!.contactId.toString()).toBe(contact!._id.toString());
+    expect(lead!.productType).toBe('sales');
     expect(lead!.stage).toBe('new');
     expect(lead!.source.route).toBe(`/developments/${devData.slug}`);
     expect(lead!.source.publicationId.toString()).toBe(devData.publicationId.toString());
@@ -344,7 +345,7 @@ describe('Public development lead reveal flow — Integration (real HTTP + real 
     expect(res.statusCode).toBe(404);
   });
 
-  it('возвращает 400 при отсутствии телефона', async () => {
+  it('без телефона посетителя — показывает номер застройщика, лид не создаётся', async () => {
     const owner = await developerOwnerCookie('dev-val-owner');
     const devData = await seedPublishedDevelopment(owner);
     const ip = nextIp();
@@ -353,9 +354,13 @@ describe('Public development lead reveal flow — Integration (real HTTP + real 
       method: 'POST',
       url: `/api/v1/public/developments/${devData.slug}/reveal-contact`,
       remoteAddress: ip,
-      payload: { requesterName: 'Иван без телефона' },
+      payload: {},
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ phone: devData.contactPhone });
+    expect(
+      await connection.collection('leads').countDocuments({ organizationId: new Types.ObjectId(owner.organizationId) }),
+    ).toBe(0);
   });
 
   it('применяет rate-limit (429) при частых запросах — тот же лимит, что у listing-endpoint', async () => {

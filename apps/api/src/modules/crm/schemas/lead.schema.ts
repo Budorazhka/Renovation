@@ -260,6 +260,15 @@ export class LeadDocument extends Document {
   attachedAssetIds!: Types.ObjectId[];
 
   /**
+   * Имя файла, которое видел пользователь, по assetId вложения. MediaAsset
+   * хранит только storage key (`<assetId>/original.pdf`), поэтому без этой
+   * записи файл лида показывался как «original.pdf». Нет ключа — имя
+   * выводится из storage key, как было до 15.09.2026.
+   */
+  @Prop({ type: Object, required: false })
+  attachedFileNames?: Record<string, string>;
+
+  /**
    * Soft delete (D-канал доступа этого прохода) — тот же принцип, что
    * PositionDocument.status:'closed': лид с историей (LeadEvent/audit/
    * задачи/сделки) не может быть физически удалён без разрушения этой

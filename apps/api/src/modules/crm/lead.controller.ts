@@ -298,8 +298,26 @@ export class LeadController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       ownerPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
       assetId: new Types.ObjectId(dto.assetId),
+      fileName: dto.fileName,
       actorIdentityId: new Types.ObjectId(tenantContext.identityId),
       correlationId: req.correlationId,
+    });
+  }
+
+  /** GET /leads/:leadId/files/:assetId/download — временная ссылка на оригинал вложения, тот же read-scope, что список файлов. */
+  @Get(':leadId/files/:assetId/download')
+  @RequirePermission('lead', 'read')
+  async downloadLeadFile(
+    @Req() req: FastifyRequest,
+    @Param('leadId', ParseObjectIdPipe) leadId: Types.ObjectId,
+    @Param('assetId', ParseObjectIdPipe) assetId: Types.ObjectId,
+  ) {
+    const tenantContext = requireTenantContext(req);
+    return this.crmService.getLeadFileDownloadUrl({
+      leadId,
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      ownerPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'read'),
+      assetId,
     });
   }
 

@@ -193,6 +193,9 @@ export class LeadImportService {
       organizationId: params.organizationId,
       requesterName: row.name,
       requesterPhone: phone,
+      // Импортированная база ведётся на столе CRM, в воронке «Продажи»
+      // (15.09.2026): без продукта лид виден, но по стадиям не двигается.
+      productType: 'sales',
       actorPositionId: params.actorPositionId,
       actorIdentityId: params.actorIdentityId,
       correlationId: params.correlationId,

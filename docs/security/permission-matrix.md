@@ -159,6 +159,49 @@ Scope здесь на поведение не влияет: контроллер
 смысла в принципе — владелец организации так же не видит чужую заметку, как
 не видит чужой пароль. См. [operations/crm-notes.md](../operations/crm-notes.md).
 
+### 1.10. Библиотека материалов CRM (CRM library)
+
+| Permission | owner | director | rop | manager | administrator | marketer |
+|---|---|---|---|---|---|---|
+| `library_item.read.organization` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `library_item.create.organization` | ✓ | ✓ | ✓ | — | — | — |
+| `library_item.create.own` | — | — | — | ✓ | — | — |
+| `library_item.delete.organization` | ✓ | ✓ | ✓ | — | — | — |
+| `library_item.delete.own` | — | — | — | ✓ | — | — |
+
+`developer` — как `owner`/`director`/`rop` (scope `organization`).
+
+**15.09.2026, техническое решение, не owner decision.** Библиотека состоит из
+двух разделов (легаси-блок «Библиотека» и файлы чек-листа стадии лида):
+
+- **Общие материалы организации** по продукту воронки — видят все
+  сотрудники; добавлять и удалять может только scope `organization`
+  (`create`/`delete`). Scope `own` на общие материалы не действует.
+- **Личная библиотека** с папками — видна и меняется только своим
+  владельцем при любом scope, как личная заметка (§1.9); owner организации
+  чужую личную библиотеку не видит.
+
+`administrator` и `marketer` получают только чтение: у них нет
+`media_asset.upload`, загрузить файл им нечем. Расширять загрузку ради
+библиотеки не стали — это решение владельца продукта. См.
+[operations/crm-library.md](../operations/crm-library.md).
+
+### 1.11. Планы сотрудников (plans)
+
+| Permission | owner | director | rop | manager | administrator | marketer |
+|---|---|---|---|---|---|---|
+| `plan.read.organization` | ✓ | ✓ | ✓ | — | — | — |
+| `plan.read.own` | — | — | — | ✓ | ✓ | ✓ |
+| `plan.update.organization` | ✓ | ✓ | ✓ | — | — | — |
+| `plan.update.own` | — | — | — | ✓ | ✓ | ✓ |
+
+`developer` — как `owner`/`director`/`rop` (scope `organization`).
+
+**15.09.2026, owner decision.** Месячный план ставит руководитель любой
+позиции своей организации или сотрудник сам себе. Правка плана пишется в
+журнал (`plan.update`), потому что влияет на оценку сотрудника (§4). См.
+[operations/plans.md](../operations/plans.md).
+
 ## 2. Системные admin actors
 
 *(ADR-009)*

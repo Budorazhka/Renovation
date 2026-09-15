@@ -28,6 +28,8 @@ import { BuyerRequestsModule } from './modules/buyer-requests/buyer-requests.mod
 import { RealtorReviewsModule } from './modules/realtor-reviews/realtor-reviews.module';
 import { PublicRealtorsModule } from './modules/public-realtors/public-realtors.module';
 import { NotesModule } from './modules/notes/notes.module';
+import { LibraryModule } from './modules/library/library.module';
+import { PlansModule } from './modules/plans/plans.module';
 
 @Module({
   imports: [
@@ -71,6 +73,8 @@ import { NotesModule } from './modules/notes/notes.module';
     RealtorReviewsModule,
     PublicRealtorsModule,
     NotesModule,
+    LibraryModule,
+    PlansModule,
   ],
   controllers: [HealthController],
   // TenantContextMiddleware/AdminContextMiddleware явно зарегистрированы

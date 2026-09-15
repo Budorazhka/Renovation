@@ -47,5 +47,9 @@ export const MEDIA_PURPOSE_BUCKET: Record<string, 'private' | 'public'> = {
   // принцип, что task_attachment: вложение видно только автору заметки,
   // не публикуется наружу.
   note_attachment: 'private',
+  // Материалы библиотеки CRM (модуль library): общие материалы организации и
+  // личная библиотека сотрудника. Приватный бакет, отдаются по временной
+  // ссылке GET /library/items/:itemId/download.
+  library_file: 'private',
 };
 

@@ -181,7 +181,7 @@ describe('LeadImportService — legacy-base-import колонки и tag', () =>
     await service.importLeads({ ...baseParams, fileBuffer: buffer, fileName: 'l.csv', mimetype: 'text/csv', tag: 'old_base' });
 
     expect(createLead).toHaveBeenCalledWith(
-      expect.objectContaining({ route: 'import', tags: ['old_base'] }),
+      expect.objectContaining({ route: 'import', tags: ['old_base'], productType: 'sales' }),
     );
   });
 

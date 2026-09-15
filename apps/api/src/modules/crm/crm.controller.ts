@@ -45,7 +45,7 @@ export class CrmController {
       phone: result.phone,
       whatsapp: result.whatsapp,
       telegram: result.telegram,
-      leadId: result.leadId.toString(),
+      ...(result.leadId ? { leadId: result.leadId.toString() } : {}),
     };
   }
 }

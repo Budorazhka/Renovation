@@ -159,6 +159,8 @@ describe('CrmService.revealContact', () => {
       expect.objectContaining({
         organizationId,
         contactId,
+        productType: 'sales',
+        stage: 'new',
         source: expect.objectContaining({ route: '/developments/zhk-solnechnyy', publicationId: publication._id }),
       }),
       expect.anything(),
@@ -211,11 +213,12 @@ describe('CrmService.revealContact', () => {
     );
   });
 
-  it('отклоняет запрос без requesterPhone как VALIDATION_FAILED, не создаёт ничего', async () => {
+  it('«Показать телефон» без формы: отдаёт номер застройщика, лид и контакт не создаёт, просмотр пишет в журнал', async () => {
     const development = makeDevelopment();
     const publication = makePublication({ sourceId: development._id });
     const createContactSpy = jest.fn();
     const createLeadSpy = jest.fn();
+    const auditAppendSpy = jest.fn().mockResolvedValue(undefined);
 
     const service = createTestCrmService({
       publicationRepository: { findBySlug: jest.fn().mockResolvedValue(publication) },
@@ -223,15 +226,18 @@ describe('CrmService.revealContact', () => {
       contactRepository: { findByPhone: jest.fn(), create: createContactSpy },
       leadRepository: { create: createLeadSpy },
       leadEventRepository: { append: jest.fn() },
-      auditService: { append: jest.fn() },
+      auditService: { append: auditAppendSpy },
     });
 
-    await expect(
-      service.revealContact({ slug: 'zhk-solnechnyy', correlationId: 'test-correlation-id' }),
-    ).rejects.toMatchObject(new AppException(ErrorCode.VALIDATION_FAILED, 'requesterPhone is required to create a lead'));
+    const result = await service.revealContact({ slug: 'zhk-solnechnyy', correlationId: 'test-correlation-id' });
 
+    expect(result.phone).toBe(development.contact.phone);
+    expect(result.leadId).toBeUndefined();
     expect(createContactSpy).not.toHaveBeenCalled();
     expect(createLeadSpy).not.toHaveBeenCalled();
+    expect(auditAppendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'publication.contact_view', resource: 'publication', resourceId: publication._id }),
+    );
   });
 
   it('бросает NotFoundException, если publication не найдена по slug', async () => {
@@ -569,20 +575,24 @@ describe('CrmService.revealListingContact (LEAD-001 / Secondary & Rent)', () => 
     );
   });
 
-  it('отклоняет запрос без requesterPhone как VALIDATION_FAILED', async () => {
+  it('«Показать телефон» без формы: отдаёт номер менеджера объекта, лид не создаёт', async () => {
     const propertyAsset = makePropertyAsset();
     const listing = makeListing({ propertyAssetId: propertyAsset._id });
     const publication = makePublication({ sourceType: 'listing', sourceId: listing._id });
+    const createLeadSpy = jest.fn();
 
     const service = createTestCrmService({
       publicationRepository: { findBySlug: jest.fn().mockResolvedValue(publication) },
       listingRepository: { findById: jest.fn().mockResolvedValue(listing) },
       propertyAssetRepository: { findById: jest.fn().mockResolvedValue(propertyAsset) },
+      leadRepository: { create: createLeadSpy },
+      auditService: { append: jest.fn().mockResolvedValue(undefined) },
     });
 
-    await expect(
-      service.revealListingContact({ slug: 'batumi-flat-85k', correlationId: 'test-correlation' }),
-    ).rejects.toMatchObject(new AppException(ErrorCode.VALIDATION_FAILED, 'requesterPhone is required to create a lead'));
+    const result = await service.revealListingContact({ slug: 'batumi-flat-85k', correlationId: 'test-correlation' });
+
+    expect(result).toEqual({ phone: propertyAsset.representativePhone });
+    expect(createLeadSpy).not.toHaveBeenCalled();
   });
 
   it('бросает NotFoundException, если slug не найден', async () => {
@@ -2255,6 +2265,102 @@ describe('CrmService.listLeadFiles/attachLeadFile/detachLeadFile (phase 3)', () 
         createdAt: createdAt.toISOString(),
       },
     ]);
+  });
+
+  function pdfAsset(assetId: Types.ObjectId) {
+    return new Map([
+      [
+        assetId.toString(),
+        {
+          status: 'verified' as const,
+          variants: [],
+          bucket: 'private' as const,
+          declaredMimeType: 'application/pdf',
+          verifiedMimeType: 'application/pdf',
+          sizeBytes: 2048,
+          createdAt: new Date('2026-09-15T10:00:00Z'),
+          originalPath: `${assetId.toString()}/original.pdf`,
+        },
+      ],
+    ]);
+  }
+
+  it('listLeadFiles: сохранённое имя файла важнее имени из storage key', async () => {
+    const leadId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const assetId = new Types.ObjectId();
+    const service = createTestCrmService({
+      leadRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValue({
+          _id: leadId,
+          organizationId,
+          attachedAssetIds: [assetId],
+          attachedFileNames: { [assetId.toString()]: 'Презентация ЖК.pdf' },
+        }),
+      },
+      mediaService: { getAssetsForOwnerScope: jest.fn().mockResolvedValue(pdfAsset(assetId)) },
+    });
+
+    const [file] = await service.listLeadFiles({ leadId, organizationId });
+
+    expect(file!.fileName).toBe('Презентация ЖК.pdf');
+  });
+
+  it('attachLeadFile: имя файла уходит в репозиторий вместе с assetId', async () => {
+    const leadId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const assetId = new Types.ObjectId();
+    const addAttachedAsset = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const service = createTestCrmService({
+      leadRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValue({ _id: leadId, organizationId, attachedAssetIds: [] }),
+        addAttachedAsset,
+      },
+      mediaService: { getAssetsForOwnerScope: jest.fn().mockResolvedValue(pdfAsset(assetId)) },
+      auditService: { append: jest.fn().mockResolvedValue(undefined) },
+    });
+
+    await service.attachLeadFile({
+      leadId,
+      organizationId,
+      assetId,
+      fileName: 'Регламент.pdf',
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'c',
+    });
+
+    expect(addAttachedAsset).toHaveBeenCalledWith(leadId, organizationId, assetId, expect.anything(), 'Регламент.pdf');
+  });
+
+  it('getLeadFileDownloadUrl: подписанная ссылка на прикреплённый файл, чужой assetId — 404', async () => {
+    const leadId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const assetId = new Types.ObjectId();
+    const createDownloadUrlForOwnerScope = jest.fn().mockResolvedValue({ url: 'https://signed' });
+    const service = createTestCrmService({
+      leadRepository: {
+        findByIdForOrganization: jest.fn().mockResolvedValue({
+          _id: leadId,
+          organizationId,
+          attachedAssetIds: [assetId],
+          attachedFileNames: { [assetId.toString()]: 'КП.pdf' },
+        }),
+      },
+      mediaService: {
+        getAssetsForOwnerScope: jest.fn().mockResolvedValue(pdfAsset(assetId)),
+        createDownloadUrlForOwnerScope,
+      },
+    });
+
+    await expect(service.getLeadFileDownloadUrl({ leadId, organizationId, assetId })).resolves.toEqual({
+      url: 'https://signed',
+      fileName: 'КП.pdf',
+    });
+    expect(createDownloadUrlForOwnerScope).toHaveBeenCalledWith(assetId, { type: 'organization', organizationId }, 'КП.pdf');
+
+    await expect(
+      service.getLeadFileDownloadUrl({ leadId, organizationId, assetId: new Types.ObjectId() }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('listLeadFiles: чужая организация — NotFoundException', async () => {
@@ -3993,7 +4099,7 @@ describe('CrmService.getTeamPerformanceReport', () => {
     ]);
   });
 
-  it('стадии продуктовых воронок: колонка «Успех» — конверсия, «Отказ» — потеря', async () => {
+  it('стадии продуктовых воронок: стадия успеха и дальше — конверсия, «Отказ» — потеря', async () => {
     const positionId = new Types.ObjectId();
     const service = createTestCrmService({
       leadRepository: {
@@ -4003,6 +4109,8 @@ describe('CrmService.getTeamPerformanceReport', () => {
           { ownerPositionId: positionId, stage: 'refused', count: 1 },
           { ownerPositionId: positionId, stage: 'network_no_call_1', count: 1 },
           { ownerPositionId: positionId, stage: 'network_work_started', count: 2 },
+          { ownerPositionId: positionId, stage: 'owner_agreed', count: 1 },
+          { ownerPositionId: positionId, stage: 'owner_get_referral', count: 1 },
         ]),
         aggregateTimeseries: jest.fn().mockResolvedValue([]),
       },
@@ -4018,11 +4126,12 @@ describe('CrmService.getTeamPerformanceReport', () => {
 
     const result = await service.getTeamPerformanceReport({ organizationId: new Types.ObjectId() });
 
-    expect(result.positions[0]!.leadsAdded).toBe(10);
-    expect(result.positions[0]!.leadsConverted).toBe(2);
+    // golden 2 + network_work_started 2 + owner_get_referral 1 (после «Объект выставлен на продажу»)
+    expect(result.positions[0]!.leadsAdded).toBe(12);
+    expect(result.positions[0]!.leadsConverted).toBe(5);
     expect(result.positions[0]!.leadsLost).toBe(2);
-    expect(result.positions[0]!.leadsInWork).toBe(6);
-    expect(result.summary.conversionRatePercent).toBe(20);
+    expect(result.positions[0]!.leadsInWork).toBe(5);
+    expect(result.summary.conversionRatePercent).toBeCloseTo(41.7, 1);
   });
 
   // ИСПРАВЛЕНО 11.09.2026 (task-model-audit-followup.md, седьмое наблюдение

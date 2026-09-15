@@ -129,23 +129,37 @@ export function stageIdsForProduct(productType: ProductType): string[] {
 }
 
 /**
- * Итог лида для отчётов по стадии: колонка `success` продуктовой воронки —
- * сконвертирован, колонка `rejection` — потерян, плюс generic `converted`/`lost`.
- * id стадий уникальны между продуктами (у sales без префикса, у остальных
- * с префиксом продукта), поэтому productType для разбора не нужен. У network,
- * owner и agent колонки `success` нет — их лиды сконвертированными не
- * считаются, пока владелец не назовёт стадию успеха.
+ * Стадия успеха каждой воронки (owner decision 15.09.2026): лид,
+ * дошедший до неё или дальше по воронке, считается сконвертированным в
+ * отчётах. У продаж это «Золотой фонд» (вся колонка `success`), у
+ * остальных продуктов колонки `success` нет — успех назван владельцем.
+ */
+export const CONVERSION_STAGE_BY_PRODUCT: Record<ProductType, string> = {
+  sales: 'golden',
+  network: 'network_work_started',
+  owner: 'owner_active_for_sale',
+  agent: 'agent_active',
+};
+
+/**
+ * Итог лида для отчётов по стадии: стадия успеха продукта и всё, что
+ * после неё по воронке, — сконвертирован; колонка `rejection` — потерян;
+ * плюс generic `converted`/`lost`. id стадий уникальны между продуктами
+ * (у sales без префикса, у остальных с префиксом продукта), поэтому
+ * productType для разбора не нужен.
  */
 const LEAD_STAGE_OUTCOMES: ReadonlyMap<string, 'converted' | 'lost'> = new Map<string, 'converted' | 'lost'>([
   ['converted', 'converted'],
   ['lost', 'lost'],
-  ...PRODUCT_TYPES.flatMap((productType) =>
-    LEAD_STAGE_DEFINITIONS[productType].flatMap((stage): Array<[string, 'converted' | 'lost']> => {
-      if (stage.column === 'success') return [[stage.id, 'converted']];
+  ...PRODUCT_TYPES.flatMap((productType) => {
+    const stages = LEAD_STAGE_DEFINITIONS[productType];
+    const conversionOrder = stages.find((stage) => stage.id === CONVERSION_STAGE_BY_PRODUCT[productType])!.order;
+    return stages.flatMap((stage): Array<[string, 'converted' | 'lost']> => {
       if (stage.column === 'rejection') return [[stage.id, 'lost']];
+      if (stage.order >= conversionOrder) return [[stage.id, 'converted']];
       return [];
-    }),
-  ),
+    });
+  }),
 ]);
 
 export function leadStageOutcome(stage: string): 'converted' | 'lost' | null {

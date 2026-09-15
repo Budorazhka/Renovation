@@ -946,7 +946,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Раскрытие контакта — отдельная rate-limited команда, создаёт Lead (master plan D-05: контакты отсутствуют в list/search HTML/JSON, reveal отдельная команда с audit/abuse signals) */
+        /** Раскрытие контакта — отдельная rate-limited команда (master plan D-05: контакты отсутствуют в list/search HTML/JSON). Без requesterPhone — «Показать телефон»: отдаёт номер застройщика, лид не создаёт, просмотр пишется в журнал. С requesterPhone — заявка из формы: Lead в воронке sales в организации застройщика. */
         post: operations["revealContact"];
         delete?: never;
         options?: never;
@@ -1037,6 +1037,161 @@ export interface paths {
         post?: never;
         /** `[phase 3]` Открепить файл от лида (lead.update) — MediaAsset не удаляется, только ссылка на лиде. */
         delete: operations["detachLeadFile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{leadId}/files/{assetId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Короткоживущая подписанная ссылка на оригинал вложения лида (lead.read, тот же own/organization scope, что GET /leads/{leadId}/files). Нужна для PDF и файлов из библиотеки, у которых нет публичного url. */
+        get: operations["downloadLeadFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Месячные планы сотрудников. Руководитель (plan.read scope organization) видит планы всех позиций организации, сотрудник (scope own) — только свой. canManageTeam — может ли вызывающий ставить планы другим. */
+        get: operations["listPlans"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plans/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** План и факт за месяц, текущую неделю и сегодня (UTC). Факт: лиды, созданные в периоде с владельцем-позицией; выигранные сделки и их комиссия; закрытые задачи-звонки и задачи-встречи; разные лиды, переведённые сотрудником на стадию «Показ». Руководитель видит все позиции с планом или активностью, сотрудник — себя; positionId сужает до одной позиции (чужая для сотрудника — 403). */
+        get: operations["getPlanProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plans/{positionId}/{period}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Поставить план позиции на месяц (полный набор целей). Руководитель — любой позиции своей организации, сотрудник — только себе. Новый план без expectedVersion; существующий — только с актуальным expectedVersion, иначе 409. Правка пишется в журнал (plan.update). */
+        put: operations["upsertPlan"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Материалы библиотеки CRM. scope=organization — общие материалы организации (productType сужает до продукта плюс материалы для всех продуктов); scope=personal — личная библиотека вызывающего в папке folderId (без неё — корень). productType у личной и folderId у общей библиотеки — 400. canUpload — может ли вызывающий добавлять материалы в этот раздел. */
+        get: operations["listLibraryItems"];
+        put?: never;
+        /** Добавить материал: файл заранее загружен через POST /media/upload-intent (purpose library_file) и подтверждён. Общий материал требует library_item.create со scope organization. */
+        post: operations["createLibraryItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Удалить материал из библиотеки (MediaAsset остаётся — файл мог быть прикреплён к лиду). Личный — только владелец; общий — scope organization. Чужой личный — 404. */
+        delete: operations["deleteLibraryItem"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/items/{itemId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Короткоживущая подписанная ссылка на файл материала. Общий — любой с library_item.read, личный — только владелец. */
+        get: operations["downloadLibraryItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Папки личной библиотеки вызывающего на одном уровне (parentId; без него — корень), по имени. */
+        get: operations["listLibraryFolders"];
+        put?: never;
+        /** Создать папку в личной библиотеке вызывающего. */
+        post: operations["createLibraryFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/folders/{folderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Удалить пустую папку личной библиотеки; с содержимым — 409 LIBRARY_FOLDER_NOT_EMPTY (details.items, details.folders). */
+        delete: operations["deleteLibraryFolder"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2785,7 +2940,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Раскрытие контакта для листинга вторички/аренды — отдельная rate-limited команда, создаёт Lead и Contact в организации-владельце PropertyAsset (тот же паттерн, что /public/developments/{slug}/reveal-contact) */
+        /** Раскрытие контакта для листинга вторички/аренды — отдельная rate-limited команда. Без requesterPhone отдаёт номер менеджера объекта без лида; с requesterPhone создаёт Lead (воронка sales) и Contact в организации-владельце PropertyAsset (тот же паттерн, что /public/developments/{slug}/reveal-contact) */
         post: operations["revealListingContact"];
         delete?: never;
         options?: never;
@@ -4293,7 +4448,7 @@ export interface components {
             phone?: string;
             whatsapp?: string | null;
             telegram?: string | null;
-            /** @description Lead создан в организации застройщика (D-05) */
+            /** @description Только если передан requesterPhone (заявка из формы): лид создан в организации застройщика или владельца объекта сразу в воронке sales. Без requesterPhone это просто «Показать телефон» — лид не создаётся, факт просмотра пишется в журнал (publication.contact_view). */
             leadId?: string;
         };
         Lead: {
@@ -4421,7 +4576,7 @@ export interface components {
                 checked: boolean;
             }[];
         };
-        /** @description `[phase 3]` GET/POST/DELETE /leads/{leadId}/files item shape. fileName выводится из MediaAsset storage key (originalPath), не клиентское имя файла — MediaAssetDocument его не хранит. */
+        /** @description `[phase 3]` GET/POST/DELETE /leads/{leadId}/files item shape. fileName — имя, переданное при прикреплении; у файлов, прикреплённых без него (до 15.09.2026), выводится из MediaAsset storage key. */
         LeadFile: {
             assetId: string;
             fileName: string;
@@ -4690,7 +4845,7 @@ export interface components {
             /** @description MAX_UPLOAD_SIZE_BYTES — 20 МБ */
             sizeBytes: number;
             /** @enum {string} */
-            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment" | "lead_attachment" | "note_attachment";
+            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment" | "lead_attachment" | "note_attachment" | "library_file";
         };
         CreateMediaUploadIntentResponse: {
             assetId: string;
@@ -5126,6 +5281,109 @@ export interface components {
                 assetId: string;
                 fileName: string;
             }[];
+        };
+        PlanTargets: {
+            /** @description Выручка — комиссия по выигранным сделкам, минимальные единицы валюты */
+            revenueTargetMinorUnits: number;
+            /** @enum {string} */
+            currency: "USD" | "GEL" | "RUB";
+            leadsTarget: number;
+            dealsTarget: number;
+            callsTarget: number;
+            meetingsTarget: number;
+            showingsTarget: number;
+        };
+        UpsertPlanRequest: components["schemas"]["PlanTargets"] & {
+            /** @description Обязателен, если план на этот месяц уже есть */
+            expectedVersion?: number;
+        };
+        PlanView: components["schemas"]["PlanTargets"] & {
+            positionId: string;
+            period: string;
+            /** @description Кто поставил план последним */
+            setByPositionId: string;
+            version: number;
+            /** Format: date-time */
+            updatedAt: string | null;
+        };
+        PlanListResponse: {
+            items: components["schemas"]["PlanView"][];
+            canManageTeam: boolean;
+        };
+        PlanActuals: {
+            leads: number;
+            deals: number;
+            revenue: components["schemas"]["MoneyAmountSum"][];
+            calls: number;
+            meetings: number;
+            showings: number;
+        };
+        PlanProgressResponse: {
+            period: string;
+            /** @description Рабочие дни месяца (пн–пт) */
+            workingDays: number;
+            /** @description Сколько рабочих дней прошло, включая сегодня */
+            workingDaysElapsed: number;
+            /** @description Руководитель: видит всю команду */
+            canManageTeam: boolean;
+            positions: {
+                positionId: string;
+                plan: components["schemas"]["PlanView"] | null;
+                month: components["schemas"]["PlanActuals"];
+                week: components["schemas"]["PlanActuals"];
+                today: components["schemas"]["PlanActuals"];
+            }[];
+        };
+        FileDownloadResponse: {
+            /** @description Подписанный GET-URL оригинала файла */
+            url: string;
+            /** @description Имя файла, которое видел пользователь */
+            fileName: string;
+        };
+        /** @enum {string} */
+        LibraryScope: "organization" | "personal";
+        /** @enum {string} */
+        LibraryProductType: "sales" | "network" | "owner" | "agent";
+        LibraryItemView: {
+            id: string;
+            scope: components["schemas"]["LibraryScope"];
+            /** @description null — общий материал для всех продуктов (у личных всегда null) */
+            productType: components["schemas"]["LibraryProductType"] | null;
+            folderId: string | null;
+            /** @description MediaAsset файла — его же передают в POST /leads/{leadId}/files, чтобы прикрепить материал к лиду */
+            assetId: string;
+            fileName: string;
+            mimeType: string;
+            sizeBytes: number;
+            createdByPositionId: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LibraryItemListResponse: {
+            items: components["schemas"]["LibraryItemView"][];
+            /** @description Может ли вызывающий добавлять материалы в этот раздел */
+            canUpload: boolean;
+        };
+        CreateLibraryItemRequest: {
+            scope: components["schemas"]["LibraryScope"];
+            assetId: string;
+            fileName: string;
+            productType?: components["schemas"]["LibraryProductType"];
+            folderId?: string;
+        };
+        LibraryFolderView: {
+            id: string;
+            name: string;
+            parentId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        LibraryFolderListResponse: {
+            folders: components["schemas"]["LibraryFolderView"][];
+        };
+        CreateLibraryFolderRequest: {
+            name: string;
+            parentId?: string;
         };
         NoteAttachmentDownloadResponse: {
             /** @description Подписанный GET-URL приватного бакета */
@@ -6559,6 +6817,8 @@ export interface operations {
             content: {
                 "application/json": {
                     assetId: string;
+                    /** @description Имя файла для экрана; без него имя выводится из storage key («original.pdf») */
+                    fileName?: string;
                 };
             };
         };
@@ -8175,7 +8435,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Контакт раскрыт, Lead создан в организации застройщика */
+            /** @description Контакт раскрыт; Lead создан, только если передан requesterPhone */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8419,6 +8679,343 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description NOT_FOUND — лид не существует или вне permission scope */
             404: components["responses"]["Error"];
+        };
+    };
+    downloadLeadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                leadId: string;
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка на скачивание */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileDownloadResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет lead.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — лид вне scope либо assetId не прикреплён к лиду */
+            404: components["responses"]["Error"];
+        };
+    };
+    listPlans: {
+        parameters: {
+            query: {
+                period: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Планы за месяц */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanListResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет plan.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    getPlanProgress: {
+        parameters: {
+            query: {
+                period: string;
+                positionId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description План и факт */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanProgressResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет plan.read, либо сотрудник запросил чужую позицию */
+            403: components["responses"]["Error"];
+        };
+    };
+    upsertPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                positionId: string;
+                period: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description План сохранён */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет plan.update, либо сотрудник ставит план не себе */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — позиция не найдена в организации */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT — план изменён параллельно, обновите и повторите */
+            409: components["responses"]["Error"];
+        };
+    };
+    listLibraryItems: {
+        parameters: {
+            query: {
+                scope: components["schemas"]["LibraryScope"];
+                productType?: components["schemas"]["LibraryProductType"];
+                folderId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Материалы, newest-first (до 500) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItemListResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — папка folderId не существует или чужая */
+            404: components["responses"]["Error"];
+        };
+    };
+    createLibraryItem: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Материал добавлен */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItemView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — asset не подтверждён, productType у личного, folderId у общего материала */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.create, либо общий материал без scope organization */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — media asset или папка не найдены */
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteLibraryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Материал удалён */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.delete, либо общий материал без scope organization */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    downloadLibraryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                itemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка на скачивание */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileDownloadResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    listLibraryFolders: {
+        parameters: {
+            query?: {
+                parentId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Папки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFolderListResponse"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — родительская папка не существует или чужая */
+            404: components["responses"]["Error"];
+        };
+    };
+    createLibraryFolder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLibraryFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Папка создана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFolderView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.create */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — родительская папка не существует или чужая */
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteLibraryFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Папка удалена */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет library_item.delete */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description LIBRARY_FOLDER_NOT_EMPTY */
+            409: components["responses"]["Error"];
         };
     };
     recordLeadContactAction: {
@@ -12132,7 +12729,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Контакт раскрыт, Lead создан в организации-владельце листинга */
+            /** @description Контакт раскрыт; Lead создан, только если передан requesterPhone */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12141,7 +12738,7 @@ export interface operations {
                     "application/json": components["schemas"]["RevealContactResponse"];
                 };
             };
-            /** @description VALIDATION_FAILED — requesterPhone обязателен для создания лида */
+            /** @description VALIDATION_FAILED — неверный формат полей (utm с посторонними ключами и т.п.) */
             400: components["responses"]["Error"];
             /** @description PUBLICATION_NOT_FOUND — публикация не найдена, не опубликована или не является листингом */
             404: components["responses"]["Error"];

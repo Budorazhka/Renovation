@@ -30,6 +30,22 @@ const PRESIGNED_UPLOAD_TTL_SECONDS = 300;
 const PRESIGNED_DOWNLOAD_TTL_SECONDS = 300;
 
 /**
+ * Content-Disposition для подписанной ссылки: ASCII-запасное имя плюс
+ * filename* по RFC 5987 для кириллицы и прочего UTF-8. Кавычки, обратный
+ * слэш и управляющие символы из имени убираются — имя приходит от
+ * пользователя и не должно ломать заголовок.
+ */
+export function contentDispositionInline(fileName: string): string {
+  const safe = fileName.replace(/[\u0000-\u001f\u007f"\\]/g, '').trim() || 'file';
+  const ascii = safe.replace(/[^\u0020-\u007e]/g, '_');
+  const encoded = encodeURIComponent(safe).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+/**
  * ADR-008: тонкая обёртка над S3-совместимым (MinIO) клиентом. Приватный/
  * публичный buckets — физически разные bucket-имена, не одна коллекция с
  * access-правилами на объект (defense-in-depth: ошибка в access-policy кода
@@ -111,10 +127,13 @@ export class MediaStorageService {
    * Короткоживущая signed URL на скачивание — для приватных документов
    * (ADR-008: никогда не постоянный публичный адрес, даже "неугадываемый").
    */
-  async createDownloadUrl(params: { bucket: MediaBucket; key: string }): Promise<string> {
+  async createDownloadUrl(params: { bucket: MediaBucket; key: string; fileName?: string }): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucketNames[params.bucket],
       Key: params.key,
+      // Storage key — `<assetId>/original.pdf`; без заголовка файл сохраняется
+      // как «original.pdf». inline: PDF и картинки открываются в браузере.
+      ResponseContentDisposition: params.fileName ? contentDispositionInline(params.fileName) : undefined,
     });
     return getSignedUrl(this.client, command, { expiresIn: PRESIGNED_DOWNLOAD_TTL_SECONDS });
   }

@@ -384,7 +384,7 @@ describe('Public listing lead reveal flow — Integration (real HTTP + real Mong
     expect(res.statusCode).toBe(404);
   });
 
-  it('возвращает 400 при отсутствии или невалидном телефоне', async () => {
+  it('без телефона посетителя — показывает номер менеджера объекта, лид не создаётся', async () => {
     const owner = await ownerCookie('val-test-owner');
     const listingData = await seedPublishedListing(owner);
     const ip = nextIp();
@@ -393,9 +393,13 @@ describe('Public listing lead reveal flow — Integration (real HTTP + real Mong
       method: 'POST',
       url: `/api/v1/public/listings/${listingData.slug}/reveal-contact`,
       remoteAddress: ip,
-      payload: { requesterName: 'Иван без телефона' },
+      payload: {},
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ phone: listingData.representativePhone });
+    expect(
+      await connection.collection('leads').countDocuments({ organizationId: new Types.ObjectId(owner.organizationId) }),
+    ).toBe(0);
   });
 
   it('применяет rate-limit (429) при частых запросах', async () => {

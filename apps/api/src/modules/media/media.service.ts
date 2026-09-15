@@ -317,12 +317,13 @@ export class MediaService {
   async createDownloadUrlForOwnerScope(
     assetId: Types.ObjectId,
     expectedOwnerScope: OwnerScope,
+    fileName?: string,
   ): Promise<{ url: string } | null> {
     const asset = await this.mediaAssetRepository.findById(assetId);
     if (!asset || !ownerScopesEqual(asset.ownerScope, expectedOwnerScope) || asset.status !== 'verified') {
       return null;
     }
-    const url = await this.storage.createDownloadUrl({ bucket: asset.bucket, key: asset.originalPath });
+    const url = await this.storage.createDownloadUrl({ bucket: asset.bucket, key: asset.originalPath, fileName });
     return { url };
   }
 

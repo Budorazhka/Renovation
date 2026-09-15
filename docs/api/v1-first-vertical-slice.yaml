@@ -563,6 +563,11 @@ paths:
               required: [assetId]
               properties:
                 assetId: {type: string}
+                fileName:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  description: Имя файла для экрана; без него имя выводится из storage key («original.pdf»)
       responses:
         '200':
           description: Позиция с обновлённым аватаром
@@ -2140,9 +2145,11 @@ paths:
     post:
       operationId: revealContact
       summary: >
-        Раскрытие контакта — отдельная rate-limited команда, создаёт Lead
-        (master plan D-05: контакты отсутствуют в list/search HTML/JSON,
-        reveal отдельная команда с audit/abuse signals)
+        Раскрытие контакта — отдельная rate-limited команда (master plan
+        D-05: контакты отсутствуют в list/search HTML/JSON). Без
+        requesterPhone — «Показать телефон»: отдаёт номер застройщика, лид не
+        создаёт, просмотр пишется в журнал. С requesterPhone — заявка из
+        формы: Lead в воронке sales в организации застройщика.
       tags: [public-marketplace]
       security: []
       parameters:
@@ -2159,7 +2166,7 @@ paths:
               $ref: '#/components/schemas/RevealContactRequest'
       responses:
         '200':
-          description: Контакт раскрыт, Lead создан в организации застройщика
+          description: Контакт раскрыт; Lead создан, только если передан requesterPhone
           content:
             application/json:
               schema:
@@ -2425,6 +2432,370 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           description: NOT_FOUND — лид не существует или вне permission scope
+          $ref: '#/components/responses/Error'
+
+  /leads/{leadId}/files/{assetId}/download:
+    get:
+      operationId: downloadLeadFile
+      summary: >
+        Короткоживущая подписанная ссылка на оригинал вложения лида (lead.read,
+        тот же own/organization scope, что GET /leads/{leadId}/files). Нужна
+        для PDF и файлов из библиотеки, у которых нет публичного url.
+      tags: [erp-crm]
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: assetId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Ссылка на скачивание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileDownloadResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет lead.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — лид вне scope либо assetId не прикреплён к лиду
+          $ref: '#/components/responses/Error'
+
+  /plans:
+    get:
+      operationId: listPlans
+      summary: >
+        Месячные планы сотрудников. Руководитель (plan.read scope organization)
+        видит планы всех позиций организации, сотрудник (scope own) — только
+        свой. canManageTeam — может ли вызывающий ставить планы другим.
+      tags: [erp-crm]
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$', example: '2026-09'}
+      responses:
+        '200':
+          description: Планы за месяц
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanListResponse'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет plan.read
+          $ref: '#/components/responses/Error'
+
+  /plans/progress:
+    get:
+      operationId: getPlanProgress
+      summary: >
+        План и факт за месяц, текущую неделю и сегодня (UTC). Факт: лиды,
+        созданные в периоде с владельцем-позицией; выигранные сделки и их
+        комиссия; закрытые задачи-звонки и задачи-встречи; разные лиды,
+        переведённые сотрудником на стадию «Показ». Руководитель видит все
+        позиции с планом или активностью, сотрудник — себя; positionId
+        сужает до одной позиции (чужая для сотрудника — 403).
+      tags: [erp-crm]
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: {type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}
+        - name: positionId
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: План и факт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanProgressResponse'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет plan.read, либо сотрудник запросил чужую позицию
+          $ref: '#/components/responses/Error'
+
+  /plans/{positionId}/{period}:
+    put:
+      operationId: upsertPlan
+      summary: >
+        Поставить план позиции на месяц (полный набор целей). Руководитель —
+        любой позиции своей организации, сотрудник — только себе. Новый план
+        без expectedVersion; существующий — только с актуальным
+        expectedVersion, иначе 409. Правка пишется в журнал (plan.update).
+      tags: [erp-crm]
+      parameters:
+        - name: positionId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: period
+          in: path
+          required: true
+          schema: {type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertPlanRequest'
+      responses:
+        '200':
+          description: План сохранён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет plan.update, либо сотрудник ставит план не себе
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — позиция не найдена в организации
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT — план изменён параллельно, обновите и повторите
+          $ref: '#/components/responses/Error'
+
+  /library/items:
+    get:
+      operationId: listLibraryItems
+      summary: >
+        Материалы библиотеки CRM. scope=organization — общие материалы
+        организации (productType сужает до продукта плюс материалы для всех
+        продуктов); scope=personal — личная библиотека вызывающего в папке
+        folderId (без неё — корень). productType у личной и folderId у общей
+        библиотеки — 400. canUpload — может ли вызывающий добавлять материалы
+        в этот раздел.
+      tags: [erp-crm]
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/LibraryScope'}
+        - name: productType
+          in: query
+          schema: {$ref: '#/components/schemas/LibraryProductType'}
+        - name: folderId
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Материалы, newest-first (до 500)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryItemListResponse'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — папка folderId не существует или чужая
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createLibraryItem
+      summary: >
+        Добавить материал: файл заранее загружен через POST
+        /media/upload-intent (purpose library_file) и подтверждён. Общий
+        материал требует library_item.create со scope organization.
+      tags: [erp-crm]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLibraryItemRequest'
+      responses:
+        '201':
+          description: Материал добавлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryItemView'
+        '400':
+          description: VALIDATION_FAILED — asset не подтверждён, productType у личного, folderId у общего материала
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.create, либо общий материал без scope organization
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — media asset или папка не найдены
+          $ref: '#/components/responses/Error'
+
+  /library/items/{itemId}:
+    delete:
+      operationId: deleteLibraryItem
+      summary: >
+        Удалить материал из библиотеки (MediaAsset остаётся — файл мог быть
+        прикреплён к лиду). Личный — только владелец; общий — scope
+        organization. Чужой личный — 404.
+      tags: [erp-crm]
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '204':
+          description: Материал удалён
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.delete, либо общий материал без scope organization
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /library/items/{itemId}/download:
+    get:
+      operationId: downloadLibraryItem
+      summary: Короткоживущая подписанная ссылка на файл материала. Общий — любой с library_item.read, личный — только владелец.
+      tags: [erp-crm]
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Ссылка на скачивание
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileDownloadResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /library/folders:
+    get:
+      operationId: listLibraryFolders
+      summary: Папки личной библиотеки вызывающего на одном уровне (parentId; без него — корень), по имени.
+      tags: [erp-crm]
+      parameters:
+        - name: parentId
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Папки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryFolderListResponse'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — родительская папка не существует или чужая
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createLibraryFolder
+      summary: Создать папку в личной библиотеке вызывающего.
+      tags: [erp-crm]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLibraryFolderRequest'
+      responses:
+        '201':
+          description: Папка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryFolderView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.create
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — родительская папка не существует или чужая
+          $ref: '#/components/responses/Error'
+
+  /library/folders/{folderId}:
+    delete:
+      operationId: deleteLibraryFolder
+      summary: Удалить пустую папку личной библиотеки; с содержимым — 409 LIBRARY_FOLDER_NOT_EMPTY (details.items, details.folders).
+      tags: [erp-crm]
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '204':
+          description: Папка удалена
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет library_item.delete
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: LIBRARY_FOLDER_NOT_EMPTY
           $ref: '#/components/responses/Error'
 
   /leads/{leadId}/contact-actions:
@@ -6497,8 +6868,10 @@ paths:
       operationId: revealListingContact
       summary: >
         Раскрытие контакта для листинга вторички/аренды — отдельная rate-limited
-        команда, создаёт Lead и Contact в организации-владельце PropertyAsset
-        (тот же паттерн, что /public/developments/{slug}/reveal-contact)
+        команда. Без requesterPhone отдаёт номер менеджера объекта без лида;
+        с requesterPhone создаёт Lead (воронка sales) и Contact в
+        организации-владельце PropertyAsset (тот же паттерн, что
+        /public/developments/{slug}/reveal-contact)
       tags: [public-marketplace]
       security: []
       parameters:
@@ -6515,13 +6888,13 @@ paths:
               $ref: '#/components/schemas/RevealContactRequest'
       responses:
         '200':
-          description: Контакт раскрыт, Lead создан в организации-владельце листинга
+          description: Контакт раскрыт; Lead создан, только если передан requesterPhone
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RevealContactResponse'
         '400':
-          description: VALIDATION_FAILED — requesterPhone обязателен для создания лида
+          description: VALIDATION_FAILED — неверный формат полей (utm с посторонними ключами и т.п.)
           $ref: '#/components/responses/Error'
         '404':
           description: PUBLICATION_NOT_FOUND — публикация не найдена, не опубликована или не является листингом
@@ -9045,7 +9418,7 @@ components:
         phone: {type: string}
         whatsapp: {type: string, nullable: true}
         telegram: {type: string, nullable: true}
-        leadId: {type: string, description: "Lead создан в организации застройщика (D-05)"}
+        leadId: {type: string, description: "Только если передан requesterPhone (заявка из формы): лид создан в организации застройщика или владельца объекта сразу в воронке sales. Без requesterPhone это просто «Показать телефон» — лид не создаётся, факт просмотра пишется в журнал (publication.contact_view)."}
 
     Lead:
       type: object
@@ -9245,8 +9618,8 @@ components:
       required: [assetId, fileName, mimeType, sizeBytes, url, createdAt]
       description: >
         `[phase 3]` GET/POST/DELETE /leads/{leadId}/files item shape.
-        fileName выводится из MediaAsset storage key (originalPath), не
-        клиентское имя файла — MediaAssetDocument его не хранит.
+        fileName — имя, переданное при прикреплении; у файлов, прикреплённых
+        без него (до 15.09.2026), выводится из MediaAsset storage key.
       properties:
         assetId: {type: string}
         fileName: {type: string}
@@ -9605,7 +9978,7 @@ components:
       properties:
         declaredMimeType: {type: string, enum: [image/jpeg, image/png, image/webp, application/pdf]}
         sizeBytes: {type: integer, maximum: 20971520, description: "MAX_UPLOAD_SIZE_BYTES — 20 МБ"}
-        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment, lead_attachment, note_attachment]}
+        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment, lead_attachment, note_attachment, library_file]}
 
     CreateMediaUploadIntentResponse:
       type: object
@@ -10228,6 +10601,157 @@ components:
             properties:
               assetId: {type: string}
               fileName: {type: string, maxLength: 255}
+
+    PlanTargets:
+      type: object
+      required: [revenueTargetMinorUnits, currency, leadsTarget, dealsTarget, callsTarget, meetingsTarget, showingsTarget]
+      properties:
+        revenueTargetMinorUnits: {type: integer, minimum: 0, description: "Выручка — комиссия по выигранным сделкам, минимальные единицы валюты"}
+        currency: {type: string, enum: [USD, GEL, RUB]}
+        leadsTarget: {type: integer, minimum: 0}
+        dealsTarget: {type: integer, minimum: 0}
+        callsTarget: {type: integer, minimum: 0}
+        meetingsTarget: {type: integer, minimum: 0}
+        showingsTarget: {type: integer, minimum: 0}
+
+    UpsertPlanRequest:
+      allOf:
+        - $ref: '#/components/schemas/PlanTargets'
+        - type: object
+          properties:
+            expectedVersion: {type: integer, minimum: 0, description: "Обязателен, если план на этот месяц уже есть"}
+
+    PlanView:
+      allOf:
+        - $ref: '#/components/schemas/PlanTargets'
+        - type: object
+          required: [positionId, period, setByPositionId, version, updatedAt]
+          properties:
+            positionId: {type: string}
+            period: {type: string}
+            setByPositionId: {type: string, description: "Кто поставил план последним"}
+            version: {type: integer}
+            updatedAt: {type: string, format: date-time, nullable: true}
+
+    PlanListResponse:
+      type: object
+      required: [items, canManageTeam]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/PlanView'}
+        canManageTeam: {type: boolean}
+
+    PlanActuals:
+      type: object
+      required: [leads, deals, revenue, calls, meetings, showings]
+      properties:
+        leads: {type: integer}
+        deals: {type: integer}
+        revenue:
+          type: array
+          items: {$ref: '#/components/schemas/MoneyAmountSum'}
+        calls: {type: integer}
+        meetings: {type: integer}
+        showings: {type: integer}
+
+    PlanProgressResponse:
+      type: object
+      required: [period, workingDays, workingDaysElapsed, positions, canManageTeam]
+      properties:
+        period: {type: string}
+        workingDays: {type: integer, description: "Рабочие дни месяца (пн–пт)"}
+        workingDaysElapsed: {type: integer, description: "Сколько рабочих дней прошло, включая сегодня"}
+        canManageTeam: {type: boolean, description: "Руководитель: видит всю команду"}
+        positions:
+          type: array
+          items:
+            type: object
+            required: [positionId, plan, month, week, today]
+            properties:
+              positionId: {type: string}
+              plan:
+                allOf: [{$ref: '#/components/schemas/PlanView'}]
+                nullable: true
+              month: {$ref: '#/components/schemas/PlanActuals'}
+              week: {$ref: '#/components/schemas/PlanActuals'}
+              today: {$ref: '#/components/schemas/PlanActuals'}
+
+    FileDownloadResponse:
+      type: object
+      required: [url, fileName]
+      properties:
+        url: {type: string, description: "Подписанный GET-URL оригинала файла"}
+        fileName: {type: string, description: "Имя файла, которое видел пользователь"}
+
+    LibraryScope:
+      type: string
+      enum: [organization, personal]
+
+    LibraryProductType:
+      type: string
+      enum: [sales, network, owner, agent]
+
+    LibraryItemView:
+      type: object
+      required: [id, scope, productType, folderId, assetId, fileName, mimeType, sizeBytes, createdByPositionId, createdAt]
+      properties:
+        id: {type: string}
+        scope: {$ref: '#/components/schemas/LibraryScope'}
+        productType:
+          allOf: [{$ref: '#/components/schemas/LibraryProductType'}]
+          nullable: true
+          description: null — общий материал для всех продуктов (у личных всегда null)
+        folderId: {type: string, nullable: true}
+        assetId: {type: string, description: "MediaAsset файла — его же передают в POST /leads/{leadId}/files, чтобы прикрепить материал к лиду"}
+        fileName: {type: string}
+        mimeType: {type: string}
+        sizeBytes: {type: integer}
+        createdByPositionId: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    LibraryItemListResponse:
+      type: object
+      required: [items, canUpload]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryItemView'}
+        canUpload: {type: boolean, description: "Может ли вызывающий добавлять материалы в этот раздел"}
+
+    CreateLibraryItemRequest:
+      type: object
+      required: [scope, assetId, fileName]
+      properties:
+        scope: {$ref: '#/components/schemas/LibraryScope'}
+        assetId: {type: string}
+        fileName: {type: string, minLength: 1, maxLength: 255}
+        productType: {$ref: '#/components/schemas/LibraryProductType'}
+        folderId: {type: string}
+
+    LibraryFolderView:
+      type: object
+      required: [id, name, parentId, createdAt]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        parentId: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+
+    LibraryFolderListResponse:
+      type: object
+      required: [folders]
+      properties:
+        folders:
+          type: array
+          items: {$ref: '#/components/schemas/LibraryFolderView'}
+
+    CreateLibraryFolderRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        parentId: {type: string}
 
     NoteAttachmentDownloadResponse:
       type: object

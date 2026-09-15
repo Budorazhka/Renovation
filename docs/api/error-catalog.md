@@ -64,6 +64,7 @@
 | Code | Смысл | Когда |
 |---|---|---|
 | `CONTACT_PHONE_TAKEN` | Новый телефон в PATCH /leads/:leadId уже принадлежит ДРУГОМУ контакту этой организации | `PATCH /leads/:leadId` (name/phone/email правка контакта) |
+| `LIBRARY_FOLDER_NOT_EMPTY` | В папке личной библиотеки ещё есть файлы или подпапки | `DELETE /library/folders/:folderId` (сначала удалить содержимое) |
 
 ## Validation
 

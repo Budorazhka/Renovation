@@ -48,7 +48,8 @@ import type { CalendarEventDocument, CalendarEventType, CalendarEventStatus } fr
 
 import type { TimelineEventType } from './dto/list-timeline.dto';
 
-type RevealContactResult = { phone: string; whatsapp?: string; telegram?: string; leadId: Types.ObjectId };
+/** leadId есть только у заявки из формы (гость оставил телефон); просто «Показать телефон» лида не создаёт. */
+type RevealContactResult = { phone: string; whatsapp?: string; telegram?: string; leadId?: Types.ObjectId };
 
 export interface CrmLeadReadModel {
   id: string;
@@ -324,6 +325,19 @@ export interface CrmTeamPerformanceTimeseriesPoint {
   deals: number;
   completedTasks: number;
 }
+
+/** Факт сотрудника за период для плана (модуль plans): сделанное, не поставленное. */
+export interface CrmPlanActuals {
+  leads: number;
+  deals: number;
+  revenue: Array<{ currency: string; amountMinorUnits: number }>;
+  calls: number;
+  meetings: number;
+  showings: number;
+}
+
+/** Выигранные стадии сделки — те же, что считает team-performance. */
+const WON_DEAL_STAGE_SET: ReadonlySet<string> = new Set(['deal', 'golden', 'check_in', 'referral']);
 
 export interface CrmPositionPerformanceReadModel {
   positionId: string | null;
@@ -1070,10 +1084,11 @@ export class CrmService {
     if (!attachment) {
       throw new NotFoundException('Attachment not found');
     }
-    const download = await this.mediaService.createDownloadUrlForOwnerScope(params.assetId, {
-      type: 'organization',
-      organizationId: params.organizationId,
-    });
+    const download = await this.mediaService.createDownloadUrlForOwnerScope(
+      params.assetId,
+      { type: 'organization', organizationId: params.organizationId },
+      attachment.fileName,
+    );
     if (!download) {
       throw new NotFoundException('Attachment not found');
     }
@@ -1678,6 +1693,16 @@ export class CrmService {
 
     const organizationId = development.organizationId;
 
+    if (!params.requesterPhone) {
+      await this.recordContactView({
+        publicationId: publication._id,
+        organizationId,
+        slug: params.slug,
+        correlationId: params.correlationId,
+      });
+      return extractContactChannels(development.contact);
+    }
+
     return this.revealWithIdempotency({
       slug: params.slug,
       idempotencyKey: params.idempotencyKey,
@@ -1747,6 +1772,16 @@ export class CrmService {
     }
 
     const organizationId = propertyAsset.publisherScope.organizationId;
+
+    if (!params.requesterPhone) {
+      await this.recordContactView({
+        publicationId: publication._id,
+        organizationId,
+        slug: params.slug,
+        correlationId: params.correlationId,
+      });
+      return { phone: propertyAsset.representativePhone };
+    }
 
     return this.revealWithIdempotency({
       slug: params.slug,
@@ -2600,10 +2635,41 @@ export class CrmService {
     // Порядок = порядок прикрепления (attachedAssetIds), не порядок Mongo
     // $in-выборки (не гарантирован) — та же дисциплина, что TaskDocument.
     // attachments уже сохраняет свой собственный порядок массива.
+    const fileNames = lead.attachedFileNames ?? {};
     return assetIds
       .map((assetId) => ({ assetId, asset: assets.get(assetId.toString()) }))
       .filter((entry): entry is { assetId: Types.ObjectId; asset: NonNullable<typeof entry.asset> } => entry.asset !== undefined)
-      .map((entry) => toLeadFileReadModel(entry.assetId, entry.asset, this.mediaService));
+      .map((entry) =>
+        toLeadFileReadModel(entry.assetId, entry.asset, this.mediaService, fileNames[entry.assetId.toString()]),
+      );
+  }
+
+  /**
+   * GET /leads/:leadId/files/:assetId/download — временная ссылка на
+   * оригинал вложения. `url` в списке файлов есть только у изображений
+   * публичного бакета (card variant); PDF и файлы, прикреплённые из
+   * библиотеки (приватный бакет), без этой ссылки не открывались вовсе.
+   */
+  async getLeadFileDownloadUrl(params: {
+    leadId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    ownerPositionId?: Types.ObjectId;
+    assetId: Types.ObjectId;
+  }): Promise<{ url: string; fileName: string }> {
+    const files = await this.listLeadFiles(params);
+    const file = files.find((item) => item.assetId === params.assetId.toString());
+    if (!file) {
+      throw new NotFoundException('Lead file not found');
+    }
+    const download = await this.mediaService.createDownloadUrlForOwnerScope(
+      params.assetId,
+      { type: 'organization', organizationId: params.organizationId },
+      file.fileName,
+    );
+    if (!download) {
+      throw new NotFoundException('Lead file not found');
+    }
+    return { url: download.url, fileName: file.fileName };
   }
 
   /**
@@ -2618,6 +2684,7 @@ export class CrmService {
     organizationId: Types.ObjectId;
     ownerPositionId?: Types.ObjectId;
     assetId: Types.ObjectId;
+    fileName?: string;
     actorIdentityId: Types.ObjectId;
     correlationId: string;
   }): Promise<CrmLeadFileReadModel[]> {
@@ -2644,7 +2711,13 @@ export class CrmService {
     }
 
     await runInTransaction(this.connection, async (session) => {
-      await this.leadRepository.addAttachedAsset(params.leadId, params.organizationId, params.assetId, session);
+      await this.leadRepository.addAttachedAsset(
+        params.leadId,
+        params.organizationId,
+        params.assetId,
+        session,
+        params.fileName,
+      );
       await this.auditService.append(
         {
           actor: { type: 'identity', id: params.actorIdentityId },
@@ -2806,6 +2879,28 @@ export class CrmService {
     }
   }
 
+  /**
+   * «Показать телефон» без формы (15.09.2026, owner decision): гость видит
+   * номер застройщика или менеджера, лид не создаётся — раньше витрина
+   * подставляла фейкового «Посетителя сайта» и каждое нажатие давало
+   * мусорный лид. Факт просмотра остаётся в журнале для статистики интереса.
+   */
+  private async recordContactView(params: {
+    publicationId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    slug: string;
+    correlationId: string;
+  }): Promise<void> {
+    await this.auditService.append({
+      actor: { type: 'system' },
+      action: 'publication.contact_view',
+      resource: 'publication',
+      resourceId: params.publicationId,
+      after: { organizationId: params.organizationId.toString(), publicationSlug: params.slug },
+      correlationId: params.correlationId,
+    });
+  }
+
   private async createLeadForReveal(
     params: {
       organizationId: Types.ObjectId;
@@ -2822,10 +2917,16 @@ export class CrmService {
   ): Promise<Types.ObjectId> {
     const contact = await this.resolveContact(params.organizationId, params, session);
 
+    // Заявка с витрины — покупатель ЖК или объекта, воронка «Продажи»
+    // (15.09.2026, owner decision): такой лид сразу ведётся на столе CRM,
+    // а не в отдельной generic-пятёрке стадий.
+    const stage = firstStageIdForProduct('sales') as LeadStage;
     const lead = await this.leadRepository.create(
       {
         organizationId: params.organizationId,
         contactId: contact._id,
+        productType: 'sales',
+        stage,
         source: {
           route: params.route,
           publicationId: params.publicationId,
@@ -2840,7 +2941,7 @@ export class CrmService {
       {
         leadId: lead._id,
         organizationId: params.organizationId,
-        stage: 'new' as LeadStage,
+        stage,
         changedBy: { type: 'system' },
       },
       session,
@@ -4363,6 +4464,73 @@ export class CrmService {
   }
 
   /**
+   * Факт по плану за период, по позициям (модуль plans). Лиды — созданные в
+   * периоде с владельцем-позицией; сделки и выручка — выигранные сделки,
+   * созданные в периоде, выручка = их комиссия; звонки и встречи — закрытые
+   * в периоде задачи этого типа; показы — разные лиды, переведённые
+   * сотрудником на стадию «Показ». Ключ карты — positionId строкой.
+   */
+  async getPlanActuals(params: {
+    organizationId: Types.ObjectId;
+    from: Date;
+    to: Date;
+  }): Promise<Map<string, CrmPlanActuals>> {
+    const [leadRows, dealRows, activityRows, showingRows] = await Promise.all([
+      this.leadRepository.aggregateByOwnerPosition(params.organizationId, { from: params.from, to: params.to }),
+      this.dealRepository.aggregateByOwnerPosition(params.organizationId, { from: params.from, to: params.to }),
+      this.taskRepository.aggregateCompletedActivitiesByPosition(params.organizationId, { from: params.from, to: params.to }),
+      this.leadEventRepository.countLeadsMovedToStageByPosition(params.organizationId, 'showing', {
+        from: params.from,
+        to: params.to,
+      }),
+    ]);
+
+    const result = new Map<string, CrmPlanActuals>();
+    const revenueByPosition = new Map<string, Map<string, number>>();
+    const entryFor = (positionId: Types.ObjectId | null | undefined): CrmPlanActuals | null => {
+      if (!positionId) return null;
+      const key = positionId.toString();
+      let entry = result.get(key);
+      if (!entry) {
+        entry = { leads: 0, deals: 0, revenue: [], calls: 0, meetings: 0, showings: 0 };
+        result.set(key, entry);
+      }
+      return entry;
+    };
+
+    for (const row of leadRows) {
+      const entry = entryFor(row.ownerPositionId);
+      if (entry) entry.leads += row.count;
+    }
+    for (const row of dealRows) {
+      if (!WON_DEAL_STAGE_SET.has(row.stage)) continue;
+      const entry = entryFor(row.ownerPositionId);
+      if (!entry) continue;
+      entry.deals += row.count;
+      if (row.currency && row.commissionAmountMinorUnits > 0) {
+        const key = row.ownerPositionId.toString();
+        const sums = revenueByPosition.get(key) ?? new Map<string, number>();
+        sums.set(row.currency, (sums.get(row.currency) ?? 0) + row.commissionAmountMinorUnits);
+        revenueByPosition.set(key, sums);
+      }
+    }
+    for (const row of activityRows) {
+      const entry = entryFor(row.assignedPositionId);
+      if (!entry) continue;
+      if (row.taskType === 'call') entry.calls += row.count;
+      else entry.meetings += row.count;
+    }
+    for (const row of showingRows) {
+      const entry = entryFor(row.positionId);
+      if (entry) entry.showings += row.count;
+    }
+    for (const [key, sums] of revenueByPosition) {
+      result.get(key)!.revenue = [...sums].map(([currency, amountMinorUnits]) => ({ currency, amountMinorUnits }));
+    }
+    return result;
+  }
+
+  /**
    * GET /crm/reports/team-performance — комплексный отчёт по результативности
    * сотрудников и команды с разбивкой по воронке лидов, сделкам, комиссиям,
    * выполнению задач (SLA) и динамике активности во времени (timeseries).
@@ -4611,7 +4779,7 @@ function sanitizeRevealResponse(response: RevealContactResult): Record<string, u
     phone: response.phone,
     whatsapp: response.whatsapp,
     telegram: response.telegram,
-    leadId: response.leadId.toString(),
+    leadId: response.leadId?.toString(),
   };
 }
 
@@ -4801,11 +4969,12 @@ function toLeadFileReadModel(
     originalPath: string;
   },
   mediaService: MediaService,
+  storedFileName?: string,
 ): CrmLeadFileReadModel {
   const cardVariant = asset.variants.find((v) => v.type === 'card');
   return {
     assetId: assetId.toString(),
-    fileName: asset.originalPath.split('/').pop() ?? asset.originalPath,
+    fileName: storedFileName ?? asset.originalPath.split('/').pop() ?? asset.originalPath,
     mimeType: asset.verifiedMimeType ?? asset.declaredMimeType ?? null,
     sizeBytes: asset.sizeBytes,
     url: asset.status === 'verified' && cardVariant ? mediaService.getVariantUrl(cardVariant) : null,

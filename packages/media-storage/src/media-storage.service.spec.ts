@@ -1,6 +1,6 @@
 import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
-import { MediaObjectTooLargeError, MediaStorageService } from './media-storage.service';
+import { contentDispositionInline, MediaObjectTooLargeError, MediaStorageService } from './media-storage.service';
 import type { ConfigService } from '@nestjs/config';
 
 // getSignedUrl — non-configurable named export в commonjs-интеропе этого
@@ -92,6 +92,29 @@ describe('MediaStorageService', () => {
     expect(command.input.Key).toBe('assetId/original.jpg');
     expect(command.input.ContentType).toBe('image/jpeg');
     expect(command.input.ContentLength).toBe(12_345);
+  });
+
+  it('createDownloadUrl с именем файла подписывает Content-Disposition, без имени — нет', async () => {
+    const getSignedUrlSpy = jest.mocked(getSignedUrl);
+    getSignedUrlSpy.mockResolvedValue('https://minio.example.com/presigned-get');
+    const service = new MediaStorageService(makeConfigService());
+
+    await service.createDownloadUrl({ bucket: 'private', key: 'assetId/original.pdf', fileName: 'КП ЖК.pdf' });
+    await service.createDownloadUrl({ bucket: 'private', key: 'assetId/original.pdf' });
+
+    const [withName, withoutName] = getSignedUrlSpy.mock.calls.slice(-2).map(
+      (call) => call[1] as unknown as { input: { ResponseContentDisposition?: string } },
+    );
+    expect(withName!.input.ResponseContentDisposition).toBe(
+      `inline; filename="__ __.pdf"; filename*=UTF-8''%D0%9A%D0%9F%20%D0%96%D0%9A.pdf`,
+    );
+    expect(withoutName!.input.ResponseContentDisposition).toBeUndefined();
+  });
+
+  it('contentDispositionInline вырезает кавычки, обратный слэш и переводы строк из имени', () => {
+    expect(contentDispositionInline('a"b\\c\r\nd.pdf')).toBe(`inline; filename="abcd.pdf"; filename*=UTF-8''abcd.pdf`);
+    expect(contentDispositionInline('  ')).toBe(`inline; filename="file"; filename*=UTF-8''file`);
+    expect(contentDispositionInline("it's (1).pdf")).toBe(`inline; filename="it's (1).pdf"; filename*=UTF-8''it%27s%20%281%29.pdf`);
   });
 
   /**

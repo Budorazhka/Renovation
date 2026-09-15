@@ -131,10 +131,11 @@ export class NotesService {
     if (!attachment) {
       throw new NotFoundException('Attachment not found');
     }
-    const download = await this.mediaService.createDownloadUrlForOwnerScope(params.assetId, {
-      type: 'organization',
-      organizationId: params.organizationId,
-    });
+    const download = await this.mediaService.createDownloadUrlForOwnerScope(
+      params.assetId,
+      { type: 'organization', organizationId: params.organizationId },
+      attachment.fileName,
+    );
     if (!download) {
       throw new NotFoundException('Attachment not found');
     }

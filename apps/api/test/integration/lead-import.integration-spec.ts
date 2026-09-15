@@ -291,6 +291,7 @@ describe('POST /leads/import — импорт лидов из CSV (real HTTP + r
       expect(res.statusCode).toBe(200);
       const leadDoc = await connection.collection('leads').findOne({ organizationId: owner.organizationId });
       expect(leadDoc!.tags).toEqual(['old_base']);
+      expect(leadDoc!.productType).toBe('sales');
     });
 
     it('без tag — tags не проставляется', async () => {

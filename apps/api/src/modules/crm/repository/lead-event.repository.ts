@@ -114,4 +114,30 @@ export class LeadEventRepository {
       ])
       .exec();
   }
+
+  /**
+   * Факт по плану «показы»: сколько разных лидов сотрудник перевёл на стадию
+   * (например 'showing') в периоде — по changedBy.positionId события.
+   */
+  async countLeadsMovedToStageByPosition(
+    organizationId: Types.ObjectId,
+    stage: string,
+    params: { from: Date; to: Date },
+  ): Promise<Array<{ positionId: Types.ObjectId; count: number }>> {
+    return this.model
+      .aggregate<{ positionId: Types.ObjectId; count: number }>([
+        {
+          $match: {
+            organizationId,
+            stage,
+            'changedBy.type': 'position',
+            changedAt: { $gte: params.from, $lte: params.to },
+          },
+        },
+        { $group: { _id: { positionId: '$changedBy.positionId', leadId: '$leadId' } } },
+        { $group: { _id: '$_id.positionId', count: { $sum: 1 } } },
+        { $project: { _id: 0, positionId: '$_id', count: 1 } },
+      ])
+      .exec();
+  }
 }
