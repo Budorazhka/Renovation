@@ -69,7 +69,12 @@ Admin web ──────┘              │
 ```ts
 { type: 'organization'; organizationId: ObjectId }
 { type: 'marketplace_account'; identityId: ObjectId }
+{ type: 'platform' }
 ```
+
+`platform` — контент самой платформы, ничей из тенантов (с 15.09.2026 —
+картинки к новостям платформы из админки). Его выставляет только
+admin-контур; ни ERP-, ни marketplace-сессия такой scope не порождают.
 
 Новые endpoint'ы должны получать scope из серверного контекста сессии. Нельзя
 принимать `organizationId` или `identityId` из body/query как источник прав.

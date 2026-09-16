@@ -43,4 +43,10 @@ export {
   type ListMessagesFilter,
 } from './repository/messenger-message.repository';
 
-export { TelegramBotClient, TelegramApiError, type TelegramGetMeResult, type TelegramSendMessageResult } from './telegram-bot.client';
+export {
+  TelegramBotClient,
+  TelegramApiError,
+  type TelegramGetMeResult,
+  type TelegramSendMessageResult,
+  type TelegramIncomingUpdate,
+} from './telegram-bot.client';

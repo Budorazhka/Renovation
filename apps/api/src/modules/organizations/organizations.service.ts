@@ -116,6 +116,22 @@ export class OrganizationsService {
    * up front). System-actor lookup, no org filter here by definition — same
    * principle as MessengerAccountRepository.findByIdWithToken.
    */
+  /**
+   * Получатели рассылки новости компании (NewsService): люди, которые сейчас
+   * занимают позиции этой организации. Boundary-метод, тот же принцип, что
+   * getPositionSummary: PositionAssignmentRepository наружу не выходит.
+   */
+  async listActiveOccupantIdentityIds(organizationId: Types.ObjectId): Promise<Types.ObjectId[]> {
+    const assignments = await this.positionAssignmentRepository.findAllActiveByOrganization(organizationId);
+    const unique = new Map(assignments.map((assignment) => [assignment.identityId.toString(), assignment.identityId]));
+    return [...unique.values()];
+  }
+
+  /** Получатели рассылки новости платформы: все, кто сейчас работает в какой-либо организации. */
+  async listAllActiveOccupantIdentityIds(): Promise<Types.ObjectId[]> {
+    return this.positionAssignmentRepository.findActiveIdentityIds();
+  }
+
   async getPositionOrganizationId(positionId: Types.ObjectId): Promise<Types.ObjectId | null> {
     const position = await this.positionRepository.findById(positionId);
     return position?.organizationId ?? null;

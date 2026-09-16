@@ -1,6 +1,6 @@
 import { Schema as MongooseSchema, Types } from 'mongoose';
 
-export type OwnerScopeType = 'organization' | 'marketplace_account';
+export type OwnerScopeType = 'organization' | 'marketplace_account' | 'platform';
 
 /**
  * domain-model.md: паттерн для сущностей, принадлежащих либо организации
@@ -18,7 +18,18 @@ export type OwnerScopeType = 'organization' | 'marketplace_account';
  */
 export type OwnerScope =
   | { type: 'organization'; organizationId: Types.ObjectId }
-  | { type: 'marketplace_account'; identityId: Types.ObjectId };
+  | { type: 'marketplace_account'; identityId: Types.ObjectId }
+  | PlatformOwnerScope;
+
+/**
+ * Контент самой платформы BAZA — ничей из тенантов (15.09.2026: картинки к
+ * новостям платформы, которые публикует админка). Идентификатора у него нет:
+ * платформа одна. Ни TenantContext, ни marketplace-сессия такой scope не
+ * порождают — его выставляет только admin-контур.
+ */
+export type PlatformOwnerScope = { type: 'platform' };
+
+export const PLATFORM_OWNER_SCOPE: PlatformOwnerScope = { type: 'platform' };
 
 /**
  * Вложенная Mongoose-схема, как AuditActorSchema — поле `type` внутри
@@ -31,7 +42,7 @@ export type OwnerScope =
  */
 export const OwnerScopeSchema = new MongooseSchema(
   {
-    type: { type: String, enum: ['organization', 'marketplace_account'], required: true },
+    type: { type: String, enum: ['organization', 'marketplace_account', 'platform'], required: true },
     organizationId: { type: MongooseSchema.Types.ObjectId, required: false },
     identityId: { type: MongooseSchema.Types.ObjectId, required: false },
   },
@@ -52,6 +63,9 @@ export function ownerScopesEqual(a: OwnerScope, b: OwnerScope): boolean {
   }
   if (a.type === 'marketplace_account' && b.type === 'marketplace_account') {
     return a.identityId.equals(b.identityId);
+  }
+  if (a.type === 'platform' && b.type === 'platform') {
+    return true;
   }
   return false;
 }

@@ -45,6 +45,17 @@ export interface TelegramSendMessageResult {
   externalMessageId: string;
 }
 
+/** Входящее обновление бота — ровно те поля, которые читает бот уведомлений. */
+export interface TelegramIncomingUpdate {
+  updateId: number;
+  message?: {
+    text?: string;
+    chatId: string;
+    chatType: string;
+    fromUsername?: string;
+  };
+}
+
 interface TelegramEnvelope<T> {
   ok: boolean;
   result?: T;
@@ -142,6 +153,32 @@ export class TelegramBotClient {
   async sendMessage(token: string, chatId: string, text: string): Promise<TelegramSendMessageResult> {
     const result = await this.call<{ message_id: number }>(token, 'sendMessage', { chat_id: chatId, text });
     return { externalMessageId: result.message_id.toString() };
+  }
+
+  /**
+   * Long polling входящих сообщений — для бота уведомлений платформы,
+   * которому не нужен публичный адрес вебхука (работает и на стенде без
+   * внешнего URL). Не для ботов организаций: у них вебхук, а Telegram не
+   * отдаёт getUpdates боту с установленным вебхуком.
+   */
+  async getUpdates(token: string, offset: number, timeoutSeconds: number): Promise<TelegramIncomingUpdate[]> {
+    const result = await this.call<
+      Array<{
+        update_id: number;
+        message?: { text?: string; chat: { id: number; type: string }; from?: { username?: string } };
+      }>
+    >(token, 'getUpdates', { offset, timeout: timeoutSeconds, allowed_updates: ['message'] });
+    return result.map((update) => ({
+      updateId: update.update_id,
+      message: update.message
+        ? {
+            text: update.message.text,
+            chatId: update.message.chat.id.toString(),
+            chatType: update.message.chat.type,
+            fromUsername: update.message.from?.username,
+          }
+        : undefined,
+    }));
   }
 }
 

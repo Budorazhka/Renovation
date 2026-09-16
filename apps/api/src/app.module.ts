@@ -30,6 +30,8 @@ import { PublicRealtorsModule } from './modules/public-realtors/public-realtors.
 import { NotesModule } from './modules/notes/notes.module';
 import { LibraryModule } from './modules/library/library.module';
 import { PlansModule } from './modules/plans/plans.module';
+import { NewsModule } from './modules/news/news.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -75,6 +77,8 @@ import { PlansModule } from './modules/plans/plans.module';
     NotesModule,
     LibraryModule,
     PlansModule,
+    NewsModule,
+    NotificationsModule,
   ],
   controllers: [HealthController],
   // TenantContextMiddleware/AdminContextMiddleware явно зарегистрированы

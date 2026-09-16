@@ -39,6 +39,8 @@ import {
 } from '@baza/messenger';
 import { OutboxModule } from '../outbox/outbox.module';
 import { EventHandlerRegistry } from '../outbox/event-handler.registry';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationDeliveriesQueuedHandler } from '../notifications/notification-deliveries-queued.handler';
 import { MediaVerifiedHandler } from './media-verified.handler';
 import { MessengerMessageSentHandler } from './messenger-message-sent.handler';
 import { PositionOccupantAssignedHandler } from './position-occupant-assigned.handler';
@@ -85,6 +87,7 @@ export const ACKNOWLEDGED_ONLY_EVENT_TYPES = [
 @Module({
   imports: [
     OutboxModule,
+    NotificationsModule,
     MongooseModule.forFeature([
       { name: MediaAssetDocument.name, schema: MediaAssetSchema },
       { name: DevelopmentDocument.name, schema: DevelopmentSchema },
@@ -138,6 +141,7 @@ export class HandlersModule implements OnModuleInit {
     private readonly bookingConfirmedHandler: BookingConfirmedHandler,
     private readonly bookingExtendedHandler: BookingExtendedHandler,
     private readonly messengerMessageSentHandler: MessengerMessageSentHandler,
+    private readonly notificationDeliveriesQueuedHandler: NotificationDeliveriesQueuedHandler,
     private readonly acknowledgedEventHandler: AcknowledgedEventHandler,
   ) {}
 
@@ -152,6 +156,7 @@ export class HandlersModule implements OnModuleInit {
     this.registry.register('BookingConfirmed', this.bookingConfirmedHandler);
     this.registry.register('BookingExtended', this.bookingExtendedHandler);
     this.registry.register('MessengerMessageSent', this.messengerMessageSentHandler);
+    this.registry.register('NotificationDeliveriesQueued', this.notificationDeliveriesQueuedHandler);
 
     for (const eventType of ACKNOWLEDGED_ONLY_EVENT_TYPES) {
       this.registry.register(eventType, this.acknowledgedEventHandler);

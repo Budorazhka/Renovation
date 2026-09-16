@@ -46,6 +46,12 @@ describe('ownerScopesEqual', () => {
     ).toBe(false);
   });
 
+  it('platform равен только platform: контент платформы не совпадает ни с одной организацией', () => {
+    expect(ownerScopesEqual({ type: 'platform' }, { type: 'platform' })).toBe(true);
+    expect(ownerScopesEqual({ type: 'platform' }, { type: 'organization', organizationId: new Types.ObjectId() })).toBe(false);
+    expect(ownerScopesEqual({ type: 'organization', organizationId: new Types.ObjectId() }, { type: 'platform' })).toBe(false);
+  });
+
   it('false при разных type, даже если оба id технически совпадали бы по значению', () => {
     const sameHexId = new Types.ObjectId();
     expect(

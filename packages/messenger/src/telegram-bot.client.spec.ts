@@ -93,6 +93,29 @@ describe('TelegramBotClient', () => {
     await expect(client.sendMessage(token, '123', 'привет')).rejects.toBeInstanceOf(TelegramApiError);
   });
 
+  it('getUpdates передаёт offset и timeout, разбирает текст, чат и автора', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        ok: true,
+        result: [
+          { update_id: 10, message: { text: '/start abc', chat: { id: 555, type: 'private' }, from: { username: 'agent' } } },
+          { update_id: 11 },
+        ],
+      }),
+    );
+    const client = new TelegramBotClient();
+
+    const updates = await client.getUpdates(token, 10, 25);
+
+    expect(updates).toEqual([
+      { updateId: 10, message: { text: '/start abc', chatId: '555', chatType: 'private', fromUsername: 'agent' } },
+      { updateId: 11, message: undefined },
+    ]);
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://api.telegram.org/bot${token}/getUpdates`);
+    expect(JSON.parse((options as RequestInit).body as string)).toEqual({ offset: 10, timeout: 25, allowed_updates: ['message'] });
+  });
+
   it('setWebhook отправляет url и secret_token в теле запроса', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, result: true }));
     const client = new TelegramBotClient();

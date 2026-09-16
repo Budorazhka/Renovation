@@ -2581,6 +2581,214 @@ paths:
           description: VERSION_CONFLICT — план изменён параллельно, обновите и повторите
           $ref: '#/components/responses/Error'
 
+  /news:
+    get:
+      operationId: listNews
+      summary: >
+        Лента новостей сотрудника: новости платформы BAZA (их публикует
+        админка) и новости своей организации, newest-first (до 100).
+        canPublish — может ли вызывающий публиковать новости компании
+        (news.create); тем, кто может, у новостей компании приходит сводка
+        рассылки (delivery). channels — какие каналы рассылки настроены на
+        сервере.
+      tags: [erp-news]
+      responses:
+        '200':
+          description: Лента новостей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsFeedResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет news.read
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createNews
+      summary: >
+        Опубликовать новость компании: её увидят все сотрудники организации.
+        Требует news.create (scope organization). Автор подписывается именем
+        сотрудника позиции на момент публикации. Картинка — MediaAsset своей
+        организации с purpose news_image, уже подтверждённый. sendEmail и
+        sendTelegram ставят рассылку сотрудникам организации (кроме автора)
+        в очередь той же транзакцией; отправляет worker. Пишет аудит
+        news.publish.
+      tags: [erp-news]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNewsRequest'
+      responses:
+        '201':
+          description: Новость опубликована
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsArticleView'
+        '400':
+          description: VALIDATION_FAILED (в том числе картинка не news_image или ещё не подтверждена) либо IDEMPOTENCY_KEY_REQUIRED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет news.create
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — картинка не найдена или чужая
+          $ref: '#/components/responses/Error'
+
+  /news/{newsId}:
+    put:
+      operationId: updateNews
+      summary: >
+        Правка новости своей организации: содержимое заменяется целиком —
+        не присланные ссылка, подпись или картинка снимаются. expectedVersion
+        — версия, которую видел редактор. Повторно не рассылает. Пишет аудит
+        news.update с до/после.
+      tags: [erp-news]
+      parameters:
+        - name: newsId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNewsRequest'
+      responses:
+        '200':
+          description: Новость изменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsArticleView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет news.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — новость платформы, чужой организации или картинка
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT — новость изменили после чтения
+          $ref: '#/components/responses/Error'
+
+    delete:
+      operationId: deleteNews
+      summary: >
+        Удалить новость своей организации. Новость платформы или чужой
+        организации — 404. Пишет аудит news.delete.
+      tags: [erp-news]
+      parameters:
+        - name: newsId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '204':
+          description: Новость удалена
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет news.delete
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /me/notifications:
+    get:
+      operationId: getMyNotificationSettings
+      summary: >
+        Свои настройки уведомлений: почта (адрес — из логина, если это адрес)
+        и Telegram (привязка к боту уведомлений BAZA). configured — настроен
+        ли канал на сервере.
+      tags: [erp-notifications]
+      responses:
+        '200':
+          description: Настройки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsView'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+
+    put:
+      operationId: updateMyNotificationSettings
+      summary: Присылать ли новости на почту и в Telegram. Не присланное поле не меняется.
+      tags: [erp-notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationSettingsRequest'
+      responses:
+        '200':
+          description: Настройки сохранены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettingsView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+
+  /me/notifications/telegram-link:
+    post:
+      operationId: createMyTelegramLink
+      summary: >
+        Ссылка привязки Telegram: https://t.me/<бот>?start=<код>. Код
+        одноразовый, живёт 15 минут, новый отменяет прежний; бот по
+        /start <код> связывает чат с вызывающим.
+      tags: [erp-notifications]
+      responses:
+        '201':
+          description: Ссылка выдана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLinkResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '409':
+          description: NOTIFICATION_CHANNEL_NOT_CONFIGURED — бот уведомлений не настроен на сервере
+          $ref: '#/components/responses/Error'
+
+  /me/notifications/telegram:
+    delete:
+      operationId: unlinkMyTelegram
+      summary: Отвязать свой Telegram от уведомлений.
+      tags: [erp-notifications]
+      responses:
+        '204':
+          description: Отвязан
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+
   /library/items:
     get:
       operationId: listLibraryItems
@@ -7271,6 +7479,181 @@ paths:
         '409':
           $ref: '#/components/responses/Error'
 
+  /admin/news:
+    get:
+      operationId: adminListNews
+      summary: >-
+        Новости платформы BAZA (видят сотрудники всех организаций в ленте
+        ERP), newest-first (до 100), со сводкой рассылки. channels — какие
+        каналы рассылки настроены на сервере. Грант администратора
+        news.publish; super_admin — без гранта.
+      tags: [admin]
+      responses:
+        '200':
+          description: Новости платформы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminNewsListResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: adminCreateNews
+      summary: >-
+        Опубликовать новость платформы: сразу появляется в ленте ERP у
+        сотрудников всех организаций. Картинка — загруженная через
+        /admin/news/images. sendEmail/sendTelegram — разослать сотрудникам
+        всех организаций. Пишет аудит news.publish.
+      tags: [admin]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNewsRequest'
+      responses:
+        '201':
+          description: Новость опубликована
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsArticleView'
+        '400':
+          description: VALIDATION_FAILED либо IDEMPOTENCY_KEY_REQUIRED
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — картинка не найдена или не платформы
+          $ref: '#/components/responses/Error'
+
+  /admin/news/{newsId}:
+    put:
+      operationId: adminUpdateNews
+      summary: >-
+        Правка новости платформы (содержимое целиком, expectedVersion — CAS).
+        Новость организации этим путём — 404. Пишет аудит news.update.
+      tags: [admin]
+      parameters:
+        - name: newsId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNewsRequest'
+      responses:
+        '200':
+          description: Новость изменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsArticleView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+    delete:
+      operationId: adminDeleteNews
+      summary: >-
+        Удалить новость платформы. Новость организации этим путём не
+        удалить — 404. Пишет аудит news.delete.
+      tags: [admin]
+      parameters:
+        - name: newsId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '204':
+          description: Новость удалена
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /admin/news/images/upload-intent:
+    post:
+      operationId: adminCreateNewsImageUploadIntent
+      summary: >-
+        Шаг 1 загрузки картинки к новости платформы (ADR-008): MediaAsset
+        владельца «платформа», purpose news_image, публичный бакет, и
+        presigned URL на 5 минут. Только изображения (JPEG, PNG, WebP) до 20 МБ.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [declaredMimeType, sizeBytes]
+              properties:
+                declaredMimeType: {type: string, enum: [image/jpeg, image/png, image/webp]}
+                sizeBytes: {type: integer, minimum: 1, maximum: 20971520}
+      responses:
+        '201':
+          description: Загрузка разрешена
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assetId, uploadUrl]
+                properties:
+                  assetId: {type: string}
+                  uploadUrl: {type: string}
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+
+  /admin/news/images/{assetId}/confirm:
+    post:
+      operationId: adminConfirmNewsImageUpload
+      summary: Шаг 3 — проверка файла по magic bytes; verified значит, что картинку можно прикрепить к новости.
+      tags: [admin]
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Результат проверки
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [verified, rejected]}
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет news.publish
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
   /admin/billing/plans:
     get:
       operationId: adminListBillingPlans
@@ -9978,7 +10361,7 @@ components:
       properties:
         declaredMimeType: {type: string, enum: [image/jpeg, image/png, image/webp, application/pdf]}
         sizeBytes: {type: integer, maximum: 20971520, description: "MAX_UPLOAD_SIZE_BYTES — 20 МБ"}
-        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment, lead_attachment, note_attachment, library_file]}
+        purpose: {type: string, enum: [unit_photo, floor_plan, agency_document, profile_avatar, property_photo, task_attachment, lead_attachment, note_attachment, library_file, news_image]}
 
     CreateMediaUploadIntentResponse:
       type: object
@@ -10683,6 +11066,159 @@ components:
       properties:
         url: {type: string, description: "Подписанный GET-URL оригинала файла"}
         fileName: {type: string, description: "Имя файла, которое видел пользователь"}
+
+    NewsSource:
+      type: string
+      enum: [platform, organization]
+      description: platform — новость BAZA из админки для всех организаций; organization — новость своей компании.
+
+    NewsCategory:
+      type: string
+      enum: [company, market, developer, regulation]
+
+    NotificationChannels:
+      type: object
+      required: [email, telegram]
+      description: Какие каналы рассылки настроены на сервере (SMTP и бот уведомлений).
+      properties:
+        email: {type: boolean}
+        telegram: {type: boolean}
+
+    DeliveryCounts:
+      type: object
+      required: [pending, sent, failed, skipped]
+      properties:
+        pending: {type: integer}
+        sent: {type: integer}
+        failed: {type: integer}
+        skipped: {type: integer}
+
+    NewsDeliveryStats:
+      type: object
+      required: [email, telegram]
+      properties:
+        email: {$ref: '#/components/schemas/DeliveryCounts'}
+        telegram: {$ref: '#/components/schemas/DeliveryCounts'}
+
+    NewsArticleView:
+      type: object
+      required: [id, source, title, body, category, pinned, linkUrl, linkLabel, imageAssetId, imageUrl, authorName, publishedAt, editedAt, version, delivery]
+      properties:
+        id: {type: string}
+        source: {$ref: '#/components/schemas/NewsSource'}
+        title: {type: string}
+        body: {type: string}
+        category: {$ref: '#/components/schemas/NewsCategory'}
+        pinned: {type: boolean}
+        linkUrl: {type: string, nullable: true}
+        linkLabel: {type: string, nullable: true}
+        imageAssetId: {type: string, nullable: true}
+        imageUrl:
+          type: string
+          nullable: true
+          description: Публичная ссылка на картинку (вариант без EXIF, пока он не построен — оригинал).
+        authorName:
+          type: string
+          nullable: true
+          description: Имя сотрудника, опубликовавшего новость компании; у новости платформы null.
+        publishedAt: {type: string, format: date-time}
+        editedAt: {type: string, format: date-time, nullable: true}
+        version: {type: integer, description: Версия для expectedVersion при правке.}
+        delivery:
+          nullable: true
+          description: Сводка рассылки — только тем, кто новость публикует.
+          allOf:
+            - $ref: '#/components/schemas/NewsDeliveryStats'
+
+    NewsFeedResponse:
+      type: object
+      required: [items, canPublish, channels]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/NewsArticleView'}
+        canPublish:
+          type: boolean
+          description: Может ли вызывающий публиковать новости компании (news.create).
+        channels: {$ref: '#/components/schemas/NotificationChannels'}
+
+    AdminNewsListResponse:
+      type: object
+      required: [items, channels]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/NewsArticleView'}
+        channels: {$ref: '#/components/schemas/NotificationChannels'}
+
+    NewsArticleContent:
+      type: object
+      required: [title, body, category]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        body: {type: string, minLength: 1, maxLength: 10000}
+        category: {$ref: '#/components/schemas/NewsCategory'}
+        pinned: {type: boolean, default: false}
+        linkUrl:
+          type: string
+          maxLength: 2000
+          description: Только http(s) с протоколом.
+        linkLabel:
+          type: string
+          maxLength: 80
+          description: Подпись ссылки; без linkUrl не сохраняется.
+        imageAssetId:
+          type: string
+          description: MediaAsset purpose news_image того же владельца, уже подтверждённый.
+
+    CreateNewsRequest:
+      allOf:
+        - $ref: '#/components/schemas/NewsArticleContent'
+        - type: object
+          properties:
+            sendEmail: {type: boolean, default: false, description: Разослать на почту получателям.}
+            sendTelegram: {type: boolean, default: false, description: Разослать в Telegram тем, кто привязал бота уведомлений.}
+
+    UpdateNewsRequest:
+      allOf:
+        - $ref: '#/components/schemas/NewsArticleContent'
+        - type: object
+          required: [expectedVersion]
+          properties:
+            expectedVersion: {type: integer, minimum: 0}
+
+    NotificationSettingsView:
+      type: object
+      required: [email, telegram]
+      properties:
+        email:
+          type: object
+          required: [address, news, configured]
+          properties:
+            address: {type: string, nullable: true, description: Адрес из логина; null — логин не адрес почты.}
+            news: {type: boolean}
+            configured: {type: boolean}
+        telegram:
+          type: object
+          required: [linked, username, news, configured]
+          properties:
+            linked: {type: boolean}
+            username: {type: string, nullable: true}
+            news: {type: boolean}
+            configured: {type: boolean}
+
+    UpdateNotificationSettingsRequest:
+      type: object
+      properties:
+        newsEmail: {type: boolean}
+        newsTelegram: {type: boolean}
+
+    TelegramLinkResponse:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url: {type: string}
+        expiresAt: {type: string, format: date-time}
 
     LibraryScope:
       type: string

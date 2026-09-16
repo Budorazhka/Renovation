@@ -42,6 +42,10 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
   'POST /team-users/invite/:token/activate': 'активация приглашения: предъявляемый одноразовый токен и есть аутентификация',
   'POST /team-users/ensure-self': 'работает строго со своей позицией из TenantContext (organizationId + positionId сервера), чужого вернуть не может; класс под TenantGuard',
   'GET /me': 'профиль вошедшего о себе же; под TenantGuard, чужого не отдаёт',
+  'GET /me/notifications': 'свои настройки уведомлений: identity только из TenantContext, чужих не отдаёт; под TenantGuard',
+  'PUT /me/notifications': 'меняет только свои настройки уведомлений (identity из TenantContext); под TenantGuard',
+  'POST /me/notifications/telegram-link': 'ссылка привязки своего Telegram к боту уведомлений: код выдаётся на identity из TenantContext',
+  'DELETE /me/notifications/telegram': 'отвязывает свой Telegram (identity из TenantContext), чужую привязку снять нельзя',
 
   'GET /public/developments': 'публичный каталог — это его назначение',
   'GET /public/developments/:slug': 'публичная карточка ЖК',

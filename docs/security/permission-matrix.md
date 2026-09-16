@@ -202,6 +202,28 @@ Scope здесь на поведение не влияет: контроллер
 журнал (`plan.update`), потому что влияет на оценку сотрудника (§4). См.
 [operations/plans.md](../operations/plans.md).
 
+### 1.12. Лента новостей (news)
+
+| Permission | owner | director | rop | manager | administrator | marketer |
+|---|---|---|---|---|---|---|
+| `news.read.organization` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `news.create.organization` | ✓ | ✓ | — | — | — | — |
+| `news.update.organization` | ✓ | ✓ | — | — | — | — |
+| `news.delete.organization` | ✓ | ✓ | — | — | — | — |
+
+`developer` — как `owner`/`director` (scope `organization`).
+
+**15.09.2026, техническое решение по схеме, предложенной владельцу.** Лента
+сотрудника — новости платформы BAZA и новости своей компании. Новость
+компании публикует, правит и удаляет руководитель (`news.create`/
+`news.update`/`news.delete`), видят все сотрудники этой организации.
+Новость платформы ведёт админка (грант администратора `news.publish`, §2.2);
+из ERP её не изменить и не удалить. Публикация, правка и удаление пишутся в
+журнал (`news.publish`/`news.update`/`news.delete`). Рассылку на почту и в
+Telegram выбирает публикующий; свои настройки уведомлений
+(`/me/notifications`) меняет только сам сотрудник, отдельного права не
+нужно. См. [operations/news.md](../operations/news.md).
+
 ## 2. Системные admin actors
 
 *(ADR-009)*
@@ -219,6 +241,7 @@ Scope здесь на поведение не влияет: контроллер
 | «Модератор вторички Батуми» (замещает legacy `mls_admin`-подобную демо-роль без hardcode) | `listing.moderate.city(batumi)`, `duplicate_candidate.resolve.city(batumi)`, `complaint.resolve.city(batumi)` |
 | «Админ новостроек» (замещает legacy `developers_admin`) | `development.moderate.domain(newbuilds)`, `unit.price.override.domain(newbuilds)` (только для критичных корректировок, не рутинного редактирования — то остаётся у ERP-ролей организации) |
 | «Модератор отзывов» | `review.moderate.global`, `review.rating_adjust.global` |
+| «Редактор новостей платформы» | `news.publish.global` — список, публикация и удаление новостей платформы (`/admin/news`) |
 
 **`[owner decision — xlsx #134]`**: «да суперадмином» (индивидуальная настройка) — только super_admin создаёт/меняет grants (ADR-009 self-escalation prevention, уже enforced на уровне архитектуры, не только этой матрицы).
 

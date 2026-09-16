@@ -22,6 +22,8 @@ import { AdminOrganizationService } from './admin-organization.service';
 import { AdminOrganizationController } from './admin-organization.controller';
 import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingPlansController } from './admin-billing-plans.controller';
+import { AdminNewsService } from './admin-news.service';
+import { AdminNewsController } from './admin-news.controller';
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { PublicationModule } from '../publication/publication.module';
 import { PropertyAssetsModule } from '../property-assets/property-assets.module';
@@ -30,6 +32,7 @@ import { IdentityModule } from '../identity/identity.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { BillingModule } from '../billing/billing.module';
 import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module';
+import { NewsModule } from '../news/news.module';
 
 /**
  * PermissionGrantRepository НЕ импортируется/регистрируется здесь напрямую
@@ -62,6 +65,7 @@ import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module'
     OrganizationsModule,
     BillingModule,
     RealtorReviewsModule,
+    NewsModule,
   ],
   controllers: [
     AdminPublicationController,
@@ -74,6 +78,7 @@ import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module'
     AdminOrganizationController,
     AdminBillingController,
     AdminBillingPlansController,
+    AdminNewsController,
   ],
   providers: [
     AdminAccountRepository,
@@ -85,6 +90,7 @@ import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module'
     AdminComplaintService,
     AdminRealtorReviewService,
     AdminOrganizationService,
+    AdminNewsService,
   ],
   exports: [AdminAccountRepository],
 })

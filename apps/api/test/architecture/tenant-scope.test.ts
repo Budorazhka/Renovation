@@ -47,6 +47,13 @@ const NON_TENANT_REPOSITORIES = [
   'community-thread',
   'community-reply',
   'community-event',
+  // Уведомления (@baza/notifications): адресат — человек (identity), не
+  // организация. Настройки и Telegram-привязка одни на все организации
+  // человека, доставка несёт identityId, организацию — сама новость.
+  'notification-settings',
+  'telegram-link-code',
+  'notification-delivery',
+  'telegram-bot-state',
 ];
 
 /** `<файл>#<метод>` → почему запрос без organizationId здесь корректен. */
@@ -170,6 +177,19 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
     'organizationId вызывающего — тот же принцип, что listPublicOrganizations.',
   'position.repository.ts#findByIdPublicRealtor':
     'N-13: то же самое для одной позиции — публичный профиль риэлтора не имеет tenant-контекста вызывающего.',
+  'position-assignment.repository.ts#findActiveIdentityIds':
+    'Получатели рассылки новости платформы (OrganizationsService.listAllActiveOccupantIdentityIds): намеренно ' +
+    'все организации — новость платформы адресована сотрудникам всех компаний. Отдаёт только identityId.',
+  'news-article.repository.ts#listPlatform':
+    'Новости платформы (source: platform) ничьи: organizationId у них нет, их ведёт админка под грантом ' +
+    'news.publish. Лента сотрудника (listFeed) фильтрует новости компаний по organizationId.',
+  'news-article.repository.ts#deletePlatform':
+    'То же: удаление новости платформы администратором, фильтр {_id, source: platform} — новость компании ' +
+    'этим путём не удалить.',
+  'news-article.repository.ts#findPlatform':
+    'То же: чтение новости платформы администратором перед правкой, фильтр {_id, source: platform}.',
+  'news-article.repository.ts#updatePlatform':
+    'То же: CAS-правка новости платформы администратором, фильтр {_id, source: platform, version}.',
 };
 
 const QUERY = /this\.model\.(find|findOne|findOneAndUpdate|updateOne|updateMany|deleteOne|deleteMany|countDocuments|aggregate|distinct)\b/;

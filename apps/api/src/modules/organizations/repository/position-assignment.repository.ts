@@ -35,6 +35,11 @@ export class PositionAssignmentRepository {
     return this.model.find({ organizationId, endedAt: { $exists: false } }).exec();
   }
 
+  /** Все, кто сейчас занимает позицию в какой-либо организации: получатели новостей платформы. */
+  async findActiveIdentityIds(): Promise<Types.ObjectId[]> {
+    return this.model.distinct('identityId', { endedAt: { $exists: false } }).exec();
+  }
+
   /**
    * ADR-003: enforced на уровне БД через partial unique index — при попытке
    * создать второй активный assignment для той же identity/position MongoDB

@@ -13,7 +13,7 @@ import {
 } from '@baza/media-storage';
 import { ownerScopesEqual, type OwnerScope } from '@baza/tenant-scope';
 import { MediaMimeVerifierService } from './media-mime-verifier.service';
-import { MAX_UPLOAD_SIZE_BYTES } from './media.constants';
+import { IMAGE_MIME_TYPES, MAX_UPLOAD_SIZE_BYTES } from './media.constants';
 
 export interface CreateUploadIntentParams {
   ownerScope: OwnerScope;
@@ -265,7 +265,7 @@ export class MediaService {
   async getAssetForOwnerScope(
     assetId: Types.ObjectId,
     expectedOwnerScope: OwnerScope,
-  ): Promise<{ status: 'pending' | 'verified' | 'rejected'; variants: MediaVariant[]; bucket: MediaBucket; declaredMimeType?: string; verifiedMimeType?: string; sizeBytes?: number; createdAt?: Date } | null> {
+  ): Promise<{ status: 'pending' | 'verified' | 'rejected'; variants: MediaVariant[]; bucket: MediaBucket; purpose?: string; declaredMimeType?: string; verifiedMimeType?: string; sizeBytes?: number; createdAt?: Date } | null> {
     const asset = await this.mediaAssetRepository.findById(assetId);
     if (!asset || !ownerScopesEqual(asset.ownerScope, expectedOwnerScope)) {
       return null;
@@ -274,11 +274,32 @@ export class MediaService {
       status: asset.status,
       variants: asset.variants,
       bucket: asset.bucket,
+      purpose: asset.purpose,
       declaredMimeType: asset.declaredMimeType,
       verifiedMimeType: asset.verifiedMimeType,
       sizeBytes: asset.sizeBytes,
       createdAt: asset.createdAt,
     };
+  }
+
+  /**
+   * Публичные ссылки на картинки пачкой (лента новостей): вариант `detail`
+   * без EXIF, пока worker его не построил — оригинал. Только подтверждённые
+   * изображения из ПУБЛИЧНОГО бакета: приватный asset ссылки не получает ни
+   * при каких условиях. Владение не сверяется — публичный бакет открыт по
+   * определению; право прикрепить картинку проверяет вызывающий при записи.
+   */
+  async getPublicImageUrls(assetIds: Types.ObjectId[]): Promise<Map<string, string>> {
+    const urls = new Map<string, string>();
+    if (assetIds.length === 0) return urls;
+    const assets = await this.mediaAssetRepository.findByIds(assetIds);
+    for (const asset of assets) {
+      if (asset.bucket !== 'public' || asset.status !== 'verified') continue;
+      if (!asset.verifiedMimeType || !IMAGE_MIME_TYPES.has(asset.verifiedMimeType)) continue;
+      const variant = asset.variants.find((v) => v.type === 'detail') ?? asset.variants.find((v) => v.type === 'card');
+      urls.set(asset._id.toString(), this.storage.getPublicUrl(variant ? variant.assetPath : asset.originalPath));
+    }
+    return urls;
   }
 
   async getAssetsForOwnerScope(

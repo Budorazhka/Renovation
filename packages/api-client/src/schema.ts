@@ -1110,6 +1110,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/news": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Лента новостей сотрудника: новости платформы BAZA (их публикует админка) и новости своей организации, newest-first (до 100). canPublish — может ли вызывающий публиковать новости компании (news.create); тем, кто может, у новостей компании приходит сводка рассылки (delivery). channels — какие каналы рассылки настроены на сервере. */
+        get: operations["listNews"];
+        put?: never;
+        /** Опубликовать новость компании: её увидят все сотрудники организации. Требует news.create (scope organization). Автор подписывается именем сотрудника позиции на момент публикации. Картинка — MediaAsset своей организации с purpose news_image, уже подтверждённый. sendEmail и sendTelegram ставят рассылку сотрудникам организации (кроме автора) в очередь той же транзакцией; отправляет worker. Пишет аудит news.publish. */
+        post: operations["createNews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/news/{newsId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Правка новости своей организации: содержимое заменяется целиком — не присланные ссылка, подпись или картинка снимаются. expectedVersion — версия, которую видел редактор. Повторно не рассылает. Пишет аудит news.update с до/после. */
+        put: operations["updateNews"];
+        post?: never;
+        /** Удалить новость своей организации. Новость платформы или чужой организации — 404. Пишет аудит news.delete. */
+        delete: operations["deleteNews"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Свои настройки уведомлений: почта (адрес — из логина, если это адрес) и Telegram (привязка к боту уведомлений BAZA). configured — настроен ли канал на сервере. */
+        get: operations["getMyNotificationSettings"];
+        /** Присылать ли новости на почту и в Telegram. Не присланное поле не меняется. */
+        put: operations["updateMyNotificationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/notifications/telegram-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ссылка привязки Telegram: https://t.me/<бот>?start=<код>. Код одноразовый, живёт 15 минут, новый отменяет прежний; бот по /start <код> связывает чат с вызывающим. */
+        post: operations["createMyTelegramLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/notifications/telegram": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Отвязать свой Telegram от уведомлений. */
+        delete: operations["unlinkMyTelegram"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/library/items": {
         parameters: {
             query?: never;
@@ -3152,6 +3240,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/news": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Новости платформы BAZA (видят сотрудники всех организаций в ленте ERP), newest-first (до 100), со сводкой рассылки. channels — какие каналы рассылки настроены на сервере. Грант администратора news.publish; super_admin — без гранта. */
+        get: operations["adminListNews"];
+        put?: never;
+        /** Опубликовать новость платформы: сразу появляется в ленте ERP у сотрудников всех организаций. Картинка — загруженная через /admin/news/images. sendEmail/sendTelegram — разослать сотрудникам всех организаций. Пишет аудит news.publish. */
+        post: operations["adminCreateNews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/news/{newsId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Правка новости платформы (содержимое целиком, expectedVersion — CAS). Новость организации этим путём — 404. Пишет аудит news.update. */
+        put: operations["adminUpdateNews"];
+        post?: never;
+        /** Удалить новость платформы. Новость организации этим путём не удалить — 404. Пишет аудит news.delete. */
+        delete: operations["adminDeleteNews"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/news/images/upload-intent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Шаг 1 загрузки картинки к новости платформы (ADR-008): MediaAsset владельца «платформа», purpose news_image, публичный бакет, и presigned URL на 5 минут. Только изображения (JPEG, PNG, WebP) до 20 МБ. */
+        post: operations["adminCreateNewsImageUploadIntent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/news/images/{assetId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Шаг 3 — проверка файла по magic bytes; verified значит, что картинку можно прикрепить к новости. */
+        post: operations["adminConfirmNewsImageUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/billing/plans": {
         parameters: {
             query?: never;
@@ -4845,7 +5003,7 @@ export interface components {
             /** @description MAX_UPLOAD_SIZE_BYTES — 20 МБ */
             sizeBytes: number;
             /** @enum {string} */
-            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment" | "lead_attachment" | "note_attachment" | "library_file";
+            purpose: "unit_photo" | "floor_plan" | "agency_document" | "profile_avatar" | "property_photo" | "task_attachment" | "lead_attachment" | "note_attachment" | "library_file" | "news_image";
         };
         CreateMediaUploadIntentResponse: {
             assetId: string;
@@ -5339,6 +5497,112 @@ export interface components {
             url: string;
             /** @description Имя файла, которое видел пользователь */
             fileName: string;
+        };
+        /**
+         * @description platform — новость BAZA из админки для всех организаций; organization — новость своей компании.
+         * @enum {string}
+         */
+        NewsSource: "platform" | "organization";
+        /** @enum {string} */
+        NewsCategory: "company" | "market" | "developer" | "regulation";
+        /** @description Какие каналы рассылки настроены на сервере (SMTP и бот уведомлений). */
+        NotificationChannels: {
+            email: boolean;
+            telegram: boolean;
+        };
+        DeliveryCounts: {
+            pending: number;
+            sent: number;
+            failed: number;
+            skipped: number;
+        };
+        NewsDeliveryStats: {
+            email: components["schemas"]["DeliveryCounts"];
+            telegram: components["schemas"]["DeliveryCounts"];
+        };
+        NewsArticleView: {
+            id: string;
+            source: components["schemas"]["NewsSource"];
+            title: string;
+            body: string;
+            category: components["schemas"]["NewsCategory"];
+            pinned: boolean;
+            linkUrl: string | null;
+            linkLabel: string | null;
+            imageAssetId: string | null;
+            /** @description Публичная ссылка на картинку (вариант без EXIF, пока он не построен — оригинал). */
+            imageUrl: string | null;
+            /** @description Имя сотрудника, опубликовавшего новость компании; у новости платформы null. */
+            authorName: string | null;
+            /** Format: date-time */
+            publishedAt: string;
+            /** Format: date-time */
+            editedAt: string | null;
+            /** @description Версия для expectedVersion при правке. */
+            version: number;
+            /** @description Сводка рассылки — только тем, кто новость публикует. */
+            delivery: components["schemas"]["NewsDeliveryStats"] | null;
+        };
+        NewsFeedResponse: {
+            items: components["schemas"]["NewsArticleView"][];
+            /** @description Может ли вызывающий публиковать новости компании (news.create). */
+            canPublish: boolean;
+            channels: components["schemas"]["NotificationChannels"];
+        };
+        AdminNewsListResponse: {
+            items: components["schemas"]["NewsArticleView"][];
+            channels: components["schemas"]["NotificationChannels"];
+        };
+        NewsArticleContent: {
+            title: string;
+            body: string;
+            category: components["schemas"]["NewsCategory"];
+            /** @default false */
+            pinned: boolean;
+            /** @description Только http(s) с протоколом. */
+            linkUrl?: string;
+            /** @description Подпись ссылки; без linkUrl не сохраняется. */
+            linkLabel?: string;
+            /** @description MediaAsset purpose news_image того же владельца, уже подтверждённый. */
+            imageAssetId?: string;
+        };
+        CreateNewsRequest: components["schemas"]["NewsArticleContent"] & {
+            /**
+             * @description Разослать на почту получателям.
+             * @default false
+             */
+            sendEmail: boolean;
+            /**
+             * @description Разослать в Telegram тем
+             * @default false
+             */
+            sendTelegram: boolean;
+        };
+        UpdateNewsRequest: components["schemas"]["NewsArticleContent"] & {
+            expectedVersion: number;
+        };
+        NotificationSettingsView: {
+            email: {
+                /** @description Адрес из логина; null — логин не адрес почты. */
+                address: string | null;
+                news: boolean;
+                configured: boolean;
+            };
+            telegram: {
+                linked: boolean;
+                username: string | null;
+                news: boolean;
+                configured: boolean;
+            };
+        };
+        UpdateNotificationSettingsRequest: {
+            newsEmail?: boolean;
+            newsTelegram?: boolean;
+        };
+        TelegramLinkResponse: {
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
         };
         /** @enum {string} */
         LibraryScope: "organization" | "personal";
@@ -8802,6 +9066,221 @@ export interface operations {
             404: components["responses"]["Error"];
             /** @description VERSION_CONFLICT — план изменён параллельно, обновите и повторите */
             409: components["responses"]["Error"];
+        };
+    };
+    listNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Лента новостей */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsFeedResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет news.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    createNews: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Новость опубликована */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsArticleView"];
+                };
+            };
+            /** @description VALIDATION_FAILED (в том числе картинка не news_image или ещё не подтверждена) либо IDEMPOTENCY_KEY_REQUIRED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет news.create */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — картинка не найдена или чужая */
+            404: components["responses"]["Error"];
+        };
+    };
+    updateNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Новость изменена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsArticleView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет news.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — новость платформы, чужой организации или картинка */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT — новость изменили после чтения */
+            409: components["responses"]["Error"];
+        };
+    };
+    deleteNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Новость удалена */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет news.delete */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    getMyNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Настройки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettingsView"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+        };
+    };
+    updateMyNotificationSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNotificationSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Настройки сохранены */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSettingsView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+        };
+    };
+    createMyTelegramLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ссылка выдана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramLinkResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description NOTIFICATION_CHANNEL_NOT_CONFIGURED — бот уведомлений не настроен на сервере */
+            409: components["responses"]["Error"];
+        };
+    };
+    unlinkMyTelegram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Отвязан */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
         };
     };
     listLibraryItems: {
@@ -13092,6 +13571,183 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    adminListNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Новости платформы */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminNewsListResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminCreateNews: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Новость опубликована */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsArticleView"];
+                };
+            };
+            /** @description VALIDATION_FAILED либо IDEMPOTENCY_KEY_REQUIRED */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — картинка не найдена или не платформы */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminUpdateNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Новость изменена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsArticleView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    adminDeleteNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Новость удалена */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminCreateNewsImageUploadIntent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    declaredMimeType: "image/jpeg" | "image/png" | "image/webp";
+                    sizeBytes: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Загрузка разрешена */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        assetId: string;
+                        uploadUrl: string;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminConfirmNewsImageUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Результат проверки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "verified" | "rejected";
+                    };
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет news.publish */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
         };
     };
     adminListBillingPlans: {

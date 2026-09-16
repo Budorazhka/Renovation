@@ -196,6 +196,13 @@ export interface DefaultGrant {
  * свой план (сотрудник может выставить план сам себе). permission-matrix.md
  * разд.1.11.
  *
+ * `news.*` (15.09.2026, модуль `news` — лента новостей ERP). `read` scope
+ * `organization` у всех семи ролей: новости платформы и своей компании видит
+ * каждый сотрудник. `create`/`update`/`delete` scope `organization` у
+ * owner/director/developer — руководитель компании публикует, правит и
+ * удаляет новости для своих сотрудников. Новости платформы ведёт админка (грант администратора
+ * `news.publish`), не роли организации. permission-matrix.md разд.1.12.
+ *
  * `library_item.*` (15.09.2026, модуль `library` — библиотека материалов CRM,
  * легаси-блок «Библиотека» и файлы чек-листа стадии лида). `read` scope
  * `organization` у всех семи ролей: общие материалы организации видит каждый
@@ -315,6 +322,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'read', scope: 'organization' },
+    { resource: 'news', action: 'create', scope: 'organization' },
+    { resource: 'news', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
   ],
@@ -403,6 +414,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'read', scope: 'organization' },
+    { resource: 'news', action: 'create', scope: 'organization' },
+    { resource: 'news', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
   ],
@@ -492,6 +507,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'read', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
   ],
@@ -569,6 +585,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'own' },
     { resource: 'plan', action: 'update', scope: 'own' },
+    { resource: 'news', action: 'read', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'own' },
     { resource: 'library_item', action: 'delete', scope: 'own' },
   ],
@@ -610,6 +627,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'own' },
     { resource: 'plan', action: 'update', scope: 'own' },
+    { resource: 'news', action: 'read', scope: 'organization' },
   ],
   marketer: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -632,6 +650,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'own' },
     { resource: 'plan', action: 'update', scope: 'own' },
+    { resource: 'news', action: 'read', scope: 'organization' },
   ],
   // 27.08.2026 (владелец подтвердил, D-07 vertical E2E): developer-организация
   // публикует свои ЖК на marketplace и получает лиды через reveal-contact на
@@ -723,6 +742,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'library_item', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'read', scope: 'organization' },
     { resource: 'plan', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'read', scope: 'organization' },
+    { resource: 'news', action: 'create', scope: 'organization' },
+    { resource: 'news', action: 'update', scope: 'organization' },
+    { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
   ],

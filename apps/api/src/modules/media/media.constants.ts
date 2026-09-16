@@ -51,5 +51,12 @@ export const MEDIA_PURPOSE_BUCKET: Record<string, 'private' | 'public'> = {
   // личная библиотека сотрудника. Приватный бакет, отдаются по временной
   // ссылке GET /library/items/:itemId/download.
   library_file: 'private',
+  // Картинка к новости ленты ERP (модуль news): новость читают сотрудники
+  // организации, новость платформы — все организации; публичный бакет, в
+  // ленту идёт вариант без EXIF.
+  news_image: 'public',
 };
+
+/** Назначения, которые умеет загружать admin-контур: пока только картинки к новостям платформы. */
+export const ADMIN_MEDIA_PURPOSES = ['news_image'] as const;
 

@@ -69,11 +69,16 @@ services:
       minio:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
+    # Публичный бакет открыт на чтение (download): по его ссылкам браузер
+    # показывает фото объектов, аватары и картинки новостей. Без этого MinIO
+    # отвечал 403 на каждую публичную ссылку. Приватный бакет не трогается —
+    # его файлы отдаются только по временной подписанной ссылке.
     command:
       - >-
         mc alias set local http://minio:9000 "${MINIO_ACCESS_KEY:-dev_minio_access}" "${MINIO_SECRET_KEY:-dev_minio_secret}" &&
         mc mb --ignore-existing "local/${MINIO_BUCKET_PRIVATE:-baza-private}" &&
-        mc mb --ignore-existing "local/${MINIO_BUCKET_PUBLIC:-baza-public}"
+        mc mb --ignore-existing "local/${MINIO_BUCKET_PUBLIC:-baza-public}" &&
+        mc anonymous set download "local/${MINIO_BUCKET_PUBLIC:-baza-public}"
 
   api:
     build:
@@ -106,6 +111,13 @@ services:
       CORS_ALLOWED_ORIGIN_MARKETPLACE: ${CORS_ALLOWED_ORIGIN_MARKETPLACE:-http://localhost:4173}
       CORS_ALLOWED_ORIGIN_ADMIN: ${CORS_ALLOWED_ORIGIN_ADMIN:-http://localhost:4174}
       CORS_ALLOWED_ORIGIN_ERP: ${CORS_ALLOWED_ORIGIN_ERP:-http://localhost:4175}
+      # Рассылка новостей (docs/operations/news.md). API по ним решает, какие
+      # каналы предложить в ERP; пустое значение — канал выключен.
+      SMTP_HOST: ${SMTP_HOST:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      TELEGRAM_NOTIFY_BOT_TOKEN: ${TELEGRAM_NOTIFY_BOT_TOKEN:-}
+      TELEGRAM_NOTIFY_BOT_USERNAME: ${TELEGRAM_NOTIFY_BOT_USERNAME:-}
+      ERP_PUBLIC_URL: ${ERP_PUBLIC_URL:-http://localhost:4175}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -146,6 +158,16 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-dev_minio_secret}
       MINIO_BUCKET_PRIVATE: ${MINIO_BUCKET_PRIVATE:-baza-private}
       MINIO_BUCKET_PUBLIC: ${MINIO_BUCKET_PUBLIC:-baza-public}
+      # Рассылка новостей: worker отправляет письма по SMTP и сообщения ботом
+      # уведомлений (он же опрашивает Telegram, привязывая чаты по /start).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      TELEGRAM_NOTIFY_BOT_TOKEN: ${TELEGRAM_NOTIFY_BOT_TOKEN:-}
+      TELEGRAM_NOTIFY_BOT_USERNAME: ${TELEGRAM_NOTIFY_BOT_USERNAME:-}
     depends_on:
       mongodb:
         condition: service_healthy
