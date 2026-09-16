@@ -9,7 +9,7 @@ export interface DashboardNotifPreview {
   body: string;
   time: string;
 }
-import type { Reminder } from '@/data/info-mock';
+import type { Reminder } from '@/types/reminders';
 import type { CalEvent } from '@/data/calendar-events-mock';
 import { calendarApiV2 } from '@/services/calendarApiV2';
 import { tasksApiV2 } from '@/services/tasksApiV2';

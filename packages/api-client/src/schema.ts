@@ -76,6 +76,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Смена своего пароля вошедшим. Требует текущий пароль: одной cookie недостаточно. Прочие сессии человека закрываются, текущая остаётся; revokedSessions — сколько закрыто. Rate limit по IP, как на входе. */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/session": {
         parameters: {
             query?: never;
@@ -6673,6 +6690,42 @@ export interface operations {
             };
             /** @description normalizedLogin уже занят (domain-model.md invariant — уникален глобально) */
             409: components["responses"]["Error"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    currentPassword: string;
+                    newPassword: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Пароль изменён */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        changed: boolean;
+                        revokedSessions: number;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED — новый пароль короче 8 символов или совпадает с текущим */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION — нет активной сессии; AUTH_INVALID_CREDENTIALS — неверный текущий пароль */
+            401: components["responses"]["Error"];
+            /** @description RATE_LIMIT_EXCEEDED */
+            429: components["responses"]["Error"];
         };
     };
     checkSession: {

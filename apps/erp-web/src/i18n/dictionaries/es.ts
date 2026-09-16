@@ -4673,6 +4673,11 @@ export const es = {
       }
     },
     widgets: {
+        shared: {
+            loading: "Cargando…",
+            loadFailed: "Los datos no se cargaron",
+            empty: "Aún no hay datos"
+        },
       widgetClients: {
         "отч_т": "Informe →",
         "пусто_в_этой_выборке": "Vacío en esta selección",
@@ -7894,7 +7899,72 @@ export const es = {
       "акция": "Promoción"
     }
   },
+  reminders: {
+      title: "Recordatorios",
+      subtitle: "Activos: {open}",
+      subtitleOverdue: "Vencidos: {overdue} · activos: {open}",
+      add: "Añadir recordatorio",
+      titlePlaceholder: "Qué recordar",
+      notePlaceholder: "Nota (opcional)",
+      dueLabel: "Plazo",
+      save: "Guardar",
+      saving: "Guardando…",
+      cancel: "Cancelar",
+      empty: "No hay recordatorios",
+      loadFailed: "No se pudieron cargar los recordatorios",
+      retry: "Reintentar",
+      conflict: "El recordatorio cambió en otro sitio, la lista se actualizó",
+      actionFailed: "No se pudo guardar el cambio",
+      createFailed: "No se pudo crear el recordatorio",
+      confirmDelete: "¿Eliminar el recordatorio?",
+      linkDeal: "Operación",
+      linkLead: "Lead",
+      tabs: {
+          open: "Activos ({count})",
+          done: "Cerrados",
+          all: "Todos"
+      },
+      filters: {
+          dueLabel: "Plazo",
+          linkLabel: "Vínculo",
+          due: {
+              all: "Cualquier plazo",
+              overdue: "Vencidos",
+              today: "Hoy",
+              week: "Próxima semana"
+          },
+          link: {
+              all: "Cualquier vínculo",
+              deal: "Con operación",
+              lead: "Con lead",
+              none: "Sin vínculo"
+          }
+      },
+      state: {
+          overdue: "Vencido",
+          today: "Hoy",
+          upcoming: "Por delante",
+          done: "Hecho",
+          cancelled: "Cancelado"
+      },
+      actions: {
+          done: "Hecho",
+          reopen: "Reabrir",
+          reschedule: "Aplazar",
+          delete: "Eliminar"
+      }
+  },
   settings: {
+      password: {
+          saving: "Guardando…",
+          changed: "Contraseña cambiada",
+          changedWithSessions: "Contraseña cambiada. Otras sesiones cerradas: {count}",
+          wrongCurrent: "La contraseña actual no coincide",
+          tooShort: "La nueva contraseña debe tener al menos 8 caracteres",
+          mismatch: "Las contraseñas no coinciden",
+          tooMany: "Demasiados intentos. Inténtelo dentro de un minuto",
+          failed: "No se pudo cambiar la contraseña"
+      },
     accountSettingsPage: {
       "личный_кабинет": "cuenta personal",
       "профиль_контакты_и_и": "Perfil, contactos e información sobre usted",
@@ -8819,6 +8889,7 @@ export const es = {
   },
   modules: {
     chatsPage: {
+        база_знаний_пуста: "La base de conocimiento aún no tiene materiales",
       "чаты": "Charlas",
       "crm_не_подключ_н": "CRM no está conectado.",
       "мессенджеры_не_подкл": "Los mensajeros no están conectados.",

@@ -35,6 +35,7 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
 
   'POST /auth/login': 'вход: прав ещё нет по определению, защищён rate-limit',
   'POST /auth/logout': 'выход: работает со своей же сессией',
+  'POST /auth/change-password': 'смена своего пароля: identity берётся из своей же сессии, дополнительно требуется текущий пароль; защищено rate-limit по IP',
   'POST /auth/register': 'регистрация identity: прав ещё нет, защищена rate-limit',
   'GET /auth/session': 'read-only проверка своей сессии, чужих данных не раскрывает',
 

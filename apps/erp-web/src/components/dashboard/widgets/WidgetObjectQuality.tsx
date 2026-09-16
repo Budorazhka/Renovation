@@ -1,18 +1,43 @@
 import { Link } from 'react-router-dom'
 import { ClipboardCheck } from 'lucide-react'
 import { DeskShell, DeskHeader, DeskKpi, DeskHero, DeskMiniStats, DESK_HEADER_LINK_CLASS, REPORT_LINKS } from '../desk-shared'
-import { mockProperties } from '@/components/management/my-properties/mock-data'
+import { useOrganizationProperties } from '@/hooks/useOrganizationProperties'
+import type { Property } from '@/components/management/my-properties/types'
 import type { WidgetSlot } from '@/config/widgets-config'
 import { useI18n } from "@/i18n";
 
+/** Объект неполон, если не заполнено то, без чего его нельзя показать покупателю. */
+function isIncomplete(property: Property): boolean {
+  return !property.area || !property.city || !property.street
+}
+
 export function WidgetObjectQuality({ slot }: { slot: WidgetSlot }) {
     const { t } = useI18n();
-  const all        = mockProperties
+  // Реестр объектов организации вместо вшитого mock-data: доля «качественных»
+  // считалась как 18% от списка примеров — число, не означавшее ничего.
+  const { properties: all, status } = useOrganizationProperties()
   const noPhoto    = all.filter((p) => !p.photo).length
   const noPrice    = all.filter((p) => !p.price).length
-  const incomplete = Math.max(0, Math.round(all.length * 0.18))
-  const ok         = Math.max(0, all.length - noPhoto - noPrice - incomplete)
+  const incomplete = all.filter(isIncomplete).length
+  const ok         = all.filter((p) => p.photo && p.price && !isIncomplete(p)).length
   const qualityPct = all.length > 0 ? Math.round((ok / all.length) * 100) : 0
+
+  if (status !== 'ready') {
+    return (
+      <DeskShell accent="#fb7185" className="flex flex-col">
+        <DeskHeader
+          icon={<ClipboardCheck className="size-4" strokeWidth={2} />}
+          title={t('dashboard.widgets.widgetObjectQuality.качество_базы')}
+          accentColor="#fb7185"
+          layout="compact"
+          right={<Link to={REPORT_LINKS.objects} className={DESK_HEADER_LINK_CLASS}>{t('dashboard.widgets.widgetObjectQuality.отч_т')}</Link>}
+        />
+        <p className="px-2.5 py-3 text-[13px] text-[color:var(--workspace-text-muted)]">
+          {t(status === 'loading' ? 'dashboard.widgets.shared.loading' : 'dashboard.widgets.shared.loadFailed')}
+        </p>
+      </DeskShell>
+    )
+  }
 
   if (slot === 'small') {
     return (

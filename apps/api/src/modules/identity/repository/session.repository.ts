@@ -45,6 +45,21 @@ export class SessionRepository {
    * ADR-003: вызывается из vacatePosition — отзывает только ERP-сессии
    * этой identity, не трогает marketplace/admin сессии того же человека.
    */
+  /**
+   * Смена пароля: все прочие сессии человека обесцениваются, текущая
+   * остаётся — иначе тот, кто только что сменил пароль, тут же оказывался бы
+   * выброшен из своего же окна.
+   */
+  async revokeAllForIdentityExceptToken(identityId: Types.ObjectId, tokenHash: string): Promise<number> {
+    const result = await this.model
+      .updateMany(
+        { identityId, revokedAt: { $exists: false }, tokenHash: { $ne: tokenHash } },
+        { $set: { revokedAt: new Date() } },
+      )
+      .exec();
+    return result.modifiedCount;
+  }
+
   async revokeAllForIdentity(identityId: Types.ObjectId, productAudience?: ProductAudience): Promise<void> {
     const filter: Record<string, unknown> = { identityId, revokedAt: { $exists: false } };
     if (productAudience) {

@@ -4,7 +4,9 @@ import { NotificationSettingsPanel } from '@/components/settings/NotificationSet
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { useAuth } from '@/context/AuthContext'
 import { ROLE_LABEL } from '@/lib/permissions'
+import { isAxiosError } from 'axios'
 import { teamApi } from '@/services/teamApi'
+import { platformAuthApi } from '@/services/platformAuthApi'
 import { developersApi } from '@/services/developersApi'
 import type { UserRole } from '@/types/auth'
 import { useI18n } from '@/i18n'
@@ -494,12 +496,40 @@ export function AccountSettingsPage() {
   )
 }
 
+/** Смена пароля на сервере (POST /auth/change-password). До 16.09.2026 окно просто закрывалось, ничего не меняя. */
 function PasswordModal({ onClose }: { onClose: () => void }) {
     const { t } = useI18n();
   const [oldPwd, setOldPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
   const [confPwd, setConfPwd] = useState('')
-  const valid = oldPwd !== '' && newPwd !== '' && newPwd === confPwd
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<number | null>(null)
+  const valid = oldPwd !== '' && newPwd.length >= 8 && newPwd === confPwd && !saving
+
+  async function submit() {
+    if (!valid) return
+    setSaving(true)
+    setError(null)
+    try {
+      const { revokedSessions } = await platformAuthApi.changePassword({ currentPassword: oldPwd, newPassword: newPwd })
+      setDone(revokedSessions)
+      setOldPwd('')
+      setNewPwd('')
+      setConfPwd('')
+    } catch (cause) {
+      const status = isAxiosError(cause) ? cause.response?.status : undefined
+      setError(
+        status === 401
+          ? t('settings.password.wrongCurrent')
+          : status === 429
+            ? t('settings.password.tooMany')
+            : t('settings.password.failed'),
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div
@@ -517,13 +547,25 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
           <Field label={t('settings.accountSettingsPage.текущий_пароль')} value={oldPwd} onChange={setOldPwd} type="password" placeholder="••••••••" />
           <Field label={t('settings.accountSettingsPage.новый_пароль')} value={newPwd} onChange={setNewPwd} type="password" placeholder="••••••••" />
           <Field label={t('settings.accountSettingsPage.подтверждение')} value={confPwd} onChange={setConfPwd} type="password" placeholder="••••••••" />
+          {newPwd.length > 0 && newPwd.length < 8 ? (
+            <span style={{ fontSize: 16, color: 'var(--app-text-muted)' }}>{t('settings.password.tooShort')}</span>
+          ) : null}
+          {confPwd.length > 0 && confPwd !== newPwd ? (
+            <span style={{ fontSize: 16, color: '#ffb4ab' }}>{t('settings.password.mismatch')}</span>
+          ) : null}
+          {error ? <span role="alert" style={{ fontSize: 16, color: '#ffb4ab' }}>{error}</span> : null}
+          {done !== null ? (
+            <span role="status" style={{ fontSize: 16, color: GOLD }}>
+              {done > 0 ? t('settings.password.changedWithSessions', { count: done }) : t('settings.password.changed')}
+            </span>
+          ) : null}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', background: 'var(--green-deep)' }}>
           <button type="button" onClick={onClose} style={{ height: 42, paddingInline: 18, borderRadius: 4, border: '1px solid var(--green-border)', background: 'transparent', color: 'var(--app-text-muted)', fontSize: 16, cursor: 'pointer' }}>
-            {t('settings.accountSettingsPage.отмена')}</button>
+            {done !== null ? t('settings.accountSettingsPage.закрыть') : t('settings.accountSettingsPage.отмена')}</button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => void submit()}
             disabled={!valid}
             style={{
               height: 42, paddingInline: 20, borderRadius: 4, border: 'none',
@@ -531,7 +573,7 @@ function PasswordModal({ onClose }: { onClose: () => void }) {
               fontSize: 16, fontWeight: 500, cursor: valid ? 'pointer' : 'not-allowed', opacity: valid ? 1 : 0.6,
             }}
           >
-            {t('settings.accountSettingsPage.сохранить')}</button>
+            {saving ? t('settings.password.saving') : t('settings.accountSettingsPage.сохранить')}</button>
         </div>
       </div>
     </div>

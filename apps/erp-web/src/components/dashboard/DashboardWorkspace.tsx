@@ -39,13 +39,12 @@ import { useLeads } from '@/context/LeadsContext'
 import { useDeals } from '@/context/DealsContext'
 import { cn } from '@/lib/utils'
 import { useCrmSync } from '@/features/crm/context/CrmSyncContext'
-import { type Reminder } from '@/data/info-mock'
+import { type Reminder } from '@/types/reminders'
 import type { NewsArticle } from '@/services/newsApiV2'
 import { useNewsFeed } from '@/context/NewsFeedContext'
 import { newsAuthor, newsEmoji } from '@/lib/news'
 import { EMPTY_HOME_PROGRESS } from '@/lib/plan-progress'
 import { usePlanProgress } from '@/hooks/usePlanProgress'
-import { INITIAL_LEAD_MANAGERS } from '@/data/leads-mock'
 import { MiniCalendar } from '@/components/dashboard/MiniCalendar'
 import {
   WorkspaceDayEventsMenu,
@@ -340,7 +339,7 @@ export function DashboardWorkspace() {
   const { t } = useI18n();
   const { currentUser } = useAuth()
   const { activeScreen } = useWorkspaceDeskScreen()
-  const { state } = useLeads()
+  const { state, leadManagers } = useLeads()
   const { deals } = useDeals()
   const navigate = useNavigate()
 
@@ -880,7 +879,7 @@ export function DashboardWorkspace() {
                           </span>
                         </div>
                         <div className="mt-0.5 text-[12px] text-[color:var(--workspace-text-muted)] sm:text-[13px]">
-                          {t('dashboardWorkspace.resp').replace('{{name}}', (!l.managerId ? t('dashboardWorkspace.unassigned') : (INITIAL_LEAD_MANAGERS.find((m) => m.id === l.managerId)?.name ?? l.managerId)) || '')}
+                          {t('dashboardWorkspace.resp').replace('{{name}}', (!l.managerId ? t('dashboardWorkspace.unassigned') : (leadManagers.find((m) => m.id === l.managerId)?.name ?? l.managerId)) || '')}
                         </div>
                       </li>
                     )

@@ -176,6 +176,59 @@ export class AuthService {
    * совпадает с domain-model.md "Argon2id" требованием без явных опций),
    * не в repository — та же граница ответственности, что verify() в login().
    */
+  /**
+   * Смена своего пароля вошедшим: текущий пароль подтверждает, что за
+   * клавиатурой владелец аккаунта (украденная cookie сама по себе пароль не
+   * меняет). Проверяется тот же способ, которым человек входит — argon2 или
+   * унаследованный bcrypt (`[identity-legacy-migration]`); новый пароль
+   * хешируется argon2, старый bcrypt-хеш снимается.
+   *
+   * Прочие сессии человека закрываются: после смены пароля чужое устройство
+   * не должно остаться внутри. Текущая сессия сохраняется — иначе человек
+   * выбрасывал бы сам себя нажатием «Сохранить».
+   */
+  async changePassword(params: {
+    identityId: Types.ObjectId;
+    currentPassword: string;
+    newPassword: string;
+    currentSessionToken?: string;
+  }): Promise<{ revokedSessions: number }> {
+    const identity = await this.identityRepository.findByIdWithPasswordHash(params.identityId);
+    if (!identity || identity.status !== 'active') {
+      throw new AppException(ErrorCode.AUTH_INVALID_CREDENTIALS, 'Invalid current password');
+    }
+    if (!(await this.passwordMatches(identity, params.currentPassword))) {
+      throw new AppException(ErrorCode.AUTH_INVALID_CREDENTIALS, 'Invalid current password');
+    }
+    if (params.currentPassword === params.newPassword) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'New password must differ from the current one');
+    }
+
+    const passwordHash = await argon2.hash(params.newPassword);
+    const { modifiedCount } = await this.identityRepository.setPassword(params.identityId, passwordHash);
+    if (modifiedCount === 0) {
+      throw new AppException(ErrorCode.AUTH_INVALID_CREDENTIALS, 'Invalid current password');
+    }
+
+    const revokedSessions = params.currentSessionToken
+      ? await this.sessionService.revokeOtherSessions(params.identityId, params.currentSessionToken)
+      : 0;
+    return { revokedSessions };
+  }
+
+  /** Проверка пароля уже найденной Identity: argon2, а для непереведённой из старой системы — bcrypt. */
+  private async passwordMatches(identity: IdentityDocument, password: string): Promise<boolean> {
+    if (identity.passwordHash) {
+      return argon2.verify(identity.passwordHash, password);
+    }
+    if (!identity.legacyPasswordHash) return false;
+    try {
+      return await bcrypt.compare(password, identity.legacyPasswordHash);
+    } catch {
+      return false;
+    }
+  }
+
   async registerIdentity(params: { login: string; password: string }): Promise<Types.ObjectId> {
     const normalizedLogin = params.login.trim().toLowerCase();
     const passwordHash = await argon2.hash(params.password);

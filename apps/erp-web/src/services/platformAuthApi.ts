@@ -58,6 +58,16 @@ export const platformAuthApi = {
   },
 
   /**
+   * Смена своего пароля. Требует текущий пароль; прочие сессии человека
+   * закрываются, текущая остаётся — выходить и входить заново не нужно.
+   * `revokedSessions` — сколько других входов закрыто.
+   */
+  async changePassword(params: { currentPassword: string; newPassword: string }): Promise<{ revokedSessions: number }> {
+    const { data } = await api.post<{ changed: true; revokedSessions: number }>('/api/v1/auth/change-password', params)
+    return { revokedSessions: data.revokedSessions }
+  },
+
+  /**
    * Контекст текущей сессии: организация, позиция и её активные права.
    *
    * Единственный источник правды по scope: сервер выводит организацию и

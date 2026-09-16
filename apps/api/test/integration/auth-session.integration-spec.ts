@@ -10,6 +10,7 @@ import { AppModule } from '../../src/app.module';
 import { AppExceptionFilter } from '../../src/shared/errors/app-exception.filter';
 import { CorrelationIdMiddleware } from '../../src/shared/errors/correlation-id.middleware';
 import { SessionService } from '../../src/modules/identity/session.service';
+import { AuthService } from '../../src/modules/identity/auth.service';
 import { RedisService } from '../../src/shared/redis/redis.service';
 
 const MARKETPLACE_ORIGIN = 'https://marketplace.test.local';
@@ -21,6 +22,7 @@ describe('GET /auth/session (real HTTP + MongoDB)', () => {
   let app: NestFastifyApplication;
   let connection: Connection;
   let sessionService: SessionService;
+  let authService: AuthService;
 
   beforeAll(async () => {
     replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
@@ -57,10 +59,12 @@ describe('GET /auth/session (real HTTP + MongoDB)', () => {
 
     connection = moduleRef.get<Connection>(getConnectionToken());
     sessionService = moduleRef.get(SessionService);
+    authService = moduleRef.get(AuthService);
   }, 120_000);
 
   afterEach(async () => {
     await connection.collection('sessions').deleteMany({});
+    await connection.collection('identities').deleteMany({});
   });
 
   afterAll(async () => {
@@ -138,5 +142,77 @@ describe('GET /auth/session (real HTTP + MongoDB)', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json().error.code).toBe('AUTH_AUDIENCE_MISMATCH');
+  });
+
+  describe('POST /auth/change-password', () => {
+    const PASSWORD = 'correct horse battery staple';
+
+    async function seedSignedIn() {
+      const login = `owner-${new Types.ObjectId().toString()}@example.test`;
+      const identityId = await authService.registerIdentity({ login, password: PASSWORD });
+      const current = await sessionService.createSession({ identityId, productAudience: 'marketplace' });
+      const other = await sessionService.createSession({ identityId, productAudience: 'marketplace' });
+      return { login, identityId, current, other };
+    }
+
+    function changePassword(cookie: string | undefined, payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/change-password',
+        headers: { origin: MARKETPLACE_ORIGIN, ...(cookie ? { cookie } : {}) },
+        payload,
+      });
+    }
+
+    it('меняет пароль, закрывает прочие сессии и оставляет текущую', async () => {
+      const { login, current, other } = await seedSignedIn();
+
+      const response = await changePassword(`baza_session=${current.token}`, {
+        currentPassword: PASSWORD,
+        newPassword: 'new-password-2026',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ changed: true, revokedSessions: 1 });
+
+      const stillIn = await app.inject({
+        method: 'GET',
+        url: '/api/v1/auth/session',
+        headers: { origin: MARKETPLACE_ORIGIN, cookie: `baza_session=${current.token}` },
+      });
+      expect(stillIn.json()).toEqual({ authenticated: true });
+
+      const revoked = await app.inject({
+        method: 'GET',
+        url: '/api/v1/auth/session',
+        headers: { origin: MARKETPLACE_ORIGIN, cookie: `baza_session=${other.token}` },
+      });
+      expect(revoked.json()).toEqual({ authenticated: false });
+
+      await expect(authService.login({ login, password: PASSWORD, audience: 'marketplace' })).rejects.toMatchObject({
+        code: 'AUTH_INVALID_CREDENTIALS',
+      });
+      await expect(
+        authService.login({ login, password: 'new-password-2026', audience: 'marketplace' }),
+      ).resolves.toEqual(expect.objectContaining({ requires2fa: false }));
+    });
+
+    it('без сессии — 401, с неверным текущим паролем — 401, короткий новый — 400', async () => {
+      const { current } = await seedSignedIn();
+
+      const noSession = await changePassword(undefined, { currentPassword: PASSWORD, newPassword: 'new-password-2026' });
+      expect(noSession.statusCode).toBe(401);
+      expect(noSession.json().error.code).toBe('AUTH_NO_SESSION');
+
+      const wrong = await changePassword(`baza_session=${current.token}`, {
+        currentPassword: 'not-my-password',
+        newPassword: 'new-password-2026',
+      });
+      expect(wrong.statusCode).toBe(401);
+      expect(wrong.json().error.code).toBe('AUTH_INVALID_CREDENTIALS');
+
+      const short = await changePassword(`baza_session=${current.token}`, { currentPassword: PASSWORD, newPassword: 'short' });
+      expect(short.statusCode).toBe(400);
+    });
   });
 });

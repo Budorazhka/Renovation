@@ -296,6 +296,9 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
     'тот же разбор, что POST /media/upload-intent: ответ — presigned URL на 5 минут, запись идемпотентности вернула бы мёртвую ссылку; неподтверждённый дубль удаляет media-cleanup',
   'POST /admin/news/images/:assetId/confirm': 'подтверждение по id, идемпотентно (тот же MediaService.confirmUpload)',
 
+  'POST /auth/change-password':
+    'повтор того же запроса ставит тот же пароль и закрывает те же (уже закрытые) сессии; после первой смены прежний currentPassword перестаёт подходить — второй эффект недостижим',
+
   // --- Уведомления ---
   'PUT /me/notifications': 'выставляет флаги в заданное значение — повтор даёт то же состояние',
   'POST /me/notifications/telegram-link':

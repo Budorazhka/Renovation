@@ -4673,6 +4673,11 @@ export const tr = {
       }
     },
     widgets: {
+        shared: {
+            loading: "Yükleniyor…",
+            loadFailed: "Veriler yüklenemedi",
+            empty: "Henüz veri yok"
+        },
       widgetClients: {
         "отч_т": "Rapor →",
         "пусто_в_этой_выборке": "Bu seçimde boş",
@@ -7894,7 +7899,72 @@ export const tr = {
       "акция": "Promosyon"
     }
   },
+  reminders: {
+      title: "Hatırlatmalar",
+      subtitle: "Aktif: {open}",
+      subtitleOverdue: "Gecikmiş: {overdue} · aktif: {open}",
+      add: "Hatırlatma ekle",
+      titlePlaceholder: "Ne hatırlatılsın",
+      notePlaceholder: "Not (isteğe bağlı)",
+      dueLabel: "Süre",
+      save: "Kaydet",
+      saving: "Kaydediliyor…",
+      cancel: "Vazgeç",
+      empty: "Hatırlatma yok",
+      loadFailed: "Hatırlatmalar yüklenemedi",
+      retry: "Tekrar dene",
+      conflict: "Hatırlatma başka yerde değişti, liste yenilendi",
+      actionFailed: "Değişiklik kaydedilemedi",
+      createFailed: "Hatırlatma oluşturulamadı",
+      confirmDelete: "Hatırlatma silinsin mi?",
+      linkDeal: "Satış",
+      linkLead: "Aday",
+      tabs: {
+          open: "Aktif ({count})",
+          done: "Kapalı",
+          all: "Tümü"
+      },
+      filters: {
+          dueLabel: "Süre",
+          linkLabel: "Bağlantı",
+          due: {
+              all: "Herhangi bir süre",
+              overdue: "Gecikmiş",
+              today: "Bugün",
+              week: "Önümüzdeki hafta"
+          },
+          link: {
+              all: "Herhangi bir bağlantı",
+              deal: "Satışa bağlı",
+              lead: "Adaya bağlı",
+              none: "Bağlantısız"
+          }
+      },
+      state: {
+          overdue: "Gecikmiş",
+          today: "Bugün",
+          upcoming: "İleride",
+          done: "Tamamlandı",
+          cancelled: "İptal"
+      },
+      actions: {
+          done: "Tamamlandı",
+          reopen: "Geri al",
+          reschedule: "Ertele",
+          delete: "Sil"
+      }
+  },
   settings: {
+      password: {
+          saving: "Kaydediliyor…",
+          changed: "Parola değiştirildi",
+          changedWithSessions: "Parola değiştirildi. Kapatılan diğer oturumlar: {count}",
+          wrongCurrent: "Mevcut parola eşleşmiyor",
+          tooShort: "Yeni parola en az 8 karakter olmalı",
+          mismatch: "Parolalar eşleşmiyor",
+          tooMany: "Çok fazla deneme. Bir dakika sonra tekrar deneyin",
+          failed: "Parola değiştirilemedi"
+      },
     accountSettingsPage: {
       "личный_кабинет": "Kişisel hesap",
       "профиль_контакты_и_и": "Profiliniz, iletişim bilgileriniz ve kendinizle ilgili bilgiler",
@@ -8819,6 +8889,7 @@ export const tr = {
   },
   modules: {
     chatsPage: {
+        база_знаний_пуста: "Bilgi tabanında henüz materyal yok",
       "чаты": "Sohbetler",
       "crm_не_подключ_н": "CRM bağlı değil.",
       "мессенджеры_не_подкл": "Messenger'lar bağlı değil.",

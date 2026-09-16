@@ -57,6 +57,23 @@ export class IdentityRepository {
     return this.model.findOne({ _id: id }).exec();
   }
 
+  /** Смена пароля вошедшим: текущий пароль сверяется по хешу этой же Identity, не по логину. */
+  async findByIdWithPasswordHash(id: Types.ObjectId): Promise<IdentityDocument | null> {
+    return this.model.findOne({ _id: id }).select('+passwordHash +legacyPasswordHash').exec();
+  }
+
+  /**
+   * Новый пароль активной Identity. `legacyPasswordHash` снимается: после
+   * смены пароля старый bcrypt-хеш не должен оставаться вторым рабочим
+   * ключом (тот же принцип, что upgradeLegacyPasswordHash выше).
+   */
+  async setPassword(id: Types.ObjectId, passwordHash: string): Promise<{ modifiedCount: number }> {
+    const result = await this.model
+      .updateOne({ _id: id, status: 'active' }, { $set: { passwordHash }, $unset: { legacyPasswordHash: 1 } })
+      .exec();
+    return { modifiedCount: result.modifiedCount };
+  }
+
   /**
    * team-users read-model (TeamController.list): батчевое чтение вместо
    * N отдельных findById на N занятых позиций организации.

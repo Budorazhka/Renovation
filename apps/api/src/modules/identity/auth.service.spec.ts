@@ -557,3 +557,83 @@ describe('AuthService.activatePendingIdentity', () => {
     expect(result).toEqual({ activated: false });
   });
 });
+
+describe('AuthService.changePassword', () => {
+  function makeService(identity: unknown, setPassword = jest.fn().mockResolvedValue({ modifiedCount: 1 })) {
+    const revokeOtherSessions = jest.fn().mockResolvedValue(2);
+    const service = new AuthService(
+      {
+        findByIdWithPasswordHash: jest.fn().mockResolvedValue(identity),
+        setPassword,
+      } as unknown as IdentityRepository,
+      {} as unknown as ProductAccessRepository,
+      { revokeOtherSessions } as unknown as SessionService,
+    );
+    return { service, setPassword, revokeOtherSessions };
+  }
+
+  it('меняет пароль на argon2-хеш нового и закрывает остальные сессии, текущую оставляет', async () => {
+    const identity = await makeIdentity({ password: 'old-password-1' });
+    const { service, setPassword, revokeOtherSessions } = makeService(identity);
+
+    const result = await service.changePassword({
+      identityId: identity._id,
+      currentPassword: 'old-password-1',
+      newPassword: 'new-password-2',
+      currentSessionToken: 'raw-token',
+    });
+
+    expect(result).toEqual({ revokedSessions: 2 });
+    const [, passwordHash] = setPassword.mock.calls[0] as [unknown, string];
+    await expect(argon2.verify(passwordHash, 'new-password-2')).resolves.toBe(true);
+    expect(revokeOtherSessions).toHaveBeenCalledWith(identity._id, 'raw-token');
+  });
+
+  it('неверный текущий пароль — AUTH_INVALID_CREDENTIALS, пароль не меняется', async () => {
+    const identity = await makeIdentity({ password: 'old-password-1' });
+    const { service, setPassword } = makeService(identity);
+
+    await expect(
+      service.changePassword({ identityId: identity._id, currentPassword: 'wrong', newPassword: 'new-password-2' }),
+    ).rejects.toMatchObject({ code: ErrorCode.AUTH_INVALID_CREDENTIALS });
+    expect(setPassword).not.toHaveBeenCalled();
+  });
+
+  it('новый пароль совпадает с текущим — отказ', async () => {
+    const identity = await makeIdentity({ password: 'old-password-1' });
+    const { service, setPassword } = makeService(identity);
+
+    await expect(
+      service.changePassword({ identityId: identity._id, currentPassword: 'old-password-1', newPassword: 'old-password-1' }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
+    expect(setPassword).not.toHaveBeenCalled();
+  });
+
+  it('пароль из старой системы (bcrypt) подходит как текущий, новый сохраняется argon2', async () => {
+    const identity = {
+      _id: new Types.ObjectId(),
+      status: 'active',
+      legacyPasswordHash: await bcrypt.hash('legacy-password', 4),
+    };
+    const { service, setPassword } = makeService(identity);
+
+    await service.changePassword({
+      identityId: identity._id,
+      currentPassword: 'legacy-password',
+      newPassword: 'new-password-2',
+    });
+
+    const [, passwordHash] = setPassword.mock.calls[0] as [unknown, string];
+    await expect(argon2.verify(passwordHash, 'new-password-2')).resolves.toBe(true);
+  });
+
+  it('деактивированная identity пароль не меняет', async () => {
+    const identity = await makeIdentity({ status: 'deactivated', password: 'old-password-1' });
+    const { service, setPassword } = makeService(identity);
+
+    await expect(
+      service.changePassword({ identityId: identity._id, currentPassword: 'old-password-1', newPassword: 'new-password-2' }),
+    ).rejects.toMatchObject({ code: ErrorCode.AUTH_INVALID_CREDENTIALS });
+    expect(setPassword).not.toHaveBeenCalled();
+  });
+});

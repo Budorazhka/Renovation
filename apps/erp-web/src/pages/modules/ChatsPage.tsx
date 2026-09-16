@@ -48,7 +48,8 @@ import {
 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { LMS_ITEMS, type LMSItem } from '@/data/lms-mock'
+import { type LMSItem } from '@/data/lms-mock'
+import { useLmsLibrary } from '@/components/lms/useLms'
 import { useCoreStore } from '@/store/useCoreStore'
 import {
   messengerApi,
@@ -2276,7 +2277,14 @@ export default function ChatsPage() {
     return []
   }, [])
 
-  const libraryItems = useMemo(() => LMS_ITEMS.slice(0, 12), [])
+  /**
+   * База знаний в боковой панели чата — те же материалы, что в разделе
+   * «Обучение» (lmsApi). Раньше панель показывала первые 12 примеров из
+   * `lms-mock.ts`: менеджер отправлял клиенту материал, которого в компании
+   * нет, а материалы, которые компания действительно завела, сюда не попадали.
+   */
+  const { items: lmsItems, loading: lmsLoading, loadError: lmsError } = useLmsLibrary()
+  const libraryItems = useMemo(() => lmsItems.slice(0, 12), [lmsItems])
 
   return (
     <DashboardShell>
@@ -3546,9 +3554,13 @@ export default function ChatsPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ fontSize: 16, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--chat-gold-text)', marginBottom: 6 }}>
                       {t('modules.chatsPage.база_знаний')}</div>
-                    {libraryItems.map((m) => (
-                      <MaterialRow key={m.id} item={m} />
-                    ))}
+                    {lmsLoading || lmsError || libraryItems.length === 0 ? (
+                      <div style={{ padding: '24px 16px', color: 'var(--chat-text-secondary)', fontSize: 14, textAlign: 'center' }}>
+                        {lmsError ?? (lmsLoading ? t('common.loading') : t('modules.chatsPage.база_знаний_пуста'))}
+                      </div>
+                    ) : (
+                      libraryItems.map((m) => <MaterialRow key={m.id} item={m} />)
+                    )}
                   </div>
                 )}
                   </div>

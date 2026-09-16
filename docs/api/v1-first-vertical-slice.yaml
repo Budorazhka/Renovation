@@ -99,6 +99,45 @@ paths:
                 properties:
                   loggedOut: { type: boolean }
 
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: >
+        Смена своего пароля вошедшим. Требует текущий пароль: одной cookie
+        недостаточно. Прочие сессии человека закрываются, текущая остаётся;
+        revokedSessions — сколько закрыто. Rate limit по IP, как на входе.
+      responses:
+        '200':
+          description: Пароль изменён
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changed, revokedSessions]
+                properties:
+                  changed: { type: boolean }
+                  revokedSessions: { type: integer }
+        '400':
+          description: VALIDATION_FAILED — новый пароль короче 8 символов или совпадает с текущим
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION — нет активной сессии; AUTH_INVALID_CREDENTIALS — неверный текущий пароль
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMIT_EXCEEDED
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, minLength: 1, maxLength: 200 }
+                newPassword: { type: string, minLength: 8, maxLength: 200 }
+
   /auth/session:
     get:
       operationId: checkSession

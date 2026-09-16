@@ -1,10 +1,14 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { Types } from 'mongoose';
+import { AppException } from '../../shared/errors/app-exception';
+import { ErrorCode } from '../../shared/errors/error-codes';
 import { AuthService } from './auth.service';
 import { SessionService } from './session.service';
 import { resolveProductAudienceFromHeaders, resolveProductAudienceFromOrigin } from './resolve-product-audience';
 import { LoginRequestDto } from './dto/login-request.dto';
 import { RegisterRequestDto } from './dto/register-request.dto';
+import { ChangePasswordRequestDto } from './dto/change-password-request.dto';
 import { IpRateLimitGuard } from '../../shared/rate-limit/ip-rate-limit.guard';
 import { RateLimit } from '../../shared/rate-limit/rate-limit.decorator';
 
@@ -112,6 +116,40 @@ export class AuthController {
    * что уже применяется к login()). Cookie всегда очищается в ответе,
    * даже если сессию в БД искать было не по чему.
    */
+  /**
+   * Смена своего пароля. Работает со своей же сессией и требует текущий
+   * пароль — отдельного права не нужно (тот же принцип, что /auth/logout).
+   * Rate limit по IP: перебор текущего пароля здесь так же возможен, как на
+   * /auth/login, и стоит столько же процессорного времени (argon2id).
+   */
+  @Post('change-password')
+  @HttpCode(200)
+  @UseGuards(IpRateLimitGuard)
+  @RateLimit({ keyPrefix: 'auth-change-password', limit: 10, windowSeconds: 60 })
+  async changePassword(
+    @Req() req: FastifyRequest,
+    @Body() dto: ChangePasswordRequestDto,
+  ): Promise<{ changed: true; revokedSessions: number }> {
+    const audience = resolveProductAudienceFromHeaders({
+      origin: req.headers.origin,
+      host: req.headers.host,
+      forwardedProto: req.headers['x-forwarded-proto'] as string | undefined,
+    });
+    const session = await this.sessionService.getActiveSessionFromRequest(req, audience);
+    if (!session) {
+      throw new AppException(ErrorCode.AUTH_NO_SESSION, 'No active session');
+    }
+
+    const { revokedSessions } = await this.authService.changePassword({
+      identityId: new Types.ObjectId(session.identityId),
+      currentPassword: dto.currentPassword,
+      newPassword: dto.newPassword,
+      currentSessionToken: this.sessionService.getRawTokenFromRequest(req),
+    });
+
+    return { changed: true, revokedSessions };
+  }
+
   @Post('logout')
   @HttpCode(200)
   async logout(

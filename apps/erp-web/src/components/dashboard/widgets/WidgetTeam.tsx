@@ -3,17 +3,15 @@ import { Link } from 'react-router-dom'
 import { Users2 } from 'lucide-react'
 import { DeskShell, DeskHeader, DeskTab, MiniBar, DESK_HEADER_LINK_CLASS, REPORT_LINKS } from '../desk-shared'
 /**
- * `INITIAL_LEAD_MANAGERS` — НЕ `personnel-mock` (реестр команды, TEAM-001):
- * это список менеджеров всей ещё не переведённой на Platform API подсистемы
- * лидов (`leads-mock.ts`, используется в 16 файлах — LeadsContext,
- * DealsKanbanPage, BookingsPage и др.). `leads` в этом виджете приходят с
- * `managerId`, ссылающимся на id из этого же мок-справочника ('lm-1' и т.п.),
- * не на реальный `positionId`. Подменить только справочник имён на
- * `teamApi.list()` нельзя — id не совпадут, и виджет перестанет находить
- * менеджера по лиду вообще. Переезд возможен только вместе с миграцией лидов
- * на Platform API — отдельная, гораздо более крупная задача, не TEAM-001.
+ * Ростер менеджеров берётся из LeadsContext: он строится из реестра команды
+ * (`teamApi.list()`), а id менеджера — это `positionId`, тот же, что в
+ * `lead.managerId`. Раньше здесь стоял справочник `INITIAL_LEAD_MANAGERS` из
+ * `leads-mock.ts`: пока лиды жили в моках, их `managerId` ссылался на 'lm-1' и
+ * подменить справочник было нельзя. Лиды переехали на Platform API вместе с
+ * ростером, и выдуманные фамилии в рейтинге команды стали чистой ложью —
+ * настоящие лиды не находили ни одного из этих менеджеров.
  */
-import { INITIAL_LEAD_MANAGERS } from '@/data/leads-mock'
+import { useLeads } from '@/context/LeadsContext'
 import type { Lead } from '@/types/leads'
 import type { WidgetSlot } from '@/config/widgets-config'
 import { useI18n } from "@/i18n";
@@ -23,9 +21,10 @@ type TeamTab = 'rating' | 'load' | 'conversion'
 export function WidgetTeam({ leads, slot }: { leads: Lead[]; slot: WidgetSlot }) {
     const { t } = useI18n();
   const [tab, setTab] = useState<TeamTab>('rating')
+  const { leadManagers: managers, isLoading } = useLeads()
 
   const stats = useMemo(() => {
-    return INITIAL_LEAD_MANAGERS.map((m) => {
+    return managers.map((m) => {
       const mLeads = leads.filter((l) => l.managerId === m.id)
       const active = mLeads.filter((l) => l.status !== 'lost' && l.status !== 'postponed').length
       const problems = mLeads.filter((l) => l.taskOverdue || !l.hasTask).length
@@ -34,7 +33,7 @@ export function WidgetTeam({ leads, slot }: { leads: Lead[]; slot: WidgetSlot })
       const conversion = mLeads.length > 0 ? Math.round((deals / mLeads.length) * 100) : 0
       return { manager: m, total: mLeads.length, active, problems, deals, commission, conversion }
     })
-  }, [leads])
+  }, [leads, managers])
 
   const sorted = useMemo(() => {
     switch (tab) {
@@ -51,6 +50,26 @@ export function WidgetTeam({ leads, slot }: { leads: Lead[]; slot: WidgetSlot })
       case 'conversion': return 100
     }
   }, [sorted, tab])
+
+  // Пустой ростер — это либо ещё не пришедший ответ, либо организация, где
+  // кроме собственника никого нет. Оба случая честнее сказать словами, чем
+  // нарисовать рейтинг из нуля строк.
+  if (stats.length === 0) {
+    return (
+      <DeskShell accent="#60a5fa" className="flex flex-col">
+        <DeskHeader
+          icon={<Users2 className="size-4" strokeWidth={2} />}
+          title={t('dashboard.widgets.widgetTeam.команда')}
+          accentColor="#60a5fa"
+          layout="compact"
+          right={<Link to={REPORT_LINKS.team} className={DESK_HEADER_LINK_CLASS}>{t('dashboard.widgets.widgetTeam.отч_т')}</Link>}
+        />
+        <p className="px-2.5 py-3 text-[13px] text-[color:var(--workspace-text-muted)]">
+          {t(isLoading ? 'dashboard.widgets.shared.loading' : 'dashboard.widgets.shared.empty')}
+        </p>
+      </DeskShell>
+    )
+  }
 
   if (slot === 'med') {
     const top5 = [...stats].sort((a, b) => b.commission - a.commission).slice(0, 5)

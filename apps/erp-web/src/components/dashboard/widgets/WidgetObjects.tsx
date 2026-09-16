@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Building2 } from 'lucide-react'
 import { DeskShell, DeskHeader, DeskTab, DeskKpi, DeskHero, DeskMiniStats, DESK_HEADER_LINK_CLASS, REPORT_LINKS } from '../desk-shared'
-import { mockProperties } from '@/components/management/my-properties/mock-data'
 import { getConditionState } from '@/components/management/my-properties/utils'
+import { useOrganizationProperties } from '@/hooks/useOrganizationProperties'
 import type { WidgetSlot } from '@/config/widgets-config'
 import { useI18n } from "@/i18n";
 
@@ -12,11 +12,30 @@ type ObjTab = 'active' | 'demand' | 'stale'
 export function WidgetObjects({ slot }: { slot: WidgetSlot }) {
     const { t } = useI18n();
   const [tab, setTab] = useState<ObjTab>('active')
+  // Реестр объектов организации — тот же, что на экране «Мои объекты».
+  // Раньше здесь лежали вшитые квартиры из mock-data.
+  const { properties: all, status } = useOrganizationProperties()
 
-  const all      = mockProperties
-  const active   = useMemo(() => all.filter((p) => p.status !== 'archive' && p.status !== 'sold'), [])
+  const active   = useMemo(() => all.filter((p) => p.status !== 'archive' && p.status !== 'sold'), [all])
   const stale    = useMemo(() => active.filter((p) => getConditionState(p.updatedAt, p.category) === 'needs_update'), [active])
   const fresh    = useMemo(() => active.filter((p) => getConditionState(p.updatedAt, p.category) === 'up_to_date'), [active])
+
+  if (status !== 'ready') {
+    return (
+      <DeskShell accent="#38bdf8" className="flex flex-col">
+        <DeskHeader
+          icon={<Building2 className="size-4" strokeWidth={2} />}
+          title={t('dashboard.widgets.widgetObjects.объекты')}
+          accentColor="#38bdf8"
+          layout={slot === 'big' ? undefined : 'compact'}
+          right={<Link to={REPORT_LINKS.objects} className={DESK_HEADER_LINK_CLASS}>{t('dashboard.widgets.widgetObjects.отч_т')}</Link>}
+        />
+        <p className="px-2.5 py-3 text-[13px] text-[color:var(--workspace-text-muted)]">
+          {t(status === 'loading' ? 'dashboard.widgets.shared.loading' : 'dashboard.widgets.shared.loadFailed')}
+        </p>
+      </DeskShell>
+    )
+  }
 
   if (slot === 'small') {
     return (

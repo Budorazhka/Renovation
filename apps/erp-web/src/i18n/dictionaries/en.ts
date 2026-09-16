@@ -4676,6 +4676,11 @@ export const en: TranslationSchema<typeof ru> = {
       }
     },
     widgets: {
+        shared: {
+            loading: "Loading…",
+            loadFailed: "The data did not load",
+            empty: "No data yet"
+        },
       widgetClients: {
         "отч_т": "Report →",
         "пусто_в_этой_выборке": "Empty in this selection",
@@ -7897,7 +7902,72 @@ export const en: TranslationSchema<typeof ru> = {
       "акция": "Promo"
     }
   },
+  reminders: {
+      title: "Reminders",
+      subtitle: "Active: {open}",
+      subtitleOverdue: "Overdue: {overdue} · active: {open}",
+      add: "Add a reminder",
+      titlePlaceholder: "What to remind about",
+      notePlaceholder: "Note (optional)",
+      dueLabel: "Due",
+      save: "Save",
+      saving: "Saving…",
+      cancel: "Cancel",
+      empty: "No reminders",
+      loadFailed: "Could not load the reminders",
+      retry: "Try again",
+      conflict: "The reminder was changed elsewhere, the list is refreshed",
+      actionFailed: "Could not save the change",
+      createFailed: "Could not create the reminder",
+      confirmDelete: "Delete the reminder?",
+      linkDeal: "Deal",
+      linkLead: "Lead",
+      tabs: {
+          open: "Active ({count})",
+          done: "Closed",
+          all: "All"
+      },
+      filters: {
+          dueLabel: "Due",
+          linkLabel: "Link",
+          due: {
+              all: "Any due date",
+              overdue: "Overdue",
+              today: "Today",
+              week: "Next seven days"
+          },
+          link: {
+              all: "Any link",
+              deal: "With a deal",
+              lead: "With a lead",
+              none: "No link"
+          }
+      },
+      state: {
+          overdue: "Overdue",
+          today: "Today",
+          upcoming: "Ahead",
+          done: "Done",
+          cancelled: "Cancelled"
+      },
+      actions: {
+          done: "Done",
+          reopen: "Reopen",
+          reschedule: "Reschedule",
+          delete: "Delete"
+      }
+  },
   settings: {
+      password: {
+          saving: "Saving…",
+          changed: "Password changed",
+          changedWithSessions: "Password changed. Other sessions closed: {count}",
+          wrongCurrent: "The current password does not match",
+          tooShort: "The new password must be at least 8 characters",
+          mismatch: "The passwords do not match",
+          tooMany: "Too many attempts. Try again in a minute",
+          failed: "Could not change the password"
+      },
     accountSettingsPage: {
       "личный_кабинет": "Personal account",
       "профиль_контакты_и_и": "Profile, contacts and information about yourself",
@@ -8822,6 +8892,7 @@ export const en: TranslationSchema<typeof ru> = {
   },
   modules: {
     chatsPage: {
+        база_знаний_пуста: "The knowledge base has no materials yet",
       "чаты": "Chats",
       "crm_не_подключ_н": "CRM is not connected.",
       "мессенджеры_не_подкл": "Messengers are not connected.",

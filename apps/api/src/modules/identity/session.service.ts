@@ -114,6 +114,11 @@ export class SessionService {
     await this.sessionRepository.revokeByTokenHash(this.hashToken(rawToken));
   }
 
+  /** Смена пароля: закрыть все остальные сессии человека, текущую оставить. Возвращает, сколько закрыто. */
+  async revokeOtherSessions(identityId: Types.ObjectId, currentRawToken: string): Promise<number> {
+    return this.sessionRepository.revokeAllForIdentityExceptToken(identityId, this.hashToken(currentRawToken));
+  }
+
   async revokeAllErpSessions(identityId: Types.ObjectId): Promise<void> {
     await this.sessionRepository.revokeAllForIdentity(identityId, 'erp');
   }

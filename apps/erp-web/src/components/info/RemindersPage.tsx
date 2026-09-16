@@ -1,307 +1,425 @@
-import { useMemo, useState } from 'react'
-import { AlarmClock, Plus, Check, Trash2, Briefcase, User, CheckSquare, Bookmark, Filter } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlarmClock, Briefcase, Check, Plus, RotateCcw, Trash2, UserRound } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { REMINDERS_MOCK, type Reminder } from '@/data/info-mock'
-import { useI18n } from "@/i18n";
+import { calendarApiV2, newIdempotencyKey, type CalendarEventV2 } from '@/services/calendarApiV2'
+import {
+  fromDateTimeLocal,
+  isOpenReminder,
+  matchesDue,
+  matchesLink,
+  matchesTab,
+  reminderEndTime,
+  reminderState,
+  reminderWindow,
+  sortReminders,
+  toDateTimeLocal,
+  type ReminderDueFilter,
+  type ReminderLinkFilter,
+  type ReminderState,
+  type ReminderTab,
+} from '@/lib/reminders'
+import { useI18n } from '@/i18n'
 
-const C = {
-  gold: 'var(--gold)',
-  white: '#ffffff',
-  whiteMid: 'rgba(255,255,255,0.7)',
-  whiteLow: 'rgba(255,255,255,0.4)',
-  border: 'var(--green-border)',
-  card: 'var(--green-card)',
-}
+const MUTED = 'text-[color:var(--app-text-muted)]'
+const FIELD =
+  'h-10 rounded-sm bg-[var(--workspace-row-bg)] px-3 text-[16px] text-[color:var(--app-text)] outline-none'
+const GOLD_BTN =
+  'rounded-sm bg-[var(--gold)] px-3 py-1.5 text-[16px] font-medium text-[color:var(--gold-btn-text)] disabled:opacity-60'
+const QUIET_BTN = `rounded-sm px-3 py-1.5 text-[16px] ${MUTED} hover:text-[color:var(--app-text)] disabled:opacity-60`
 
-const PRIORITY_META = {
-  high:   { label: 'Высокий',  color: '#f87171' },
-  medium: { label: 'Средний',  color: '#fb923c' },
-  low:    { label: 'Низкий',   color: '#4ade80' },
-}
+/** Через сколько минут после срока просроченное перестаёт быть «только что». */
+const MINUTE = 60_000
 
-const ENTITY_ICON: Record<string, React.ReactNode> = {
-  deal:    <Briefcase size={10} />,
-  client:  <User size={10} />,
-  task:    <CheckSquare size={10} />,
-  booking: <Bookmark size={10} />,
-}
-
-function formatDue(iso: string) {
-  const d = new Date(iso)
-  const now = new Date()
-  const diffMs = d.getTime() - now.getTime()
-  const diffH = Math.round(diffMs / 3_600_000)
-  if (diffH < 0) return { text: 'Просрочено', color: '#ef4444' }
-  if (diffH < 3) return { text: `через ${diffH}ч`, color: '#fb923c' }
-  if (diffH < 24) return { text: `сегодня в ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`, color: C.gold }
-  return { text: d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), color: C.whiteLow }
-}
-
-type FilterTab = 'all' | 'pending' | 'done'
-
-type EntityFilter = 'all' | NonNullable<Reminder['entityType']>
-
+/**
+ * Экран напоминаний. Работает с событиями календаря типа `reminder` — тем же
+ * источником, из которого напоминания видны на рабочем столе и в календаре.
+ * Раньше показывал шесть вшитых примеров: отметки «выполнено» и добавленные
+ * напоминания жили до перезагрузки страницы и никому, кроме этой вкладки, не
+ * были видны.
+ */
 export function RemindersPage() {
-    const { t } = useI18n();
-  const [reminders, setReminders] = useState<Reminder[]>(REMINDERS_MOCK)
-  const [filter, setFilter] = useState<FilterTab>('pending')
-  const [priorityFilter, setPriorityFilter] = useState<'all' | Reminder['priority']>('all')
-  const [entityFilter, setEntityFilter] = useState<EntityFilter>('all')
+  const { t, formatDate } = useI18n()
+  const [events, setEvents] = useState<CalendarEventV2[]>([])
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [rescheduleId, setRescheduleId] = useState<string | null>(null)
+  const [rescheduleDraft, setRescheduleDraft] = useState('')
+
+  const [tab, setTab] = useState<ReminderTab>('open')
+  const [dueFilter, setDueFilter] = useState<ReminderDueFilter>('all')
+  const [linkFilter, setLinkFilter] = useState<ReminderLinkFilter>('all')
+
   const [showAdd, setShowAdd] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDue, setNewDue] = useState('')
-  const [newPriority, setNewPriority] = useState<Reminder['priority']>('medium')
+  const [newNote, setNewNote] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  function toggleDone(id: string) {
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r))
-  }
+  // Срок — величина относительная: без пересчёта «через 2 часа» висит на экране
+  // весь день. Минуты хватает, чаще дёргать список незачем.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), MINUTE)
+    return () => clearInterval(timer)
+  }, [])
 
-  function remove(id: string) {
-    setReminders(prev => prev.filter(r => r.id !== id))
-  }
+  const load = useCallback(async () => {
+    setStatus('loading')
+    try {
+      const { startDate, endDate } = reminderWindow(new Date())
+      const response = await calendarApiV2.list({ startDate, endDate, type: 'reminder' })
+      setEvents(response.items)
+      setStatus('ready')
+    } catch {
+      setEvents([])
+      setStatus('error')
+    }
+  }, [])
 
-  function addReminder() {
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  /**
+   * Любой отказ сервера — отказ: список перечитывается, чтобы на экране не
+   * осталась отметка, которой нет в базе. 409 значит, что напоминание уже
+   * изменили в другом месте, и это отдельное сообщение, а не «ошибка».
+   */
+  const runAction = useCallback(
+    async (id: string, action: () => Promise<void>) => {
+      setBusyId(id)
+      setActionError(null)
+      try {
+        await action()
+      } catch (error) {
+        const code = (error as { response?: { status?: number } }).response?.status
+        setActionError(code === 409 ? t('reminders.conflict') : t('reminders.actionFailed'))
+        await load()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [load, t],
+  )
+
+  const setStatusOf = (event: CalendarEventV2, next: 'completed' | 'scheduled') =>
+    runAction(event.id, async () => {
+      const updated = await calendarApiV2.update(event.id, { expectedVersion: event.version, status: next })
+      setEvents((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+    })
+
+  const remove = (event: CalendarEventV2) =>
+    runAction(event.id, async () => {
+      await calendarApiV2.remove(event.id)
+      setEvents((prev) => prev.filter((item) => item.id !== event.id))
+      setConfirmDeleteId(null)
+    })
+
+  const reschedule = (event: CalendarEventV2) =>
+    runAction(event.id, async () => {
+      const newStartTime = fromDateTimeLocal(rescheduleDraft)
+      const updated = await calendarApiV2.move(event.id, {
+        expectedVersion: event.version,
+        newStartTime,
+        newEndTime: reminderEndTime(newStartTime),
+      })
+      setEvents((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setRescheduleId(null)
+    })
+
+  const create = async () => {
     if (!newTitle.trim() || !newDue) return
-    setReminders(prev => [...prev, {
-      id: `rem-${Date.now()}`,
-      title: newTitle.trim(),
-      dueAt: newDue,
-      done: false,
-      priority: newPriority,
-    }])
-    setNewTitle('')
-    setNewDue('')
-    setNewPriority('medium')
-    setShowAdd(false)
+    setSaving(true)
+    setActionError(null)
+    try {
+      const startTime = fromDateTimeLocal(newDue)
+      const created = await calendarApiV2.create(
+        {
+          title: newTitle.trim(),
+          description: newNote.trim() || undefined,
+          startTime,
+          endTime: reminderEndTime(startTime),
+          type: 'reminder',
+        },
+        newIdempotencyKey(),
+      )
+      setEvents((prev) => [...prev, created])
+      setNewTitle('')
+      setNewDue('')
+      setNewNote('')
+      setShowAdd(false)
+    } catch {
+      setActionError(t('reminders.createFailed'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const visible = useMemo(
-    () => reminders.filter((r) => (filter === 'all' ? true : filter === 'done' ? r.done : !r.done)),
-    [filter, reminders],
+    () =>
+      sortReminders(
+        events.filter((event) => {
+          const state = reminderState(event, now)
+          return matchesTab(state, tab) && matchesDue(event, state, dueFilter, now) && matchesLink(event, linkFilter)
+        }),
+        now,
+      ),
+    [dueFilter, events, linkFilter, now, tab],
   )
 
-  const displayList = useMemo(() => {
-    let list = [...visible]
-    if (priorityFilter !== 'all') list = list.filter((r) => r.priority === priorityFilter)
-    if (entityFilter !== 'all') list = list.filter((r) => r.entityType === entityFilter)
-    return list
-  }, [entityFilter, priorityFilter, visible])
+  const counts = useMemo(() => {
+    const states = events.map((event) => reminderState(event, now))
+    return {
+      open: states.filter(isOpenReminder).length,
+      overdue: states.filter((state) => state === 'overdue').length,
+      today: states.filter((state) => state === 'today').length,
+      done: states.filter((state) => state === 'done').length,
+    }
+  }, [events, now])
 
-  const pendingCount = reminders.filter((r) => !r.done).length
-  const overdueCount = reminders.filter((r) => !r.done && new Date(r.dueAt) < new Date()).length
-
-  const kpi = useMemo(() => {
-    const active = displayList.filter((r) => !r.done)
-    const od = active.filter((r) => new Date(r.dueAt) < new Date()).length
-    const high = active.filter((r) => r.priority === 'high').length
-    const linked = active.filter((r) => !!r.entityType).length
-    return { shown: displayList.length, overdueInView: od, high, linked }
-  }, [displayList])
-
-  const FILTER_TABS: { key: FilterTab; label: string }[] = [
-    { key: 'pending', label: `Активные (${pendingCount})` },
-    { key: 'done',    label: 'Выполненные' },
-    { key: 'all',     label: 'Все' },
+  const TABS: { key: ReminderTab; label: string }[] = [
+    { key: 'open', label: t('reminders.tabs.open', { count: counts.open }) },
+    { key: 'done', label: t('reminders.tabs.done') },
+    { key: 'all', label: t('reminders.tabs.all') },
   ]
 
   return (
     <DashboardShell>
-      <div style={{ padding: '24px 28px 48px', maxWidth: 900 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+      <div className="flex w-full max-w-[960px] flex-col gap-6 px-6 pb-12 pt-6 text-[color:var(--app-text)]">
+        <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div style={{ fontSize: 20, fontWeight: 400, color: C.white, marginBottom: 4 }}>{t('info.remindersPage.напоминания')}</div>
-            <div style={{ fontSize: 12, color: C.whiteLow }}>
-              {overdueCount > 0
-                ? <span style={{ color: '#f87171' }}>⚠ {overdueCount} {t('info.remindersPage.просрочено')}</span>
-                : null
-              }
-              {pendingCount} {t('info.remindersPage.активных')}</div>
+            <h1 className="text-[30px] font-normal leading-tight text-[color:var(--theme-accent-heading)]">
+              {t('reminders.title')}
+            </h1>
+            <p className={`mt-1 text-[17px] ${MUTED}`}>
+              {counts.overdue > 0
+                ? t('reminders.subtitleOverdue', { overdue: counts.overdue, open: counts.open })
+                : t('reminders.subtitle', { open: counts.open })}
+            </p>
           </div>
-          <button
-            onClick={() => setShowAdd(v => !v)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-              borderRadius: 8, fontSize: 11, fontWeight: 400, cursor: 'pointer',
-              background: 'rgba(201,168,76,0.12)', border: '1px solid rgba(201,168,76,0.3)',
-              color: C.gold,
-            }}
-          >
-            <Plus size={12} /> {t('info.remindersPage.добавить')}</button>
-        </div>
+          <button type="button" onClick={() => setShowAdd((value) => !value)} className={GOLD_BTN}>
+            <span className="flex items-center gap-2">
+              <Plus className="size-4" aria-hidden /> {t('reminders.add')}
+            </span>
+          </button>
+        </header>
 
-        {/* Add form */}
-        {showAdd && (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <input
-                autoFocus
-                value={newTitle}
-                onChange={e => setNewTitle(e.target.value)}
-                placeholder={t('info.remindersPage.название_напоминания')}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 7, padding: '8px 12px', fontSize: 13, color: C.white, fontFamily: 'inherit', outline: 'none' }}
-              />
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {showAdd ? (
+          <section className="flex flex-col gap-3 rounded-md bg-[var(--hub-card-bg)] p-4">
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+              placeholder={t('reminders.titlePlaceholder')}
+              aria-label={t('reminders.titlePlaceholder')}
+              className={FIELD}
+            />
+            <input
+              value={newNote}
+              onChange={(event) => setNewNote(event.target.value)}
+              placeholder={t('reminders.notePlaceholder')}
+              aria-label={t('reminders.notePlaceholder')}
+              className={FIELD}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <label className={`flex items-center gap-2 text-[16px] ${MUTED}`}>
+                {t('reminders.dueLabel')}
                 <input
                   type="datetime-local"
                   value={newDue}
-                  onChange={e => setNewDue(e.target.value)}
-                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 7, padding: '7px 10px', fontSize: 12, color: C.whiteMid, fontFamily: 'inherit', outline: 'none', colorScheme: 'dark' }}
+                  onChange={(event) => setNewDue(event.target.value)}
+                  className={FIELD}
                 />
-                {(['high', 'medium', 'low'] as Reminder['priority'][]).map(p => (
-                  <button key={p} onClick={() => setNewPriority(p)} style={{
-                    padding: '5px 10px', borderRadius: 20, fontSize: 10, fontWeight: 400, cursor: 'pointer',
-                    background: newPriority === p ? `${PRIORITY_META[p].color}18` : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${newPriority === p ? `${PRIORITY_META[p].color}55` : 'rgba(255,255,255,0.1)'}`,
-                    color: newPriority === p ? PRIORITY_META[p].color : C.whiteLow,
-                  }}>
-                    {PRIORITY_META[p].label}
-                  </button>
-                ))}
-                <button
-                  onClick={addReminder}
-                  disabled={!newTitle.trim() || !newDue}
-                  style={{
-                    padding: '7px 16px', borderRadius: 8, fontSize: 11, fontWeight: 400, cursor: !newTitle.trim() || !newDue ? 'default' : 'pointer',
-                    background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)',
-                    color: '#4ade80', opacity: !newTitle.trim() || !newDue ? 0.4 : 1,
-                  }}
-                >
-                  {t('info.remindersPage.сохранить')}</button>
-              </div>
+              </label>
+              <button type="button" onClick={() => void create()} disabled={!newTitle.trim() || !newDue || saving} className={GOLD_BTN}>
+                {saving ? t('reminders.saving') : t('reminders.save')}
+              </button>
+              <button type="button" onClick={() => setShowAdd(false)} className={QUIET_BTN}>
+                {t('reminders.cancel')}
+              </button>
             </div>
-          </div>
-        )}
+          </section>
+        ) : null}
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
-          {FILTER_TABS.map(t => (
-            <button key={t.key} onClick={() => setFilter(t.key)} style={{
-              padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12,
-              fontWeight: filter === t.key ? 700 : 400,
-              background: filter === t.key ? 'rgba(201,168,76,0.1)' : 'transparent',
-              color: filter === t.key ? C.gold : C.whiteLow,
-              borderBottom: filter === t.key ? '2px solid var(--gold)' : '2px solid transparent',
-            }}>{t.label}</button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1">
+            {TABS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                aria-pressed={tab === item.key}
+                className={`rounded-sm px-3 py-1.5 text-[16px] ${
+                  tab === item.key
+                    ? 'bg-[var(--gold)] font-medium text-[color:var(--gold-btn-text)]'
+                    : `${MUTED} hover:text-[color:var(--app-text)]`
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={dueFilter}
+            onChange={(event) => setDueFilter(event.target.value as ReminderDueFilter)}
+            aria-label={t('reminders.filters.dueLabel')}
+            className={FIELD}
+          >
+            <option value="all">{t('reminders.filters.due.all')}</option>
+            <option value="overdue">{t('reminders.filters.due.overdue')}</option>
+            <option value="today">{t('reminders.filters.due.today')}</option>
+            <option value="week">{t('reminders.filters.due.week')}</option>
+          </select>
+          <select
+            value={linkFilter}
+            onChange={(event) => setLinkFilter(event.target.value as ReminderLinkFilter)}
+            aria-label={t('reminders.filters.linkLabel')}
+            className={FIELD}
+          >
+            <option value="all">{t('reminders.filters.link.all')}</option>
+            <option value="deal">{t('reminders.filters.link.deal')}</option>
+            <option value="lead">{t('reminders.filters.link.lead')}</option>
+            <option value="none">{t('reminders.filters.link.none')}</option>
+          </select>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.remindersPage.в_списке')}</p>
-            <p className="text-xl font-normal text-[color:var(--workspace-text)]">{kpi.shown}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.remindersPage.просрочено_в_выдаче')}</p>
-            <p className="text-xl font-normal text-red-300">{kpi.overdueInView}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.remindersPage.высокий_приоритет')}</p>
-            <p className="text-xl font-normal text-amber-300">{kpi.high}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.remindersPage.с_привязкой')}</p>
-            <p className="text-xl font-normal text-blue-300">{kpi.linked}</p>
-          </div>
-        </div>
+        {actionError ? (
+          <p role="alert" className="text-[17px] text-[#ffb4ab]">
+            {actionError}
+          </p>
+        ) : null}
 
-        <div className="mb-4 rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <Filter className="size-4 text-[color:var(--gold)]" />
-            <span className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('info.remindersPage.уточнение_списка')}</span>
+        {status === 'loading' ? <p className={`text-[17px] ${MUTED}`}>{t('common.loading')}</p> : null}
+        {status === 'error' ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-[17px] text-[#ffb4ab]">
+            {t('reminders.loadFailed')}
+            <button type="button" onClick={() => void load()} className={GOLD_BTN}>
+              {t('reminders.retry')}
+            </button>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value as typeof priorityFilter)}
-              className="rounded-md border border-[var(--workspace-row-border)] bg-[var(--workspace-row-bg)] px-2 py-2 text-sm text-[color:var(--workspace-text)] sm:min-w-[180px]"
-            >
-              <option value="all">{t('info.remindersPage.приоритет_все')}</option>
-              <option value="high">{t('info.remindersPage.высокий')}</option>
-              <option value="medium">{t('info.remindersPage.средний')}</option>
-              <option value="low">{t('info.remindersPage.низкий')}</option>
-            </select>
-            <select
-              value={entityFilter}
-              onChange={(e) => setEntityFilter(e.target.value as EntityFilter)}
-              className="rounded-md border border-[var(--workspace-row-border)] bg-[var(--workspace-row-bg)] px-2 py-2 text-sm text-[color:var(--workspace-text)] sm:min-w-[200px]"
-            >
-              <option value="all">{t('info.remindersPage.сущность_все')}</option>
-              <option value="deal">{t('info.remindersPage.сделка')}</option>
-              <option value="client">{t('info.remindersPage.клиент')}</option>
-              <option value="task">{t('info.remindersPage.задача')}</option>
-              <option value="booking">{t('info.remindersPage.бронь')}</option>
-            </select>
-          </div>
-        </div>
+        ) : null}
 
-        {/* List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {displayList.length === 0 && (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: C.whiteLow, fontSize: 13 }}>{t('info.remindersPage.нет_напоминаний_по_ф')}</div>
-          )}
-          {displayList.map(r => {
-            const due = formatDue(r.dueAt)
-            const pMeta = PRIORITY_META[r.priority]
-            const isOverdue = !r.done && new Date(r.dueAt) < new Date()
+        {status === 'ready' && visible.length === 0 ? (
+          <p className={`text-[17px] ${MUTED}`}>{t('reminders.empty')}</p>
+        ) : null}
+
+        <section className="flex flex-col gap-2">
+          {visible.map((event) => {
+            const state = reminderState(event, now)
+            const open = isOpenReminder(state)
+            const busy = busyId === event.id
             return (
-              <div key={r.id} style={{
-                background: r.done ? 'rgba(255,255,255,0.02)' : C.card,
-                border: `1px solid ${isOverdue ? 'rgba(248,113,113,0.3)' : C.border}`,
-                borderRadius: 10, padding: '12px 14px',
-                opacity: r.done ? 0.6 : 1,
-                transition: 'all 0.15s',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  {/* Done button */}
-                  <button
-                    onClick={() => toggleDone(r.id)}
-                    style={{
-                      flexShrink: 0, width: 22, height: 22, borderRadius: '50%', marginTop: 1,
-                      background: r.done ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.06)',
-                      border: `1.5px solid ${r.done ? '#4ade80' : 'rgba(255,255,255,0.2)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                    }}
-                  >
-                    {r.done && <Check size={11} color="#4ade80" />}
-                  </button>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 400, color: r.done ? C.whiteLow : C.white, textDecoration: r.done ? 'line-through' : 'none', marginBottom: 4 }}>
-                      {r.title}
-                    </div>
-                    {r.body && !r.done && (
-                      <div style={{ fontSize: 11, color: C.whiteLow, marginBottom: 4 }}>{r.body}</div>
-                    )}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: due.color }}>
-                        <AlarmClock size={10} /> {due.text}
-                      </div>
-                      <span style={{ fontSize: 9, fontWeight: 400, padding: '1px 6px', borderRadius: 20, background: `${pMeta.color}15`, border: `1px solid ${pMeta.color}40`, color: pMeta.color }}>
-                        {pMeta.label}
+              <article key={event.id} className="flex flex-col gap-2 rounded-md bg-[var(--hub-card-bg)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-[200px] flex-1">
+                    <h2 className={`text-[17px] ${open ? '' : MUTED}`}>{event.title}</h2>
+                    {event.description ? <p className={`mt-1 text-[16px] ${MUTED}`}>{event.description}</p> : null}
+                    <p className="mt-2 flex flex-wrap items-center gap-3 text-[16px]">
+                      <span className={state === 'overdue' ? 'text-[#ffb4ab]' : MUTED}>
+                        <AlarmClock className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                        {formatDate(event.startTime, {
+                          day: 'numeric',
+                          month: 'long',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </span>
-                      {r.entityType && r.entityLabel && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: C.whiteLow }}>
-                          {ENTITY_ICON[r.entityType]} {r.entityLabel}
+                      <span className={stateTone(state)}>{t(`reminders.state.${state}`)}</span>
+                      {event.dealId ? (
+                        <span className={MUTED}>
+                          <Briefcase className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                          {t('reminders.linkDeal')}
                         </span>
-                      )}
-                    </div>
+                      ) : null}
+                      {event.leadId ? (
+                        <span className={MUTED}>
+                          <UserRound className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                          {t('reminders.linkLead')}
+                        </span>
+                      ) : null}
+                    </p>
                   </div>
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => remove(r.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.2)', flexShrink: 0, padding: 2 }}
-                    onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.2)')}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {open ? (
+                      <button type="button" onClick={() => void setStatusOf(event, 'completed')} disabled={busy} className={GOLD_BTN}>
+                        <span className="flex items-center gap-2">
+                          <Check className="size-4" aria-hidden /> {t('reminders.actions.done')}
+                        </span>
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => void setStatusOf(event, 'scheduled')} disabled={busy} className={QUIET_BTN}>
+                        <span className="flex items-center gap-2">
+                          <RotateCcw className="size-4" aria-hidden /> {t('reminders.actions.reopen')}
+                        </span>
+                      </button>
+                    )}
+                    {open ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRescheduleId(rescheduleId === event.id ? null : event.id)
+                          setRescheduleDraft(toDateTimeLocal(event.startTime))
+                        }}
+                        disabled={busy}
+                        className={QUIET_BTN}
+                      >
+                        {t('reminders.actions.reschedule')}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(confirmDeleteId === event.id ? null : event.id)}
+                      disabled={busy}
+                      aria-label={t('reminders.actions.delete')}
+                      className={QUIET_BTN}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </button>
+                  </div>
                 </div>
-              </div>
+
+                {rescheduleId === event.id ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      type="datetime-local"
+                      value={rescheduleDraft}
+                      onChange={(input) => setRescheduleDraft(input.target.value)}
+                      aria-label={t('reminders.actions.reschedule')}
+                      className={FIELD}
+                    />
+                    <button type="button" onClick={() => void reschedule(event)} disabled={!rescheduleDraft || busy} className={GOLD_BTN}>
+                      {t('reminders.save')}
+                    </button>
+                    <button type="button" onClick={() => setRescheduleId(null)} className={QUIET_BTN}>
+                      {t('reminders.cancel')}
+                    </button>
+                  </div>
+                ) : null}
+
+                {confirmDeleteId === event.id ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-[16px]">{t('reminders.confirmDelete')}</span>
+                    <button type="button" onClick={() => void remove(event)} disabled={busy} className={GOLD_BTN}>
+                      {t('reminders.actions.delete')}
+                    </button>
+                    <button type="button" onClick={() => setConfirmDeleteId(null)} className={QUIET_BTN}>
+                      {t('reminders.cancel')}
+                    </button>
+                  </div>
+                ) : null}
+              </article>
             )
           })}
-        </div>
+        </section>
       </div>
     </DashboardShell>
   )
+}
+
+function stateTone(state: ReminderState): string {
+  if (state === 'overdue') return 'text-[#ffb4ab]'
+  if (state === 'today') return 'text-[color:var(--gold)]'
+  return MUTED
 }
