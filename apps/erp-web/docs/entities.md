@@ -348,9 +348,10 @@ Zustand stores or `localStorage`, so on the interaction map they belong in a sep
 | **Selection / DevSelection** (подборка) | `src/types/selections.ts`, `src/types/dev-selection.ts`, `useDevSelectionsStore` | Closest real thing is `unitsharelinks` (single unit only) |
 | **Partner** (referral and MLM) | `src/types/partners.ts`, `src/types/dashboard.ts` | Only `users.refererId` and `referalCode` exist |
 | **Mailing** | `src/types/mailings.ts` | — |
-| **Reminder / NewsArticle** (ERP-side) | `src/data/info-mock.ts` | Overlaps CRM `notifications` and platform `news` |
+| **Reminder** (ERP-side) | `src/data/info-mock.ts` | Overlaps CRM `notifications` |
+| **NewsArticle** | `src/services/newsApiV2.ts` | Platform `news` module since 15.09.2026: BAZA news from admin, company news from ERP settings |
 | **Property** (agency base) | `src/components/management/my-properties/types.ts` | Maps onto platform `estateapartments` |
-| **ManagerPlan** | `src/context/PlansContext.tsx` | Overlaps `analyticsplans` (CRM) and `development-sales-plans` (Platform) |
+| **ManagerPlan** | `src/services/plansApiV2.ts` | Platform `plans` module since 15.09.2026 (monthly plan per position) |
 
 The messenger entities (`Account`, `Dialog`, `Message`, `ClientDossier`, `AiHistoryEntry`) are real
 but live in a **third** backend, `api-msngrs.baza.sale`, whose repo is not in this workspace. The

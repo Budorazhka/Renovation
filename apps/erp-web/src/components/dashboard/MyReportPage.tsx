@@ -106,7 +106,7 @@ export function MyReportPage() {
                 type="button"
                 onClick={() => void saveOwnPlan()}
                 disabled={saving || !myPositionId}
-                className="rounded-sm bg-[var(--gold)] px-4 py-2 text-[16px] font-medium text-[color:var(--gold-btn-text)] disabled:opacity-60"
+                className="rounded-sm bg-[var(--gold)] px-4 py-2 text-[16px] font-medium text-[color:var(--gold-btn-text)] disabled:opacity-72"
               >
                 {saving ? t('plans.saving') : t('plans.save')}
               </button>

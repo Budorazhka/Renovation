@@ -2,228 +2,195 @@ import { useMemo, useState } from 'react'
 import { ExternalLink, Pin, Search } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { useNewsFeed } from '@/context/NewsFeedContext'
-import type { NewsArticle, NewsCategory } from '@/data/info-mock'
-import { useI18n } from "@/i18n";
+import type { NewsArticle, NewsCategory } from '@/services/newsApiV2'
+import { newsAuthor, newsEmoji } from '@/lib/news'
+import { useI18n } from '@/i18n'
 
-const C = {
-  gold: 'var(--gold)',
-  white: '#ffffff',
-  whiteMid: 'rgba(255,255,255,0.7)',
-  whiteLow: 'rgba(255,255,255,0.4)',
-  border: 'var(--green-border)',
-  card: 'var(--green-card)',
-}
-
-const CATEGORY_META: Record<NewsCategory, { label: string; color: string }> = {
-  company:    { label: 'Компания',      color: '#c9a84c' },
-  market:     { label: 'Рынок',         color: '#60a5fa' },
-  developer:  { label: 'Застройщики',   color: '#4ade80' },
-  regulation: { label: 'Законодательство', color: '#f87171' },
-}
+const MUTED = 'text-[color:var(--app-text-muted)]'
+const CATEGORIES: readonly NewsCategory[] = ['company', 'market', 'developer', 'regulation']
 
 type CategoryFilter = NewsCategory | 'all'
 
-const FILTER_TABS: { key: CategoryFilter; label: string }[] = [
-  { key: 'all',        label: 'Все' },
-  { key: 'company',    label: 'Компания' },
-  { key: 'market',     label: 'Рынок' },
-  { key: 'developer',  label: 'Застройщики' },
-  { key: 'regulation', label: 'Законодательство' },
-]
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-}
-
+/**
+ * Лента новостей: новости платформы BAZA (из админки) и своей компании
+ * (из «Настройки → Управление новостями»). Раньше — вшитые примеры.
+ */
 export function NewsPage() {
-    const { t } = useI18n();
-  const { allArticles } = useNewsFeed()
+  const { t, formatDate } = useI18n()
+  const { articles, status, reload } = useNewsFeed()
   const [filter, setFilter] = useState<CategoryFilter>('all')
   const [search, setSearch] = useState('')
-  const [expanded, setExpanded] = useState<string | null>(null)
   const [sort, setSort] = useState<'new' | 'old'>('new')
+  const [expanded, setExpanded] = useState<string | null>(null)
 
-  const articles = useMemo(
-    () =>
-      allArticles.filter((a) => {
-        const matchCat = filter === 'all' || a.category === filter
-        const q = search.trim().toLowerCase()
-        const matchQ = !q || a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q)
-        return matchCat && matchQ
-      }),
-    [allArticles, filter, search],
-  )
-
-  const sortedArticles = useMemo(() => {
-    const list = [...articles]
-    list.sort((x, y) =>
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const list = articles.filter(
+      (a) =>
+        (filter === 'all' || a.category === filter) &&
+        (!q || a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q)),
+    )
+    return [...list].sort((x, y) =>
       sort === 'new' ? y.publishedAt.localeCompare(x.publishedAt) : x.publishedAt.localeCompare(y.publishedAt),
     )
-    return list
-  }, [articles, sort])
+  }, [articles, filter, search, sort])
 
-  const pinned = sortedArticles.filter((a) => a.pinned)
-  const regular = sortedArticles.filter((a) => !a.pinned)
-
-  const kpi = useMemo(
-    () => ({
-      total: articles.length,
-      pinned: articles.filter((a) => a.pinned).length,
-      withLink: articles.filter((a) => !!a.linkUrl).length,
-      cats: new Set(articles.map((a) => a.category)).size,
-    }),
-    [articles],
+  const pinned = visible.filter((a) => a.pinned)
+  const regular = visible.filter((a) => !a.pinned)
+  const renderCard = (article: NewsArticle) => (
+    <ArticleCard
+      key={article.id}
+      article={article}
+      expanded={expanded === article.id}
+      onToggle={() => setExpanded(expanded === article.id ? null : article.id)}
+      categoryLabel={t(`news.categories.${article.category}`)}
+      author={newsAuthor(article, t('news.company'))}
+      date={formatDate(article.publishedAt, { day: 'numeric', month: 'long', year: 'numeric' })}
+      editedLabel={article.editedAt ? t('news.edited') : null}
+      linkLabel={article.linkLabel ?? t('news.openLink')}
+    />
   )
 
   return (
     <DashboardShell>
-      <div style={{ padding: '24px 28px 48px', maxWidth: 900 }}>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 20, fontWeight: 400, color: C.white, marginBottom: 4 }}>{t('info.newsPage.новости_и_обновления')}</div>
-          <div style={{ fontSize: 12, color: C.whiteLow }}>{t('info.newsPage.корпоративные_новост')}</div>
-        </div>
+      <div className="flex w-full max-w-[960px] flex-col gap-6 px-6 pb-12 pt-6 text-[color:var(--app-text)]">
+        <header>
+          <h1 className="text-[30px] font-normal leading-tight text-[color:var(--theme-accent-heading)]">{t('news.title')}</h1>
+          <p className={`mt-1 text-[17px] ${MUTED}`}>{t('news.subtitle')}</p>
+        </header>
 
-        <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.newsPage.в_выдаче')}</p>
-            <p className="text-xl font-normal text-[color:var(--workspace-text)]">{kpi.total}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.newsPage.закреплено')}</p>
-            <p className="text-xl font-normal text-[color:var(--gold)]">{kpi.pinned}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.newsPage.с_внешней_ссылкой')}</p>
-            <p className="text-xl font-normal text-blue-300">{kpi.withLink}</p>
-          </div>
-          <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <p className="text-[10px] uppercase text-[color:var(--app-text-subtle)]">{t('info.newsPage.категорий')}</p>
-            <p className="text-xl font-normal text-emerald-300">{kpi.cats}</p>
-          </div>
-        </div>
-
-        {/* Search + filter */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '0 12px', height: 34, flex: 1, minWidth: 200, maxWidth: 300 }}>
-            <Search size={12} color={C.whiteLow} />
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex min-w-[220px] max-w-[340px] flex-1 items-center gap-2 rounded-sm bg-[var(--workspace-row-bg)] px-3">
+            <Search className={`size-4 shrink-0 ${MUTED}`} aria-hidden />
             <input
               value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={t('info.newsPage.поиск_по_заголовку_и')}
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 12, color: C.whiteMid, fontFamily: 'inherit' }}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('news.search')}
+              aria-label={t('news.search')}
+              className="h-10 w-full bg-transparent text-[16px] text-[color:var(--app-text)] outline-none"
             />
-          </div>
+          </label>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as 'new' | 'old')}
-            className="h-[34px] rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-2 text-xs text-[color:var(--workspace-text)]"
+            aria-label={t('news.sortNew')}
+            className="h-10 rounded-sm bg-[var(--workspace-row-bg)] px-2 text-[16px] text-[color:var(--app-text)]"
           >
-            <option value="new">{t('info.newsPage.сначала_новые')}</option>
-            <option value="old">{t('info.newsPage.сначала_старые')}</option>
+            <option value="new">{t('news.sortNew')}</option>
+            <option value="old">{t('news.sortOld')}</option>
           </select>
-          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {FILTER_TABS.map(t => (
-              <button key={t.key} onClick={() => setFilter(t.key)} style={{
-                padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: filter === t.key ? 700 : 400,
-                background: filter === t.key ? 'rgba(201,168,76,0.1)' : 'transparent',
-                color: filter === t.key ? C.gold : C.whiteLow,
-                borderBottom: filter === t.key ? '2px solid var(--gold)' : '2px solid transparent',
-              }}>{t.label}</button>
+          <div className="flex flex-wrap gap-1">
+            {(['all', ...CATEGORIES] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilter(key)}
+                aria-pressed={filter === key}
+                className={`rounded-sm px-3 py-1.5 text-[16px] ${
+                  filter === key
+                    ? 'bg-[var(--gold)] font-medium text-[color:var(--gold-btn-text)]'
+                    : `${MUTED} hover:text-[color:var(--app-text)]`
+                }`}
+              >
+                {key === 'all' ? t('news.all') : t(`news.categories.${key}`)}
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Pinned */}
-        {pinned.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.gold, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <Pin size={10} /> {t('info.newsPage.закрепл_нные')}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {pinned.map(a => <ArticleCard key={a.id} article={a} expanded={expanded === a.id} onToggle={() => setExpanded(expanded === a.id ? null : a.id)} pinned />)}
-            </div>
+        {status === 'loading' ? <p className={`text-[17px] ${MUTED}`}>{t('common.loading')}</p> : null}
+        {status === 'error' ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-[17px] text-[#ffb4ab]">
+            {t('news.loadFailed')}
+            <button type="button" onClick={reload} className="rounded-sm bg-[var(--gold)] px-3 py-1.5 text-[16px] font-medium text-[color:var(--gold-btn-text)]">
+              {t('news.retry')}
+            </button>
           </div>
-        )}
+        ) : null}
 
-        {/* Regular */}
-        {regular.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {regular.map(a => <ArticleCard key={a.id} article={a} expanded={expanded === a.id} onToggle={() => setExpanded(expanded === a.id ? null : a.id)} />)}
-          </div>
-        )}
+        {pinned.length > 0 ? (
+          <section className="flex flex-col gap-2" aria-label={t('news.pinned')}>
+            <h2 className="flex items-center gap-2 text-[16px] font-medium text-[color:var(--gold)]">
+              <Pin className="size-4" aria-hidden /> {t('news.pinned')}
+            </h2>
+            {pinned.map(renderCard)}
+          </section>
+        ) : null}
 
-        {articles.length === 0 && (
-          <div style={{ padding: '48px 0', textAlign: 'center', color: C.whiteLow, fontSize: 13 }}>{t('info.newsPage.ничего_не_найдено')}</div>
-        )}
+        {regular.length > 0 ? <section className="flex flex-col gap-2">{regular.map(renderCard)}</section> : null}
+
+        {status === 'ready' && visible.length === 0 ? (
+          <p className={`py-12 text-center text-[17px] ${MUTED}`}>
+            {articles.length === 0 ? t('news.empty') : t('news.notFound')}
+          </p>
+        ) : null}
       </div>
     </DashboardShell>
   )
 }
 
-function ArticleCard({ article, expanded, onToggle, pinned }: {
+function ArticleCard({
+  article,
+  expanded,
+  onToggle,
+  categoryLabel,
+  author,
+  date,
+  editedLabel,
+  linkLabel,
+}: {
   article: NewsArticle
   expanded: boolean
   onToggle: () => void
-  pinned?: boolean
+  categoryLabel: string
+  author: string
+  date: string
+  editedLabel: string | null
+  linkLabel: string
 }) {
-  const meta = CATEGORY_META[article.category]
   return (
-    <div
-      onClick={onToggle}
-      style={{
-        background: pinned ? `${meta.color}06` : C.card,
-        border: `1px solid ${pinned ? `${meta.color}33` : C.border}`,
-        borderRadius: 10, padding: '14px 16px', cursor: 'pointer',
-        transition: 'border-color 0.15s',
-      }}
-      onMouseEnter={e => { if (!pinned) (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.12)' }}
-      onMouseLeave={e => { if (!pinned) (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--green-border)' }}
-    >
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ fontSize: 24, flexShrink: 0, lineHeight: 1, marginTop: 2 }}>{article.emoji}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 400, color: C.white }}>{article.title}</span>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 9, fontWeight: 400, letterSpacing: '0.07em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 20, background: `${meta.color}18`, border: `1px solid ${meta.color}44`, color: meta.color }}>
-              {meta.label}
-            </span>
-            <span style={{ fontSize: 10, color: C.whiteLow }}>{formatDate(article.publishedAt)}</span>
-            <span style={{ fontSize: 10, color: C.whiteLow }}>· {article.author}</span>
-          </div>
-          {expanded && (
-            <div style={{ marginTop: 12, fontSize: 13, color: C.whiteMid, lineHeight: 1.7, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-              {article.imageUrl ? (
-                <div style={{ marginBottom: 14, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <img src={article.imageUrl} alt="" style={{ display: 'block', width: '100%', maxHeight: 280, objectFit: 'cover' }} loading="lazy" />
-                </div>
-              ) : null}
-              <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{article.body}</p>
-              {article.linkUrl && (
-                <a
-                  href={article.linkUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={e => e.stopPropagation()}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    marginTop: 12,
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: C.gold,
-                    textDecoration: 'none',
-                  }}
-                >
-                  <ExternalLink size={14} />
-                  {article.linkLabel ?? 'Ссылка'}
-                </a>
-              )}
-            </div>
-          )}
+    <article className="rounded-md bg-[var(--hub-card-bg)] shadow-[inset_0_0_0_1px_rgba(201,168,76,0.18)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left"
+      >
+        <span className="mt-0.5 shrink-0 text-[22px] leading-none" aria-hidden>
+          {newsEmoji(article.category)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[18px] font-normal leading-snug text-[color:var(--app-text)]">{article.title}</span>
+          <span className={`mt-1 flex flex-wrap items-center gap-x-2 text-[16px] ${MUTED}`}>
+            <span className="text-[color:var(--gold)]">{categoryLabel}</span>
+            <span>{date}</span>
+            <span>· {author}</span>
+            {editedLabel ? <span>· {editedLabel}</span> : null}
+          </span>
+        </span>
+        {article.imageUrl && !expanded ? (
+          <img src={article.imageUrl} alt="" loading="lazy" className="size-16 shrink-0 rounded-sm object-cover" />
+        ) : null}
+      </button>
+      {expanded ? (
+        <div className="px-4 pb-4 pl-[52px]">
+          {article.imageUrl ? (
+            <img src={article.imageUrl} alt="" loading="lazy" className="mb-3 block max-h-[320px] w-full rounded-md object-cover" />
+          ) : null}
+          <p className="whitespace-pre-wrap text-[16px] leading-relaxed text-[color:var(--app-text)]">{article.body}</p>
+          {article.linkUrl ? (
+            <a
+              href={article.linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 text-[16px] text-[color:var(--gold)] hover:underline"
+            >
+              <ExternalLink className="size-4" aria-hidden />
+              {linkLabel}
+            </a>
+          ) : null}
         </div>
-      </div>
-    </div>
+      ) : null}
+    </article>
   )
 }

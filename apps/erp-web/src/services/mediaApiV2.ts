@@ -23,6 +23,7 @@ export type MediaPurpose =
   | 'lead_attachment'
   | 'note_attachment'
   | 'library_file'
+  | 'news_image'
 
 export class MediaUploadError extends Error {
   constructor(

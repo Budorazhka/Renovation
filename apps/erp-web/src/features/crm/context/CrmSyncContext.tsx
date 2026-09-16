@@ -9,7 +9,7 @@ export interface DashboardNotifPreview {
   body: string;
   time: string;
 }
-import type { Reminder, NewsArticle } from '@/data/info-mock';
+import type { Reminder } from '@/data/info-mock';
 import type { CalEvent } from '@/data/calendar-events-mock';
 import { calendarApiV2 } from '@/services/calendarApiV2';
 import { tasksApiV2 } from '@/services/tasksApiV2';
@@ -21,7 +21,6 @@ interface CrmSyncContextValue {
   tasks: Task[];
   notifications: DashboardNotifPreview[];
   reminders: Reminder[];
-  news: NewsArticle[];
   calendarEvents: CalEvent[];
   isLoading: boolean;
   refresh: () => Promise<void>;
@@ -30,9 +29,6 @@ interface CrmSyncContextValue {
 }
 
 const CrmSyncContext = createContext<CrmSyncContextValue | null>(null);
-
-// Новостей у платформы нет — источник был только на легаси api-crm.baza.sale.
-const NO_NEWS: NewsArticle[] = [];
 
 function todayLocalDate(): string {
   const now = new Date();
@@ -149,7 +145,6 @@ export function CrmSyncProvider({ children }: { children: React.ReactNode }) {
     tasks,
     notifications,
     reminders,
-    news: NO_NEWS,
     calendarEvents,
     isLoading,
     refresh: fetchData,

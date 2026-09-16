@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
-import { Camera, Check, Crown, KeyRound, X, Sparkles, User, Phone, MapPin, FileText, Link2, Shield } from 'lucide-react'
+import { Bell, Camera, Check, Crown, KeyRound, X, Sparkles, User, Phone, MapPin, FileText, Link2, Shield } from 'lucide-react'
+import { NotificationSettingsPanel } from '@/components/settings/NotificationSettingsPanel'
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { useAuth } from '@/context/AuthContext'
 import { ROLE_LABEL } from '@/lib/permissions'
@@ -479,6 +480,11 @@ export function AccountSettingsPage() {
               }}
             >
               <KeyRound size={16} style={{ color: GOLD }} /> {t('settings.accountSettingsPage.изменить_пароль')}</button>
+          </SectionCard>
+
+          {/* Уведомления */}
+          <SectionCard icon={<Bell size={17} />} title={t('notifications.title')}>
+            <NotificationSettingsPanel />
           </SectionCard>
         </div>
       </div>

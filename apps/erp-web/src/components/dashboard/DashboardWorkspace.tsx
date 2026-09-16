@@ -39,7 +39,10 @@ import { useLeads } from '@/context/LeadsContext'
 import { useDeals } from '@/context/DealsContext'
 import { cn } from '@/lib/utils'
 import { useCrmSync } from '@/features/crm/context/CrmSyncContext'
-import { type NewsArticle, type Reminder } from '@/data/info-mock'
+import { type Reminder } from '@/data/info-mock'
+import type { NewsArticle } from '@/services/newsApiV2'
+import { useNewsFeed } from '@/context/NewsFeedContext'
+import { newsAuthor, newsEmoji } from '@/lib/news'
 import { EMPTY_HOME_PROGRESS } from '@/lib/plan-progress'
 import { usePlanProgress } from '@/hooks/usePlanProgress'
 import { INITIAL_LEAD_MANAGERS } from '@/data/leads-mock'
@@ -345,12 +348,12 @@ export function DashboardWorkspace() {
   const { 
     tasks: crmTasks, 
     notifications: crmNotifications, 
-    reminders: crmReminders, 
-    news: crmNews, 
+    reminders: crmReminders,
     isLoading: isCrmLoading,
     markNotificationRead,
     archiveReminder: archiveReminderApi
   } = useCrmSync()
+  const { articles: crmNews } = useNewsFeed()
 
   /* ── состояние интерфейса ── */
   const todayLocal = new Date()
@@ -432,10 +435,8 @@ export function DashboardWorkspace() {
 
   const attentionTaskIds = useMemo(() => attentionTasks.map((t) => t.id), [attentionTasks])
 
-  const newsSorted = useMemo(
-    () => [...crmNews].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()),
-    [crmNews],
-  )
+  // Лента уже отсортирована: закреплённые сверху, внутри — новые первыми.
+  const newsSorted = crmNews
   const newsIdsOrdered = useMemo(() => newsSorted.map((a) => a.id), [newsSorted])
 
   const deskRemindersList = useMemo(
@@ -1229,27 +1230,16 @@ export function DashboardWorkspace() {
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedNews(a) }}
                   >
-                    {a.imageUrl ? (
-                      <span className="mt-0.5 size-12 shrink-0 overflow-hidden rounded-md border border-[color:var(--workspace-row-border)]">
-                        <img
-                          src={a.imageUrl}
-                          alt=""
-                          loading="lazy"
-                          className="size-full object-cover"
-                        />
+                    <span className="mt-0.5 shrink-0">
+                      <span className="flex size-3.5 items-center justify-center text-[12px] leading-none sm:text-[13px]">
+                        {newsEmoji(a.category)}
                       </span>
-                    ) : (
-                      <span className="mt-0.5 shrink-0">
-                        <span className="flex size-3.5 items-center justify-center text-[12px] leading-none sm:text-[13px]">
-                          {a.emoji}
-                        </span>
-                      </span>
-                    )}
+                    </span>
                     <div className={FEED_STACK_CLASS}>
                       <p className={FEED_TITLE_CLASS}>{a.title}</p>
                       <p className={FEED_BODY_CLASS}>{a.body}</p>
                       <p className={FEED_META_CLASS}>
-                        {new Date(a.publishedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · {a.author}
+                        {new Date(a.publishedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} · {newsAuthor(a, t('news.company'))}
                       </p>
                     </div>
                   </li>
@@ -1282,18 +1272,12 @@ export function DashboardWorkspace() {
             className="max-h-[min(90vh,40rem)] max-w-lg overflow-hidden rounded-xl border border-[color:var(--workspace-row-border)] bg-[var(--workspace-card-bg)] p-0 shadow-[0_24px_64px_rgba(0,0,0,0.55)] sm:max-w-2xl"
           >
             {selectedNews.imageUrl ? (
-              <div className="max-h-48 w-full overflow-hidden border-b border-[color:var(--workspace-row-border)]">
-                <img
-                  src={selectedNews.imageUrl}
-                  alt=""
-                  className="h-48 w-full object-cover"
-                />
+              <div className="max-h-48 w-full overflow-hidden">
+                <img src={selectedNews.imageUrl} alt="" className="h-48 w-full object-cover" />
               </div>
             ) : null}
             <div className="flex items-start gap-3 border-b border-[color:var(--workspace-row-border)] px-5 py-4 pr-14">
-              {!selectedNews.imageUrl ? (
-                <span className="mt-0.5 text-2xl leading-none">{selectedNews.emoji}</span>
-              ) : null}
+              <span className="mt-0.5 text-2xl leading-none">{newsEmoji(selectedNews.category)}</span>
               <div className="min-w-0 flex-1">
                 <DialogHeader>
                   <DialogTitle className="text-[15px] font-normal leading-snug tracking-tight text-[color:var(--workspace-widget-title)] sm:text-base">
@@ -1302,7 +1286,7 @@ export function DashboardWorkspace() {
                 </DialogHeader>
                 <p className="mt-1 text-[11px] font-normal text-[color:var(--workspace-text-muted)]">
                   {new Date(selectedNews.publishedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  {' · '}{selectedNews.author}
+                  {' · '}{newsAuthor(selectedNews, t('news.company'))}
                 </p>
               </div>
             </div>

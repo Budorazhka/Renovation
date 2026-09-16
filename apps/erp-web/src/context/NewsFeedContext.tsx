@@ -1,126 +1,115 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useAuth } from '@/context/AuthContext'
-import { NEWS_MOCK, type NewsArticle } from '@/data/info-mock'
+import {
+  newsApiV2,
+  type CreateNewsPayload,
+  type NewsArticle,
+  type NewsChannels,
+  type NewsContentPayload,
+} from '@/services/newsApiV2'
+import { normalizeNewsUrl, sortNewsFeed } from '@/lib/news'
 
-const STORAGE_KEY = 'agency-custom-news-v1'
-
-function loadStored(): NewsArticle[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (x): x is NewsArticle =>
-        x != null &&
-        typeof x === 'object' &&
-        typeof (x as NewsArticle).id === 'string' &&
-        typeof (x as NewsArticle).title === 'string',
-    )
-  } catch {
-    return []
-  }
-}
-
-function saveStored(articles: NewsArticle[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(articles))
-  } catch {
-    /* ignore quota */
-  }
-}
-
-function normalizeUrl(url: string): string | undefined {
-  const t = url.trim()
-  if (!t) return undefined
-  if (/^https?:\/\//i.test(t)) return t
-  if (t.startsWith('//')) return `https:${t}`
-  return `https://${t}`
-}
-
-export type AddNewsInput = {
-  title: string
-  body: string
-  imageUrl?: string
-  linkUrl?: string
-  linkLabel?: string
-}
+export type AddNewsInput = CreateNewsPayload
 
 type NewsFeedContextValue = {
-  customArticles: NewsArticle[]
-  allArticles: NewsArticle[]
-  addArticle: (input: AddNewsInput) => void
-  removeArticle: (id: string) => void
+  /** Лента: сначала закреплённые, внутри — новые первыми. */
+  articles: NewsArticle[]
+  /** Новости своей компании — их можно править и удалять в настройках. */
+  organizationArticles: NewsArticle[]
+  /** Может ли текущий сотрудник публиковать новости компании. */
+  canPublish: boolean
+  /** Каналы рассылки, настроенные на сервере. */
+  channels: NewsChannels
+  status: 'loading' | 'ready' | 'error'
+  reload: () => void
+  publish: (input: AddNewsInput) => Promise<NewsArticle>
+  update: (id: string, input: NewsContentPayload, expectedVersion: number) => Promise<NewsArticle>
+  remove: (id: string) => Promise<void>
 }
+
+const NO_CHANNELS: NewsChannels = { email: false, telegram: false }
 
 const NewsFeedContext = createContext<NewsFeedContextValue | null>(null)
 
+type Loaded = { items: NewsArticle[]; canPublish: boolean; channels: NewsChannels } | { failed: true }
+
+/** Обрезка полей и ссылка с протоколом — API принимает только http(s) с протоколом. */
+function toContentPayload(input: NewsContentPayload): NewsContentPayload {
+  const linkUrl = input.linkUrl ? normalizeNewsUrl(input.linkUrl) : undefined
+  return {
+    title: input.title.trim(),
+    body: input.body.trim(),
+    category: input.category,
+    pinned: input.pinned ?? false,
+    ...(linkUrl ? { linkUrl } : {}),
+    ...(linkUrl && input.linkLabel?.trim() ? { linkLabel: input.linkLabel.trim() } : {}),
+    ...(input.imageAssetId ? { imageAssetId: input.imageAssetId } : {}),
+  }
+}
+
+/**
+ * Лента новостей рабочего стола и страницы «Новости» — с сервера (/news):
+ * новости платформы BAZA и своей компании. Раньше — вшитые примеры и
+ * localStorage автора, новость больше никто не видел.
+ */
 export function NewsFeedProvider({ children }: { children: ReactNode }) {
-  const { currentUser } = useAuth()
-  const [customArticles, setCustomArticles] = useState<NewsArticle[]>(() =>
-    typeof window !== 'undefined' ? loadStored() : [],
-  )
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
-    setCustomArticles(loadStored())
+    let cancelled = false
+    newsApiV2
+      .list()
+      .then((feed) => {
+        if (!cancelled) setLoaded({ items: feed.items, canPublish: feed.canPublish, channels: feed.channels ?? NO_CHANNELS })
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded({ failed: true })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [reloadKey])
+
+  const reload = useCallback(() => setReloadKey((key) => key + 1), [])
+
+  const publish = useCallback(async (input: AddNewsInput) => {
+    const created = await newsApiV2.create({
+      ...toContentPayload(input),
+      sendEmail: input.sendEmail ?? false,
+      sendTelegram: input.sendTelegram ?? false,
+    })
+    setLoaded((prev) => (prev && !('failed' in prev) ? { ...prev, items: [created, ...prev.items] } : prev))
+    return created
   }, [])
 
-  useEffect(() => {
-    saveStored(customArticles)
-  }, [customArticles])
-
-  const addArticle = useCallback(
-    (input: AddNewsInput) => {
-      const title = input.title.trim()
-      const body = input.body.trim()
-      if (!title || !body) return
-
-      const linkUrl = input.linkUrl?.trim() ? normalizeUrl(input.linkUrl) : undefined
-      const linkLabel = input.linkLabel?.trim() || (linkUrl ? 'Подробнее' : undefined)
-      const imageUrl = input.imageUrl?.trim() ? normalizeUrl(input.imageUrl) : undefined
-
-      const article: NewsArticle = {
-        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        title,
-        body,
-        category: 'company',
-        author: currentUser?.name ?? 'Агентство',
-        publishedAt: new Date().toISOString().split('T')[0],
-        emoji: '📢',
-        pinned: false,
-        imageUrl,
-        linkUrl,
-        linkLabel,
-      }
-
-      setCustomArticles((prev) => [article, ...prev])
-    },
-    [currentUser?.name],
-  )
-
-  const removeArticle = useCallback((id: string) => {
-    if (!id.startsWith('custom-')) return
-    setCustomArticles((prev) => prev.filter((a) => a.id !== id))
-  }, [])
-
-  const allArticles = useMemo(() => {
-    const byId = new Map<string, NewsArticle>()
-    for (const a of NEWS_MOCK) byId.set(a.id, a)
-    for (const a of customArticles) byId.set(a.id, a)
-    return [...byId.values()].sort(
-      (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+  const update = useCallback(async (id: string, input: NewsContentPayload, expectedVersion: number) => {
+    const updated = await newsApiV2.update(id, toContentPayload(input), expectedVersion)
+    setLoaded((prev) =>
+      prev && !('failed' in prev) ? { ...prev, items: prev.items.map((a) => (a.id === id ? updated : a)) } : prev,
     )
-  }, [customArticles])
+    return updated
+  }, [])
 
-  const value = useMemo(
-    () => ({
-      customArticles,
-      allArticles,
-      addArticle,
-      removeArticle,
-    }),
-    [customArticles, allArticles, addArticle, removeArticle],
-  )
+  const remove = useCallback(async (id: string) => {
+    await newsApiV2.remove(id)
+    setLoaded((prev) => (prev && !('failed' in prev) ? { ...prev, items: prev.items.filter((a) => a.id !== id) } : prev))
+  }, [])
+
+  const value = useMemo<NewsFeedContextValue>(() => {
+    const ready = loaded && !('failed' in loaded) ? loaded : null
+    const articles = sortNewsFeed(ready?.items ?? [])
+    return {
+      articles,
+      organizationArticles: articles.filter((a) => a.source === 'organization'),
+      canPublish: ready?.canPublish ?? false,
+      channels: ready?.channels ?? NO_CHANNELS,
+      status: loaded === null ? 'loading' : ready ? 'ready' : 'error',
+      reload,
+      publish,
+      update,
+      remove,
+    }
+  }, [loaded, reload, publish, update, remove])
 
   return <NewsFeedContext.Provider value={value}>{children}</NewsFeedContext.Provider>
 }
