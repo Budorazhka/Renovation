@@ -9,6 +9,7 @@ import type {
   AdminDuplicateCandidateList,
   AdminDuplicateCandidateListQuery,
   AdminMe,
+  AdminNewsList,
   AdminOrganizationDetail,
   AdminOrganizationList,
   AdminOrganizationListQuery,
@@ -17,9 +18,12 @@ import type {
   AdminRealtorReviewList,
   AdminRealtorReviewListQuery,
   ConfirmDuplicateResult,
+  CreateNewsParams,
   DeactivateReactivateResult,
   FreezeOrganizationResult,
   ModerateRealtorReviewResult,
+  NewsArticle,
+  NewsContentParams,
   OrganizationSubscription,
   PermissionGrant,
   PermissionScope,
@@ -317,8 +321,11 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
       organizationId: string,
       params: ActivateSubscriptionParams,
     ): Promise<OrganizationSubscription> {
+      // Сервер требует Idempotency-Key (повтор продлил бы подписку дважды) —
+      // без заголовка активация отвечала 400 IDEMPOTENCY_KEY_REQUIRED.
       return request(`/admin/organizations/${encodeURIComponent(organizationId)}/billing/activate`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify(params),
       })
     },
@@ -328,6 +335,53 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
     // и расходился бы с ним при следующем изменении каталога.
     async listBillingPlans(): Promise<SubscriptionPlan[]> {
       return request('/admin/billing/plans')
+    },
+
+    async listNews(): Promise<AdminNewsList> {
+      return request('/admin/news')
+    },
+
+    async createNews(params: CreateNewsParams): Promise<NewsArticle> {
+      return request('/admin/news', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(params),
+      })
+    },
+
+    async updateNews(newsId: string, params: NewsContentParams, expectedVersion: number): Promise<NewsArticle> {
+      return request(`/admin/news/${encodeURIComponent(newsId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...params, expectedVersion }),
+      })
+    },
+
+    async deleteNews(newsId: string): Promise<void> {
+      return request(`/admin/news/${encodeURIComponent(newsId)}`, { method: 'DELETE' })
+    },
+
+    /**
+     * Картинка к новости платформы (ADR-008): intent → PUT по presigned URL →
+     * confirm. Возвращает assetId подтверждённого изображения.
+     */
+    async uploadNewsImage(file: File): Promise<{ assetId: string }> {
+      const intent = await request<{ assetId: string; uploadUrl: string }>('/admin/news/images/upload-intent', {
+        method: 'POST',
+        body: JSON.stringify({ declaredMimeType: file.type, sizeBytes: file.size }),
+      })
+      // Прямо в хранилище, не через request(): адрес другого домена, cookie туда не нужны.
+      const put = await fetcher(intent.uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } })
+      if (!put.ok) {
+        throw new AdminApiError(`Хранилище отклонило файл (${put.status})`, put.status, 'UPLOAD_FAILED')
+      }
+      const confirmed = await request<{ status: 'verified' | 'rejected' }>(
+        `/admin/news/images/${encodeURIComponent(intent.assetId)}/confirm`,
+        { method: 'POST' },
+      )
+      if (confirmed.status !== 'verified') {
+        throw new AdminApiError('Файл не прошёл проверку: нужна картинка JPG, PNG или WebP', 400, 'UPLOAD_REJECTED')
+      }
+      return { assetId: intent.assetId }
     },
   }
 }

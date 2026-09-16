@@ -50,6 +50,18 @@ describe('createAdminApi', () => {
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ reason: 'test reason' })
   })
 
+  it('активация тарифа и публикация новости отправляют Idempotency-Key — без него сервер отвечает 400', async () => {
+    const fetcher = vi.fn(async () => jsonResponse({}))
+    const api = createAdminApi({ baseUrl: 'https://api.example.test/api/v1', fetcher })
+
+    await api.activateSubscription('org1', { planCode: 'pro', reason: 'оплата по счёту 15' })
+    await api.createNews({ title: 'T', body: 'B', category: 'market' })
+
+    for (const [, init] of fetcher.mock.calls as unknown as Array<[string, RequestInit]>) {
+      expect((init.headers as Record<string, string>)['Idempotency-Key']).toMatch(/\S{8,}/)
+    }
+  })
+
   it('non-2xx response is parsed into AdminApiError carrying the server error code, not swallowed as generic', async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({ error: { code: 'ADMIN_SCOPE_INSUFFICIENT', message: 'Недостаточно прав', requestId: 'req-1' } }, 403),

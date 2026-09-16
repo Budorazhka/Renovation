@@ -10,6 +10,7 @@ import { RealtorReviewsPage } from './pages/RealtorReviewsPage'
 import { AccountsPage } from './pages/AccountsPage'
 import { AuditPage } from './pages/AuditPage'
 import { OrganizationsPage } from './pages/OrganizationsPage'
+import { NewsPage } from './pages/NewsPage'
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { state, logout } = useAdminAuth()
@@ -40,6 +41,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <NavLink to="/complaints">Жалобы</NavLink>
             <NavLink to="/duplicate-candidates">Дубликаты</NavLink>
             <NavLink to="/realtor-reviews">Отзывы</NavLink>
+            <NavLink to="/news">Новости</NavLink>
             <NavLink to="/audit">Журнал аудита</NavLink>
             {isSuperAdmin ? <NavLink to="/accounts">Аккаунты</NavLink> : null}
             <span className="session-role">{isSuperAdmin ? 'super_admin' : 'admin'}</span>
@@ -96,6 +98,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <RealtorReviewsPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/news"
+          element={
+            <RequireAdmin>
+              <NewsPage />
             </RequireAdmin>
           }
         />

@@ -356,3 +356,62 @@ export interface ActivateSubscriptionParams {
   currency?: string
   reason: string
 }
+
+export type NewsCategory = 'company' | 'market' | 'developer' | 'regulation'
+
+export interface DeliveryCounts {
+  pending: number
+  sent: number
+  failed: number
+  skipped: number
+}
+
+export interface NewsDeliveryStats {
+  email: DeliveryCounts
+  telegram: DeliveryCounts
+}
+
+/** Какие каналы рассылки настроены на сервере (SMTP, бот уведомлений). */
+export interface NewsChannels {
+  email: boolean
+  telegram: boolean
+}
+
+/** Новость ленты ERP (GET/POST /admin/news — только новости платформы, source: platform). */
+export interface NewsArticle {
+  id: string
+  source: 'platform' | 'organization'
+  title: string
+  body: string
+  category: NewsCategory
+  pinned: boolean
+  linkUrl: string | null
+  linkLabel: string | null
+  imageAssetId: string | null
+  imageUrl: string | null
+  authorName: string | null
+  publishedAt: string
+  editedAt: string | null
+  version: number
+  delivery: NewsDeliveryStats | null
+}
+
+export interface AdminNewsList {
+  items: NewsArticle[]
+  channels: NewsChannels
+}
+
+export interface NewsContentParams {
+  title: string
+  body: string
+  category: NewsCategory
+  pinned?: boolean
+  linkUrl?: string
+  linkLabel?: string
+  imageAssetId?: string
+}
+
+export interface CreateNewsParams extends NewsContentParams {
+  sendEmail?: boolean
+  sendTelegram?: boolean
+}
