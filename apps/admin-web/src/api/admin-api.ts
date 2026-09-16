@@ -34,6 +34,18 @@ import type {
   UnpublishResult,
   VerifyMlsResult,
 } from '../types/admin'
+import type {
+  AccrualOutcome,
+  AdminCommissionDeal,
+  AdminReferralNetwork,
+  AdminReferralPersonLookup,
+  CuratorAccrualsResult,
+  CuratorPayout,
+  MembershipHistoryItem,
+  MoneyAmount,
+  ReferralRequest,
+  ReferralRequestStatus,
+} from '../types/referral'
 
 type Fetcher = typeof fetch
 
@@ -382,6 +394,102 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
         throw new AdminApiError('Файл не прошёл проверку: нужна картинка JPG, PNG или WebP', 400, 'UPLOAD_REJECTED')
       }
       return { assetId: intent.assetId }
+    },
+
+    // ─── Реферальная сеть BAZA ─────────────────────────────────────────────
+
+    async getReferralNetwork(): Promise<AdminReferralNetwork> {
+      return request('/admin/referral-network')
+    },
+
+    async findReferralPerson(login: string): Promise<AdminReferralPersonLookup> {
+      return request(`/admin/referral-network/people?login=${encodeURIComponent(login.trim())}`)
+    },
+
+    async getReferralHistory(identityId: string): Promise<{ items: MembershipHistoryItem[] }> {
+      return request(`/admin/referral-network/people/${encodeURIComponent(identityId)}/history`)
+    },
+
+    async appointCurator(identityId: string, reason: string): Promise<AdminReferralNetwork> {
+      return request('/admin/referral-network/curators', { method: 'POST', body: JSON.stringify({ identityId, reason }) })
+    },
+
+    async retireCurator(identityId: string, reason: string): Promise<AdminReferralNetwork> {
+      return request(`/admin/referral-network/curators/${encodeURIComponent(identityId)}/retire`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+    },
+
+    async assignReferralMember(memberIdentityId: string, curatorIdentityId: string, reason: string): Promise<AdminReferralNetwork> {
+      return request('/admin/referral-network/members', {
+        method: 'POST',
+        body: JSON.stringify({ memberIdentityId, curatorIdentityId, reason }),
+      })
+    },
+
+    async removeReferralMember(identityId: string, reason: string): Promise<AdminReferralNetwork> {
+      return request(`/admin/referral-network/members/${encodeURIComponent(identityId)}/remove`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+    },
+
+    async listReferralRequests(status?: ReferralRequestStatus): Promise<{ items: ReferralRequest[] }> {
+      return request(`/admin/referral-network/requests${status ? `?status=${status}` : ''}`)
+    },
+
+    async decideReferralRequest(requestId: string, decision: 'approved' | 'rejected', comment?: string): Promise<ReferralRequest> {
+      return request(`/admin/referral-network/requests/${encodeURIComponent(requestId)}/decide`, {
+        method: 'POST',
+        body: JSON.stringify(comment ? { decision, comment } : { decision }),
+      })
+    },
+
+    // ─── Комиссии и выплаты ────────────────────────────────────────────────
+
+    async listCommissions(received: boolean): Promise<{ items: AdminCommissionDeal[] }> {
+      return request(`/admin/commissions?received=${received ? 'true' : 'false'}`)
+    },
+
+    async markCommissionReceived(
+      dealId: string,
+      params: { expectedVersion: number; amount: MoneyAmount; receivedAt?: string },
+    ): Promise<{ deal: AdminCommissionDeal; accrual: AccrualOutcome }> {
+      return request(`/admin/commissions/${encodeURIComponent(dealId)}/received`, {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedVersion: params.expectedVersion,
+          amountMinorUnits: params.amount.amountMinorUnits,
+          currency: params.amount.currency,
+          ...(params.receivedAt ? { receivedAt: params.receivedAt } : {}),
+        }),
+      })
+    },
+
+    async cancelCommissionReceived(
+      dealId: string,
+      params: { expectedVersion: number; reason: string },
+    ): Promise<{ deal: AdminCommissionDeal; accrualReversed: boolean }> {
+      return request(`/admin/commissions/${encodeURIComponent(dealId)}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify(params),
+      })
+    },
+
+    async listCuratorPayouts(): Promise<{ items: CuratorPayout[] }> {
+      return request('/admin/curator-payouts')
+    },
+
+    async listCuratorAccruals(identityId: string): Promise<CuratorAccrualsResult> {
+      return request(`/admin/curator-payouts/${encodeURIComponent(identityId)}/accruals`)
+    },
+
+    async markCuratorPaid(identityId: string, accrualIds: string[]): Promise<CuratorAccrualsResult & { paid: number }> {
+      return request(`/admin/curator-payouts/${encodeURIComponent(identityId)}/pay`, {
+        method: 'POST',
+        body: JSON.stringify({ accrualIds }),
+      })
     },
   }
 }

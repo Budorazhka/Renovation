@@ -332,6 +332,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'client_registration', action: 'create', scope: 'organization' },
     { resource: 'client_registration', action: 'update', scope: 'organization' },
     { resource: 'client_registration', action: 'decide', scope: 'organization' },
+    { resource: 'referral_network', action: 'read', scope: 'organization' },
   ],
   director: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -428,6 +429,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'client_registration', action: 'create', scope: 'organization' },
     { resource: 'client_registration', action: 'update', scope: 'organization' },
     { resource: 'client_registration', action: 'decide', scope: 'organization' },
+    { resource: 'referral_network', action: 'read', scope: 'organization' },
   ],
   rop: [
     { resource: 'position', action: 'read', scope: 'organization' },

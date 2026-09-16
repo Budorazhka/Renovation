@@ -8021,6 +8021,41 @@ export const tr = {
           cancel: "Geri çek"
       }
   },
+  mlm: {
+      title: "BAZA referans ağı",
+      subtitle: "Küratör bir emlakçı ekibi kurar ve BAZA’dan ekibinin birincil piyasa komisyonunun %{rate}’ini alır. Ekip {min} kişiden başlar, ideal olarak {max} kişiye kadar.",
+      subtitleShort: "Küratörler, ekipleri ve BAZA ödemeleri.",
+      loadFailed: "Referans ağı yüklenemedi",
+      companyLoadFailed: "Şirket ağı yüklenemedi",
+      myTeam: "Ekibim",
+      myCurator: "Küratörüm",
+      teamCount: "{count} / {max}",
+      earned: "Tahakkuk",
+      paid: "Ödendi",
+      due: "Ödenecek",
+      inviteCode: "Davet kodu: {code}. Emlakçılar için bağlantı pazar yeri hesabınızda.",
+      memberSince: "{date} tarihinden beri ekipte",
+      onReview: "Küratörle bağlantınız BAZA incelemesinde: siz ve küratör farklı şirketlerde çalışıyorsunuz.",
+      onReviewShort: "incelemede",
+      onReviewAria: "{name}, bağlantı incelemede",
+      notInNetwork: "Henüz referans ağında değilsiniz. Pazar yeri hesabınızdan bir küratörün ekibine katılabilir ya da küratör olmak için başvurabilirsiniz.",
+      companyTitle: "Şirket küratörleri",
+      companyEmpty: "Şirkette henüz küratör yok. Küratör yalnızca BAZA tarafından doğrulanan emlakçı olabilir.",
+      treeAria: "{name} küratörünün ekibi: {count} üye",
+      treeCurator: "Küratör · ekipte {count}",
+      viaLink: "davet bağlantısıyla",
+      viaAdmin: "BAZA ekledi",
+      showTeam: "Ekibi göster",
+      hideTeam: "Ekibi gizle",
+      dealCommissionReceived: "BAZA’nın aldığı komisyon",
+      dealCommissionNotYet: "henüz alınmadı",
+      dealCuratorAccrual: "Küratöre tahakkuk %{rate}",
+      teamStatus: {
+          recruiting: "Ekip toplanıyor",
+          healthy: "Ekip yolunda",
+          time_to_split: "Yeni ekip kurma zamanı"
+      }
+  },
   settings: {
       password: {
           saving: "Kaydediliyor…",

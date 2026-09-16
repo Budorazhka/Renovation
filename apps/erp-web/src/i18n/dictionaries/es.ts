@@ -8021,6 +8021,41 @@ export const es = {
           cancel: "Retirar"
       }
   },
+  mlm: {
+      title: "Red de referidos BAZA",
+      subtitle: "Un curador forma un equipo de agentes y recibe de BAZA el {rate}% de su comisión en el mercado primario. El equipo empieza con {min} personas, idealmente hasta {max}.",
+      subtitleShort: "Curadores, sus equipos y los importes de BAZA.",
+      loadFailed: "No se pudo cargar la red de referidos",
+      companyLoadFailed: "No se pudo cargar la red de la empresa",
+      myTeam: "Mi equipo",
+      myCurator: "Mi curador",
+      teamCount: "{count} de {max}",
+      earned: "Acumulado",
+      paid: "Pagado",
+      due: "Pendiente",
+      inviteCode: "Código de invitación: {code}. El enlace para agentes está en su cuenta del marketplace.",
+      memberSince: "en el equipo desde {date}",
+      onReview: "Su vínculo con el curador está en revisión de BAZA: usted y el curador trabajan en empresas distintas.",
+      onReviewShort: "en revisión",
+      onReviewAria: "{name}, vínculo en revisión",
+      notInNetwork: "Aún no está en la red de referidos. Puede unirse al equipo de un curador o solicitar ser curador en su cuenta del marketplace.",
+      companyTitle: "Curadores de la empresa",
+      companyEmpty: "La empresa aún no tiene curadores. Solo un agente verificado por BAZA puede ser curador.",
+      treeAria: "Equipo del curador {name}: {count} miembros",
+      treeCurator: "Curador · {count} en el equipo",
+      viaLink: "por enlace",
+      viaAdmin: "añadido por BAZA",
+      showTeam: "Mostrar equipo",
+      hideTeam: "Ocultar equipo",
+      dealCommissionReceived: "Comisión recibida por BAZA",
+      dealCommissionNotYet: "aún no recibida",
+      dealCuratorAccrual: "Acumulado al curador {rate}%",
+      teamStatus: {
+          recruiting: "Reclutando",
+          healthy: "Equipo en orden",
+          time_to_split: "Hora de formar otro equipo"
+      }
+  },
   settings: {
       password: {
           saving: "Guardando…",

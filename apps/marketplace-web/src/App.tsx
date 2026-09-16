@@ -41,6 +41,8 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { AuthPage } from './pages/AuthPage'
 import { EditListingPage } from './pages/EditListingPage'
 import { RequireAuth } from './features/auth/components/RequireAuth'
+import { MyTeamPage } from './pages/MyTeamPage'
+import { JoinTeamPage } from './pages/JoinTeamPage'
 import './styles/header-footer.css'
 import './styles/cards.css'
 import './styles/listing-card.css'
@@ -49,6 +51,7 @@ import './styles/development-detail.css'
 import './styles/listing-detail.css'
 import './styles/realtors.css'
 import './styles/my-properties.css'
+import './styles/referral-team.css'
 import './styles/favorites-selections.css'
 import './styles/requests.css'
 import './styles/home.css'
@@ -817,6 +820,8 @@ export default function App() {
           <Route path="/realtors/:id" element={<Shell><RealtorProfilePage /></Shell>} />
           <Route path="/favorites" element={<Shell><FavoritesPage /></Shell>} />
           <Route path="/account/favorites" element={<Shell><RequireAuth><FavoritesPage /></RequireAuth></Shell>} />
+          <Route path="/account/team" element={<Shell><RequireAuth><MyTeamPage /></RequireAuth></Shell>} />
+          <Route path="/join/:code" element={<Shell><JoinTeamPage /></Shell>} />
           <Route path="/selections" element={<Shell><SelectionsPage /></Shell>} />
           <Route path="/selections/:slug" element={<Shell><SelectionDetailPage /></Shell>} />
           <Route path="/my-selection/:token" element={<Shell><MySelectionDetailPage /></Shell>} />

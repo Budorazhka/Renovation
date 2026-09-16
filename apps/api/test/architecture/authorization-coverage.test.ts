@@ -47,6 +47,9 @@ const INTENTIONALLY_UNAUTHORIZED: Record<string, string> = {
   'PUT /me/notifications': 'меняет только свои настройки уведомлений (identity из TenantContext); под TenantGuard',
   'POST /me/notifications/telegram-link': 'ссылка привязки своего Telegram к боту уведомлений: код выдаётся на identity из TenantContext',
   'DELETE /me/notifications/telegram': 'отвязывает свой Telegram (identity из TenantContext), чужую привязку снять нельзя',
+  'GET /referral-network/me': 'своя команда или свой куратор в реферальной сети: identity только из TenantContext, чужую сеть не отдаёт; под TenantGuard',
+  'GET /public/referral-invites/:code':
+    'страница ссылки-приглашения куратора до регистрации — посетитель по определению без аккаунта; отдаётся только имя куратора, перебор кодов ограничен IpRateLimitGuard',
 
   'GET /public/developments': 'публичный каталог — это его назначение',
   'GET /public/developments/:slug': 'публичная карточка ЖК',

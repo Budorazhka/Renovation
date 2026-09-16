@@ -32,6 +32,12 @@ export class PositionRepository {
     return this.model.findById(id).exec();
   }
 
+  /** Пакетное чтение по id, взятым из активных назначений людей (OrganizationsService.getPeopleSummaries). */
+  async findByIds(ids: Types.ObjectId[]): Promise<PositionDocument[]> {
+    if (ids.length === 0) return [];
+    return this.model.find({ _id: { $in: ids } }).exec();
+  }
+
   /**
    * Tenant-scoped lookup (ADR-002 требование 1) — NOT_FOUND единый для
    * "не существует" и "чужая организация", не раскрывает cross-tenant

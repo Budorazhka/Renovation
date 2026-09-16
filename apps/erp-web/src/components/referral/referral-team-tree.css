@@ -1,0 +1,268 @@
+/* Дерево команды куратора в палитре ERP (DESIGN.md): Montserrat, текст от
+ * 16px, золото — куратор и активная связь, мята — вторичные данные, #ffb4ab
+ * пунктиром — связь под вопросом. Разделителей нет: карточки отделены фоном
+ * и золотым внутренним свечением. Раскладка — «вешалка»: две колонки слева,
+ * стержень, две справа; на узком экране по одной
+ * (docs/research/2026-09-16-referral-tree-ux.md).
+ */
+
+.referral-tree {
+  --tree-card-h: 76px;
+  --tree-gap: 12px;
+  --tree-stem: 32px;
+  --tree-drop: 28px;
+  --tree-line: #3f6555;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.referral-tree__curator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  width: min(460px, 100%);
+  padding: 14px 16px;
+  border-radius: 6px;
+  background: #072821;
+  box-shadow: inset 0 0 0 1px rgba(201, 168, 76, 0.35), 0 12px 28px rgba(0, 17, 13, 0.45);
+}
+
+.referral-tree__hanger {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) var(--tree-stem) repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows-wide), var(--tree-card-h));
+  gap: var(--tree-gap);
+  width: 100%;
+  margin: var(--tree-drop) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.referral-tree__stem {
+  position: relative;
+  grid-column: 3;
+  grid-row: 1 / -1;
+}
+
+.referral-tree__stem::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--tree-drop));
+  bottom: calc(var(--tree-card-h) / 2 - 1px);
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--tree-line);
+}
+
+.referral-tree__member {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  grid-row: var(--row-wide);
+  grid-column: var(--col-wide);
+  padding: 0 14px;
+  border-radius: 6px;
+  background: #163824;
+  box-shadow: inset 0 0 0 1px rgba(201, 168, 76, 0.18);
+  outline: none;
+  transition: box-shadow 160ms ease-out;
+}
+
+.referral-tree__member::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: var(--tree-line);
+  transition: background-color 160ms ease-out;
+}
+
+.referral-tree__member[data-side-wide='left']::before {
+  left: 100%;
+}
+
+.referral-tree__member[data-side-wide='right']::before {
+  right: 100%;
+}
+
+.referral-tree__member[data-depth-wide='0']::before {
+  width: calc(var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+}
+
+.referral-tree__member[data-depth-wide='1']::before {
+  width: calc(100% + 2 * var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+}
+
+.referral-tree__member:hover,
+.referral-tree__member:focus-visible {
+  box-shadow: inset 0 0 0 1px #e6c364;
+}
+
+.referral-tree__member:hover::before,
+.referral-tree__member:focus-visible::before {
+  background: #e6c364;
+}
+
+.referral-tree__member.is-review {
+  background: #112d1c;
+  box-shadow: none;
+  outline: 1px dashed #ffb4ab;
+  outline-offset: -1px;
+}
+
+.referral-tree__member.is-review .referral-tree__sub {
+  color: #ffb4ab;
+}
+
+.referral-tree__avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #b4ccc3;
+  color: #072821;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.referral-tree__avatar--curator {
+  width: 48px;
+  height: 48px;
+  background: #e6c364;
+  font-size: 17px;
+}
+
+.referral-tree__text {
+  display: grid;
+  flex: 1 1 180px;
+  min-width: 0;
+  gap: 2px;
+}
+
+.referral-tree__name {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.referral-tree__sub {
+  overflow: hidden;
+  color: #d0e8df;
+  font-size: 16px;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.referral-tree__curator .referral-tree__name {
+  font-size: 19px;
+}
+
+.referral-tree__toggle {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #e6c364;
+  border-radius: 4px;
+  background: transparent;
+  color: #e6c364;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.referral-tree__toggle:hover,
+.referral-tree__toggle[aria-expanded='true'] {
+  background: #e6c364;
+  color: #072821;
+}
+
+.referral-tree__toggle:focus-visible {
+  outline: 2px solid #e2c97e;
+  outline-offset: 2px;
+}
+
+.team-status-erp--healthy {
+  color: #e6c364;
+}
+
+.team-status-erp--recruiting {
+  color: #b4ccc3;
+}
+
+.team-status-erp--time_to_split {
+  color: #ffb4ab;
+}
+
+@media (max-width: 640px) {
+  .referral-tree {
+    --tree-gap: 8px;
+    --tree-stem: 24px;
+  }
+
+  .referral-tree__hanger {
+    grid-template-columns: minmax(0, 1fr) var(--tree-stem) minmax(0, 1fr);
+    grid-template-rows: repeat(var(--rows-narrow), var(--tree-card-h));
+  }
+
+  .referral-tree__stem {
+    grid-column: 2;
+  }
+
+  .referral-tree__member {
+    grid-row: var(--row-narrow);
+    grid-column: var(--col-narrow);
+    padding: 0 10px;
+  }
+
+  .referral-tree__member::before {
+    right: auto;
+    left: auto;
+  }
+
+  .referral-tree__member[data-side-narrow='left']::before {
+    left: 100%;
+  }
+
+  .referral-tree__member[data-side-narrow='right']::before {
+    right: 100%;
+  }
+
+  .referral-tree__member[data-depth-wide]::before {
+    width: calc(var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+  }
+
+  .referral-tree__member .referral-tree__avatar {
+    display: none;
+  }
+
+  .referral-tree__toggle {
+    flex: 1 1 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .referral-tree__member,
+  .referral-tree__member::before,
+  .referral-tree__toggle {
+    transition: none;
+  }
+}

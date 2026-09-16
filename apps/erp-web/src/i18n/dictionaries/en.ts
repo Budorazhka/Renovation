@@ -8024,6 +8024,41 @@ export const en: TranslationSchema<typeof ru> = {
           cancel: "Withdraw"
       }
   },
+  mlm: {
+      title: "BAZA referral network",
+      subtitle: "A curator builds a team of realtors and earns {rate}% from BAZA of their primary market commission. A team starts at {min} people, ideally up to {max}.",
+      subtitleShort: "Curators, their teams and earnings from BAZA.",
+      loadFailed: "Could not load the referral network",
+      companyLoadFailed: "Could not load the company network",
+      myTeam: "My team",
+      myCurator: "My curator",
+      teamCount: "{count} of {max}",
+      earned: "Earned",
+      paid: "Paid",
+      due: "Due",
+      inviteCode: "Invitation code: {code}. The link for realtors is in your marketplace account.",
+      memberSince: "in the team since {date}",
+      onReview: "Your link to the curator is under BAZA review: you and the curator work at different companies.",
+      onReviewShort: "under review",
+      onReviewAria: "{name}, link under review",
+      notInNetwork: "You are not in the referral network yet. Join a curator’s team or apply to become a curator in your marketplace account.",
+      companyTitle: "Company curators",
+      companyEmpty: "The company has no curators yet. Only realtors verified by BAZA become curators.",
+      treeAria: "Team of curator {name}: {count} members",
+      treeCurator: "Curator · {count} in team",
+      viaLink: "via invite link",
+      viaAdmin: "added by BAZA",
+      showTeam: "Show team",
+      hideTeam: "Hide team",
+      dealCommissionReceived: "Commission received by BAZA",
+      dealCommissionNotYet: "not received yet",
+      dealCuratorAccrual: "Accrued to curator {rate}%",
+      teamStatus: {
+          recruiting: "Recruiting",
+          healthy: "Team is on track",
+          time_to_split: "Time to build a new team"
+      }
+  },
   settings: {
       password: {
           saving: "Saving…",

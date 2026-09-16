@@ -104,6 +104,21 @@ export class DealDocument extends Document {
   @Prop({ type: MoneyAmountSchemaDefinition, required: false })
   downPayment?: MoneyAmount;
 
+  /**
+   * Фактическая комиссия, которая пришла BAZA по сделке. Отмечает менеджер
+   * BAZA в админке (решение владельца 16.09.2026); ожидаемая комиссия выше —
+   * это план, а не деньги. По первичке от этой суммы считается начисление
+   * куратору агента.
+   */
+  @Prop({ type: MoneyAmountSchemaDefinition, required: false })
+  commissionReceived?: MoneyAmount;
+
+  @Prop({ type: Date, required: false })
+  commissionReceivedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, required: false })
+  commissionReceivedByAdminId?: Types.ObjectId;
+
   @Prop({ type: [DealParticipantSchema], default: [] })
   participants!: DealParticipant[];
 
@@ -124,3 +139,6 @@ DealSchema.index({ organizationId: 1, ownerPositionId: 1, _id: -1 });
 DealSchema.index({ organizationId: 1, stage: 1, _id: -1 });
 DealSchema.index({ organizationId: 1, contactId: 1, _id: -1 });
 DealSchema.index({ organizationId: 1, leadId: 1, _id: -1 });
+
+/** Раздел «Комиссии» в админке: сделки первички по всем организациям, ждут ли денег. */
+DealSchema.index({ dealType: 1, commissionReceivedAt: 1, _id: -1 });

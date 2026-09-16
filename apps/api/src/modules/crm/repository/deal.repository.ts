@@ -155,6 +155,61 @@ export class DealRepository {
       .exec();
   }
 
+  /**
+   * Сделка по id без организации — только для админского контура BAZA:
+   * менеджер BAZA отмечает пришедшую комиссию по сделкам всех организаций
+   * (решение владельца 16.09.2026).
+   */
+  async findByIdForPlatform(id: Types.ObjectId, session?: ClientSession): Promise<DealDocument | null> {
+    const query = this.model.findOne({ _id: id });
+    if (session) query.session(session);
+    return query.exec();
+  }
+
+  /** Сделки первички всех организаций: ждут денег или деньги уже пришли. */
+  async listPrimaryForPlatform(params: { received: boolean; limit: number }): Promise<DealDocument[]> {
+    const filter: FilterQuery<DealDocument> = {
+      dealType: 'primary',
+      commissionReceivedAt: { $exists: params.received },
+    };
+    if (!params.received) filter.stage = { $ne: 'closed_lost' };
+    return this.model.find(filter).sort(params.received ? { commissionReceivedAt: -1 } : { _id: 1 }).limit(params.limit).exec();
+  }
+
+  /** CAS-отметка «Комиссия получена». null — версия устарела или отметка уже стоит. */
+  async setCommissionReceivedForPlatform(
+    id: Types.ObjectId,
+    params: { expectedVersion: number; amount: MoneyAmount; receivedAt: Date; adminAccountId: Types.ObjectId },
+    session: ClientSession,
+  ): Promise<DealDocument | null> {
+    const receivedFilter = { _id: id, version: params.expectedVersion, commissionReceivedAt: { $exists: false } };
+    const receivedUpdate = {
+      $set: {
+        commissionReceived: params.amount,
+        commissionReceivedAt: params.receivedAt,
+        commissionReceivedByAdminId: params.adminAccountId,
+        updatedAt: new Date(),
+      },
+      $inc: { version: 1 },
+    };
+    return this.model.findOneAndUpdate(receivedFilter, receivedUpdate, { new: true, session }).exec();
+  }
+
+  /** CAS-снятие отметки. null — версия устарела или отметки нет. */
+  async clearCommissionReceivedForPlatform(
+    id: Types.ObjectId,
+    expectedVersion: number,
+    session: ClientSession,
+  ): Promise<DealDocument | null> {
+    const clearFilter = { _id: id, version: expectedVersion, commissionReceivedAt: { $exists: true } };
+    const clearUpdate = {
+      $unset: { commissionReceived: '', commissionReceivedAt: '', commissionReceivedByAdminId: '' },
+      $set: { updatedAt: new Date() },
+      $inc: { version: 1 },
+    };
+    return this.model.findOneAndUpdate(clearFilter, clearUpdate, { new: true, session }).exec();
+  }
+
   async changeStageWithVersionCheck(
     id: Types.ObjectId,
     organizationId: Types.ObjectId,

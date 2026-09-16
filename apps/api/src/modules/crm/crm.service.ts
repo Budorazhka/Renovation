@@ -132,12 +132,33 @@ export interface CrmDealReadModel {
   description: string | null;
   stage: DealStage;
   expectedCommission: MoneyAmount | null;
+  /** Фактическая комиссия, которую отметил менеджер BAZA; до отметки null. */
+  commissionReceived: MoneyAmount | null;
+  commissionReceivedAt: string | null;
   participants: CrmDealParticipantReadModel[];
   checklistItems: CrmDealChecklistItemReadModel[];
   version: number;
   createdAt: string;
   updatedAt: string;
   contact?: { id: string; name: string; phone: string; email?: string } | null;
+}
+
+/**
+ * Сделка глазами менеджера BAZA в разделе «Комиссии»: без контактов клиента —
+ * платформе для отметки денег нужны сумма и стадия, а не телефон покупателя.
+ */
+export interface PlatformDealReadModel {
+  id: string;
+  organizationId: string;
+  ownerPositionId: string;
+  title: string;
+  stage: DealStage;
+  dealType: string | null;
+  expectedCommission: MoneyAmount | null;
+  commissionReceived: MoneyAmount | null;
+  commissionReceivedAt: string | null;
+  version: number;
+  createdAt: string;
 }
 
 export interface CrmTimelineEventReadModel {
@@ -3569,6 +3590,63 @@ export class CrmService {
     });
   }
 
+  // ─── Комиссии BAZA (решение владельца 16.09.2026) ──────────────────────────
+  //
+  // Менеджер BAZA отмечает в админке, что комиссия по сделке первички пришла.
+  // Эти методы — платформенный контур: сделка читается без организации, право
+  // проверяет вызывающий AdminCommissionsService (commission.confirm). Сессию
+  // даёт вызывающий: в той же транзакции пишется начисление куратору.
+
+  async listPrimaryDealsForPlatform(params: { received: boolean; limit: number }): Promise<PlatformDealReadModel[]> {
+    const deals = await this.dealRepository.listPrimaryForPlatform(params);
+    return deals.map(toPlatformDealReadModel);
+  }
+
+  async markCommissionReceivedForPlatform(
+    params: { dealId: Types.ObjectId; expectedVersion: number; amount: MoneyAmount; receivedAt: Date; adminAccountId: Types.ObjectId },
+    session: ClientSession,
+  ): Promise<DealDocument> {
+    const deal = await this.dealRepository.findByIdForPlatform(params.dealId, session);
+    if (!deal) throw new NotFoundException('Deal not found');
+    if (deal.dealType !== 'primary') {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'Commission is tracked by BAZA only for primary market deals');
+    }
+    if (deal.stage === 'closed_lost') {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'The deal is lost: no commission can arrive for it');
+    }
+    if (params.amount.amountMinorUnits <= 0) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'Received commission must be positive');
+    }
+    const updated = await this.dealRepository.setCommissionReceivedForPlatform(
+      params.dealId,
+      { expectedVersion: params.expectedVersion, amount: params.amount, receivedAt: params.receivedAt, adminAccountId: params.adminAccountId },
+      session,
+    );
+    if (!updated) {
+      if (deal.commissionReceivedAt) {
+        throw new AppException(ErrorCode.VALIDATION_FAILED, 'Commission for this deal is already marked as received');
+      }
+      throw new ConflictException('Deal was modified by another request — refresh and retry');
+    }
+    return updated;
+  }
+
+  async clearCommissionReceivedForPlatform(
+    params: { dealId: Types.ObjectId; expectedVersion: number },
+    session: ClientSession,
+  ): Promise<DealDocument> {
+    const deal = await this.dealRepository.findByIdForPlatform(params.dealId, session);
+    if (!deal) throw new NotFoundException('Deal not found');
+    const updated = await this.dealRepository.clearCommissionReceivedForPlatform(params.dealId, params.expectedVersion, session);
+    if (!updated) {
+      if (!deal.commissionReceivedAt) {
+        throw new AppException(ErrorCode.VALIDATION_FAILED, 'Commission for this deal is not marked as received');
+      }
+      throw new ConflictException('Deal was modified by another request — refresh and retry');
+    }
+    return updated;
+  }
+
   async changeDealStage(params: {
     dealId: Types.ObjectId;
     organizationId: Types.ObjectId;
@@ -5093,6 +5171,26 @@ function taskEventPayload(
   };
 }
 
+export function toPlatformDealReadModel(deal: DealDocument): PlatformDealReadModel {
+  return {
+    id: deal._id.toString(),
+    organizationId: deal.organizationId.toString(),
+    ownerPositionId: deal.ownerPositionId.toString(),
+    title: deal.title,
+    stage: deal.stage,
+    dealType: deal.dealType ?? null,
+    expectedCommission: deal.expectedCommission
+      ? { amountMinorUnits: deal.expectedCommission.amountMinorUnits, currency: deal.expectedCommission.currency }
+      : null,
+    commissionReceived: deal.commissionReceived
+      ? { amountMinorUnits: deal.commissionReceived.amountMinorUnits, currency: deal.commissionReceived.currency }
+      : null,
+    commissionReceivedAt: deal.commissionReceivedAt ? deal.commissionReceivedAt.toISOString() : null,
+    version: deal.version ?? 0,
+    createdAt: deal.createdAt.toISOString(),
+  };
+}
+
 function toDealReadModel(
   deal: DealDocument,
   primaryContact?: { _id: Types.ObjectId; name: string; phone: string; email?: string } | null,
@@ -5113,6 +5211,13 @@ function toDealReadModel(
           currency: deal.expectedCommission.currency,
         }
       : null,
+    commissionReceived: deal.commissionReceived
+      ? {
+          amountMinorUnits: deal.commissionReceived.amountMinorUnits,
+          currency: deal.commissionReceived.currency,
+        }
+      : null,
+    commissionReceivedAt: deal.commissionReceivedAt ? deal.commissionReceivedAt.toISOString() : null,
     participants: (deal.participants ?? []).map((p) => {
       const c = contactsById?.get(p.contactId.toString());
       return {

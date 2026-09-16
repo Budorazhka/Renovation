@@ -224,6 +224,18 @@ Telegram выбирает публикующий; свои настройки у
 (`/me/notifications`) меняет только сам сотрудник, отдельного права не
 нужно. См. [operations/news.md](../operations/news.md).
 
+### 1.14. Реферальная сеть BAZA (referral_network)
+
+| Permission | owner | director | rop | manager | administrator | marketer |
+|---|---|---|---|---|---|---|
+| `referral_network.read.organization` | ✓ | ✓ | — | — | — | — |
+
+**16.09.2026, решение владельца.** Руководитель агентства видит кураторов
+своей компании и их команды — без денег: 7% куратору платит BAZA. Своё место
+в сети (`GET /referral-network/me`) видит любой сотрудник без отдельного
+права — identity берётся из сессии. Сеть ведёт BAZA в админке (§2.2). См.
+[operations/referral-network.md](../operations/referral-network.md).
+
 ### 1.13. Фиксация клиента у застройщика (client_registration)
 
 | Permission | owner | director | rop | manager | administrator | marketer |
@@ -262,6 +274,8 @@ Telegram выбирает публикующий; свои настройки у
 | «Админ новостроек» (замещает legacy `developers_admin`) | `development.moderate.domain(newbuilds)`, `unit.price.override.domain(newbuilds)` (только для критичных корректировок, не рутинного редактирования — то остаётся у ERP-ролей организации) |
 | «Модератор отзывов» | `review.moderate.global`, `review.rating_adjust.global` |
 | «Редактор новостей платформы» | `news.publish.global` — список, публикация и удаление новостей платформы (`/admin/news`) |
+| «Менеджер BAZA по комиссиям» | `commission.confirm.global` — отметка «Комиссия получена» по сделкам первички и её снятие (`/admin/commissions`); `curator_payout.mark.global` — выплаты кураторам (`/admin/curator-payouts`). Сторно уже выплаченного — только суперадмин |
+| «Управляющий реферальной сетью» | `referral_network.read.global` — дерево сети, поиск, история, заявки; `referral_network.manage.global` — назначение и снятие кураторов, перевод и удаление участников, решение заявок (`/admin/referral-network`). По решению владельца 16.09.2026 сеть ведёт суперадмин; грант — для явного делегирования |
 
 **`[owner decision — xlsx #134]`**: «да суперадмином» (индивидуальная настройка) — только super_admin создаёт/меняет grants (ADR-009 self-escalation prevention, уже enforced на уровне архитектуры, не только этой матрицы).
 

@@ -79,6 +79,14 @@ export function mapDealV2ToLegacy(deal: DealV2, managerNameById: Map<string, str
     participants,
     price: 0,
     commission,
+    commissionReceived:
+      deal.commissionReceived && deal.commissionReceivedAt
+        ? {
+            amount: deal.commissionReceived.amountMinorUnits / 100,
+            currency: deal.commissionReceived.currency,
+            receivedAt: deal.commissionReceivedAt,
+          }
+        : undefined,
     createdAt: deal.createdAt,
     updatedAt: deal.updatedAt,
     checklist,

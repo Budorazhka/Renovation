@@ -20,6 +20,12 @@ export class PositionAssignmentRepository {
     return this.model.findOne({ identityId, endedAt: { $exists: false } }, null, { session }).exec();
   }
 
+  /** Пакетный вариант findActiveByIdentity: реферальная сеть показывает компании участников разом. */
+  async findActiveByIdentities(identityIds: Types.ObjectId[]): Promise<PositionAssignmentDocument[]> {
+    if (identityIds.length === 0) return [];
+    return this.model.find({ identityId: { $in: identityIds }, endedAt: { $exists: false } }).exec();
+  }
+
   async findActiveByPosition(
     positionId: Types.ObjectId,
     session?: ClientSession,

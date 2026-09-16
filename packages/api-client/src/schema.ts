@@ -1300,6 +1300,363 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/marketplace/referral/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Моя реферальная сеть в личном кабинете маркетплейса. role — куратор, участник команды или пока никто. Куратору — код ссылки, команда со статусом размера, начислено, выплачено и к выплате; участнику — его куратор и начисления куратору с его сделок. */
+        get: operations["getMyReferralNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/referral/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Вступить в команду по коду ссылки куратора. Куратор в чужую команду не вступает (сеть одноуровневая); сотрудник агентства не входит в команду куратора из другой компании — 409 REFERRAL_COMPANY_MISMATCH. Уже в команде — 409 REFERRAL_ALREADY_IN_TEAM; сменить куратора можно только заявкой. */
+        post: operations["joinReferralTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/marketplace/referral/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Заявка на решение BAZA в индивидуальном порядке: стать куратором, уйти из команды, сменить куратора (по коду ссылки нового). До решения ничего не меняется. Нерешённая заявка того же типа уже есть — 409 REFERRAL_REQUEST_PENDING. */
+        post: operations["createReferralRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/referral-invites/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Страница ссылки-приглашения до регистрации: только имя куратора. Перебор кодов ограничен по IP. */
+        get: operations["previewReferralInvite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/referral-network/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** То же, что /marketplace/referral/me, для сотрудника в ERP. Identity из сессии. */
+        get: operations["getMyReferralNetworkErp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/referral-network/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Сеть глазами руководителя агентства: кураторы своей компании и их команды; у куратора из другой компании — только свои сотрудники в его команде. Без денег: начисления — отношения BAZA и куратора. */
+        get: operations["getOrganizationReferralNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Вся реферальная сеть BAZA: кураторы с кодами, командами, деньгами и сводка. Суперадмину — всегда, администратору — с грантом referral_network.read. */
+        get: operations["adminGetReferralNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Найти человека по логину, чтобы назначить куратором или поставить в команду. */
+        get: operations["adminFindReferralPerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/people/{identityId}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** История членства человека в командах — закрытые записи не перезаписываются. */
+        get: operations["adminGetReferralMemberHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/curators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Назначить куратора — это и есть проверка «проверенный BAZA». Назначенный выходит из своей команды: сеть одноуровневая. Пишет аудит referral_network.appoint_curator. */
+        post: operations["adminAppointCurator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/curators/{identityId}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Снять куратора. Его команда закрывается, начисленное остаётся за ним. Пишет аудит referral_network.retire_curator. */
+        post: operations["adminRetireCurator"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Поставить человека в команду куратора — добавить или перевести из другой. Прежнее членство закрывается записью transferred. Правило компании действует и для BAZA. */
+        post: operations["adminAssignReferralMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/members/{identityId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Убрать человека из команды. Начисленное остаётся прежнему куратору. */
+        post: operations["adminRemoveReferralMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Очередь заявок — стать куратором, уйти, сменить куратора. */
+        get: operations["adminListReferralRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/referral-network/requests/{requestId}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Решить заявку. Одобрение сразу применяет её в той же транзакции: назначает куратора, закрывает членство или переводит к новому куратору. */
+        post: operations["adminDecideReferralRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/commissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Сделки первички всех организаций: received=false — ждут денег (без проигранных), received=true — деньги пришли. С организацией, агентом и начислением куратору. */
+        get: operations["adminListCommissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/commissions/{dealId}/received": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Менеджер BAZA отмечает, что комиссия по сделке первички пришла. В той же транзакции куратору агента начисляется 7% от фактической суммы; если начисления нет, accrual.reason объясняет почему. Пишет аудит deal.commission_received. */
+        post: operations["adminMarkCommissionReceived"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/commissions/{dealId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Снять отметку по ошибке: начисление куратору сторнируется. Уже выплаченное сторнирует только суперадмин — иначе 409 CURATOR_ACCRUAL_ALREADY_PAID. */
+        post: operations["adminCancelCommissionReceived"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/curator-payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Кураторы с итогами по валютам — начислено, выплачено, к выплате. */
+        get: operations["adminListCuratorPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/curator-payouts/{identityId}/accruals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Журнал начислений куратора, свежие первыми. */
+        get: operations["adminListCuratorAccruals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/curator-payouts/{identityId}/pay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Отметить выплату куратору по списку начислений. Переводятся только accrued этого куратора; платёж проводит бухгалтерия BAZA вне системы. */
+        post: operations["adminMarkCuratorPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/notifications": {
         parameters: {
             query?: never;
@@ -4268,6 +4625,241 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        MoneyAmountList: components["schemas"]["MoneyAmount"][];
+        ReferralPersonView: {
+            identityId: string;
+            name: string;
+            organizationName: string | null;
+            organizationType: string | null;
+        };
+        AdminReferralPersonSummary: components["schemas"]["ReferralPersonView"] & {
+            login: string;
+        };
+        ReferralMoneyTotals: {
+            earned: components["schemas"]["MoneyAmountList"];
+            paid: components["schemas"]["MoneyAmountList"];
+            due: components["schemas"]["MoneyAmountList"];
+        };
+        ReferralTeamRules: {
+            ratePercent: number;
+            teamSizeMin: number;
+            teamSizeIdealMax: number;
+        };
+        ReferralTeamMemberView: {
+            person: components["schemas"]["ReferralPersonView"];
+            /** Format: date-time */
+            joinedAt: string;
+            /** @enum {string} */
+            joinedVia: "invite_link" | "admin";
+            /** @enum {string} */
+            status: "active" | "on_review";
+        };
+        ReferralCuratorNodeView: {
+            person: components["schemas"]["ReferralPersonView"];
+            /** Format: date-time */
+            appointedAt: string;
+            teamSize: number;
+            /** @enum {string} */
+            teamStatus: "recruiting" | "healthy" | "time_to_split";
+            members: components["schemas"]["ReferralTeamMemberView"][];
+        };
+        AdminReferralCuratorNodeView: components["schemas"]["ReferralCuratorNodeView"] & {
+            inviteCode: string;
+            totals: components["schemas"]["ReferralMoneyTotals"];
+        };
+        AdminReferralNetworkTree: {
+            rules: components["schemas"]["ReferralTeamRules"];
+            curators: components["schemas"]["AdminReferralCuratorNodeView"][];
+            summary: {
+                curators: number;
+                members: number;
+                membersOnReview: number;
+                pendingRequests: number;
+            };
+        };
+        OrganizationReferralNetworkView: {
+            rules: components["schemas"]["ReferralTeamRules"];
+            curators: components["schemas"]["ReferralCuratorNodeView"][];
+        };
+        CuratorAccrualView: {
+            id: string;
+            curator: components["schemas"]["ReferralPersonView"];
+            member: components["schemas"]["ReferralPersonView"];
+            dealId: string;
+            commission: components["schemas"]["MoneyAmount"];
+            /** @description Процент на момент начисления — снимок правила. */
+            ratePercent: number;
+            amount: components["schemas"]["MoneyAmount"];
+            /** @enum {string} */
+            status: "accrued" | "paid" | "reversed";
+            /** Format: date-time */
+            accruedAt: string;
+            /** Format: date-time */
+            paidAt: string | null;
+            /** Format: date-time */
+            reversedAt: string | null;
+        };
+        ReferralRequestView: {
+            id: string;
+            /** @enum {string} */
+            type: "become_curator" | "leave_team" | "change_curator";
+            applicant: components["schemas"]["ReferralPersonView"];
+            targetCurator: components["schemas"]["ReferralPersonView"] | null;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected";
+            decisionComment: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+        };
+        ReferralRequestListResponse: {
+            items: components["schemas"]["ReferralRequestView"][];
+        };
+        MyReferralNetworkView: {
+            rules: components["schemas"]["ReferralTeamRules"];
+            /** @enum {string} */
+            role: "curator" | "member" | "none";
+            curator: {
+                inviteCode: string;
+                node: components["schemas"]["ReferralCuratorNodeView"];
+                totals: components["schemas"]["ReferralMoneyTotals"];
+                accruals: components["schemas"]["CuratorAccrualView"][];
+            } | null;
+            membership: {
+                curator: components["schemas"]["ReferralPersonView"];
+                /** Format: date-time */
+                joinedAt: string;
+                /** @enum {string} */
+                status: "active" | "on_review";
+                accruals: components["schemas"]["CuratorAccrualView"][];
+            } | null;
+            requests: components["schemas"]["ReferralRequestView"][];
+        };
+        ReferralInvitePreview: {
+            curatorName: string;
+        };
+        JoinReferralTeamRequest: {
+            code: string;
+        };
+        CreateReferralRequestRequest: {
+            /** @enum {string} */
+            type: "become_curator" | "leave_team" | "change_curator";
+            reason: string;
+            /** @description Только для смены куратора. */
+            targetInviteCode?: string;
+        };
+        AdminReferralPersonView: {
+            person: components["schemas"]["AdminReferralPersonSummary"];
+            isCurator: boolean;
+            membership: {
+                curator: components["schemas"]["ReferralPersonView"];
+                /** @enum {string} */
+                status: "active" | "on_review" | "ended";
+            } | null;
+        };
+        ReferralMembershipHistoryResponse: {
+            items: {
+                curator: components["schemas"]["ReferralPersonView"];
+                /** @enum {string} */
+                status: "active" | "on_review" | "ended";
+                /** Format: date-time */
+                joinedAt: string;
+                /** @enum {string} */
+                joinedVia: "invite_link" | "admin";
+                /** Format: date-time */
+                endedAt: string | null;
+                endReason: string | null;
+                note: string | null;
+            }[];
+        };
+        AdminReferralReasonRequest: {
+            reason: string;
+        };
+        AdminAppointCuratorRequest: components["schemas"]["AdminReferralReasonRequest"] & {
+            identityId: string;
+        };
+        AdminAssignReferralMemberRequest: components["schemas"]["AdminReferralReasonRequest"] & {
+            memberIdentityId: string;
+            curatorIdentityId: string;
+        };
+        AdminDecideReferralRequestRequest: {
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+            comment?: string;
+        };
+        PlatformDealView: {
+            id: string;
+            organizationId: string;
+            ownerPositionId: string;
+            title: string;
+            stage: components["schemas"]["DealStage"];
+            dealType: string | null;
+            expectedCommission: components["schemas"]["MoneyAmount"] | null;
+            commissionReceived: components["schemas"]["MoneyAmount"] | null;
+            /** Format: date-time */
+            commissionReceivedAt: string | null;
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AdminCommissionDealView: components["schemas"]["PlatformDealView"] & {
+            organizationName: string | null;
+            agentName: string | null;
+            curatorAccrual: components["schemas"]["CuratorAccrualView"] | null;
+        };
+        AdminCommissionListResponse: {
+            items: components["schemas"]["AdminCommissionDealView"][];
+        };
+        AdminMarkCommissionReceivedRequest: {
+            expectedVersion: number;
+            amountMinorUnits: number;
+            /** @enum {string} */
+            currency: "USD" | "GEL" | "RUB";
+            /**
+             * Format: date-time
+             * @description Когда деньги пришли; по умолчанию сейчас.
+             */
+            receivedAt?: string;
+        };
+        AdminCommissionReceivedResult: {
+            deal: components["schemas"]["PlatformDealView"];
+            accrual: {
+                accrued: boolean;
+                accrualId?: string;
+                curatorIdentityId?: string;
+                amount?: components["schemas"]["MoneyAmount"];
+                /** @enum {string} */
+                reason?: "not_primary" | "no_occupant" | "not_in_team" | "membership_on_review" | "company_mismatch" | "curator_retired";
+            };
+        };
+        AdminCancelCommissionReceivedRequest: components["schemas"]["AdminReferralReasonRequest"] & {
+            expectedVersion: number;
+        };
+        AdminCommissionCancelResult: {
+            deal: components["schemas"]["PlatformDealView"];
+            accrualReversed: boolean;
+        };
+        AdminCuratorPayoutListResponse: {
+            items: {
+                curator: components["schemas"]["AdminReferralPersonSummary"];
+                inviteCode: string | null;
+                totals: components["schemas"]["ReferralMoneyTotals"];
+            }[];
+        };
+        CuratorAccrualsResponse: {
+            totals: components["schemas"]["ReferralMoneyTotals"];
+            accruals: components["schemas"]["CuratorAccrualView"][];
+        };
+        AdminMarkCuratorPaidRequest: {
+            accrualIds: string[];
+            /** Format: date-time */
+            paidAt?: string;
+        };
+        AdminCuratorPaidResult: components["schemas"]["CuratorAccrualsResponse"] & {
+            paid: number;
+        };
         MoneyAmount: {
             /** @description Никогда float (conventions.md разд.1) */
             amountMinorUnits: number;
@@ -6040,6 +6632,10 @@ export interface components {
             description?: string | null;
             stage: components["schemas"]["DealStage"];
             expectedCommission?: components["schemas"]["MoneyAmount"];
+            /** @description Фактическая комиссия, которую отметил менеджер BAZA; до отметки null. */
+            commissionReceived?: components["schemas"]["MoneyAmount"] | null;
+            /** Format: date-time */
+            commissionReceivedAt?: string | null;
             participants: components["schemas"]["DealParticipant"][];
             checklistItems: components["schemas"]["DealChecklistItem"][];
             version: number;
@@ -9754,6 +10350,584 @@ export interface operations {
             404: components["responses"]["Error"];
             /** @description VERSION_CONFLICT */
             409: components["responses"]["Error"];
+        };
+    };
+    getMyReferralNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Своя сеть */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyReferralNetworkView"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+        };
+    };
+    joinReferralTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinReferralTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Вступил, возвращается своя сеть */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyReferralNetworkView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — свой код или вступает куратор */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description NOT_FOUND — код не найден или куратор снят */
+            404: components["responses"]["Error"];
+            /** @description REFERRAL_ALREADY_IN_TEAM либо REFERRAL_COMPANY_MISMATCH */
+            409: components["responses"]["Error"];
+        };
+    };
+    createReferralRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReferralRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка подана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralRequestView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description NOT_FOUND — код нового куратора не найден */
+            404: components["responses"]["Error"];
+            /** @description REFERRAL_REQUEST_PENDING либо REFERRAL_COMPANY_MISMATCH */
+            409: components["responses"]["Error"];
+        };
+    };
+    previewReferralInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Кто зовёт */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralInvitePreview"];
+                };
+            };
+            /** @description NOT_FOUND — код не найден или куратор снят */
+            404: components["responses"]["Error"];
+            /** @description RATE_LIMITED */
+            429: components["responses"]["Error"];
+        };
+    };
+    getMyReferralNetworkErp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Своя сеть */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyReferralNetworkView"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+        };
+    };
+    getOrganizationReferralNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Кураторы и команды компании */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationReferralNetworkView"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет referral_network.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminGetReferralNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Сеть */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralNetworkTree"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminFindReferralPerson: {
+        parameters: {
+            query: {
+                login: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Человек и его место в сети */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralPersonView"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminGetReferralMemberHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description История */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralMembershipHistoryResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminAppointCurator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAppointCuratorRequest"];
+            };
+        };
+        responses: {
+            /** @description Сеть после назначения */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralNetworkTree"];
+                };
+            };
+            /** @description VALIDATION_FAILED — уже куратор */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminRetireCurator: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminReferralReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Сеть после снятия */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralNetworkTree"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminAssignReferralMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAssignReferralMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Сеть после правки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralNetworkTree"];
+                };
+            };
+            /** @description VALIDATION_FAILED — в свою команду или куратора в команду */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — куратор не найден */
+            404: components["responses"]["Error"];
+            /** @description REFERRAL_ALREADY_IN_TEAM либо REFERRAL_COMPANY_MISMATCH */
+            409: components["responses"]["Error"];
+        };
+    };
+    adminRemoveReferralMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminReferralReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Сеть после правки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralNetworkTree"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — открытого членства нет */
+            404: components["responses"]["Error"];
+        };
+    };
+    adminListReferralRequests: {
+        parameters: {
+            query?: {
+                status?: "pending" | "approved" | "rejected";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Заявки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralRequestListResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminDecideReferralRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminDecideReferralRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Решённая заявка */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralRequestView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — заявка уже решена или её нельзя применить */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description REFERRAL_COMPANY_MISMATCH */
+            409: components["responses"]["Error"];
+        };
+    };
+    adminListCommissions: {
+        parameters: {
+            query?: {
+                received?: "true" | "false";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Сделки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCommissionListResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminMarkCommissionReceived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminMarkCommissionReceivedRequest"];
+            };
+        };
+        responses: {
+            /** @description Отметка и результат начисления */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCommissionReceivedResult"];
+                };
+            };
+            /** @description VALIDATION_FAILED — не первичка, проигранная сделка или отметка уже стоит */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    adminCancelCommissionReceived: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCancelCommissionReceivedRequest"];
+            };
+        };
+        responses: {
+            /** @description Отметка снята */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCommissionCancelResult"];
+                };
+            };
+            /** @description VALIDATION_FAILED — отметки нет */
+            400: components["responses"]["Error"];
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT либо CURATOR_ACCRUAL_ALREADY_PAID */
+            409: components["responses"]["Error"];
+        };
+    };
+    adminListCuratorPayouts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Выплаты */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCuratorPayoutListResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminListCuratorAccruals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Начисления */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CuratorAccrualsResponse"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark */
+            403: components["responses"]["Error"];
+        };
+    };
+    adminMarkCuratorPaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminMarkCuratorPaidRequest"];
+            };
+        };
+        responses: {
+            /** @description Сколько отмечено и журнал после */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCuratorPaidResult"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — нечего выплачивать */
+            404: components["responses"]["Error"];
         };
     };
     getMyNotificationSettings: {

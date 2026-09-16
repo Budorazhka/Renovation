@@ -62,6 +62,9 @@ export interface DealV2 {
   description: string | null
   stage: DealStageV2
   expectedCommission: MoneyAmountV2 | null
+  /** Фактическая комиссия, которую отметил менеджер BAZA в админке; до отметки null. */
+  commissionReceived: MoneyAmountV2 | null
+  commissionReceivedAt: string | null
   participants: DealParticipantV2[]
   checklistItems: DealChecklistItemV2[]
   /** Optimistic concurrency — обязателен как expectedVersion в PATCH .../stage, .../reassign, .../checklist, .../participants и PATCH /:id. */

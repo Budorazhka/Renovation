@@ -193,6 +193,7 @@ export function Header({ onCityChange, onCurrencyChange, onLanguageChange }: Hea
                 <div className="bz-header__dropdown bz-header__dropdown--right" role="menu">
                   <Link role="menuitem" to="/account/properties">{t('header.myProperties')}</Link>
                   <Link role="menuitem" to="/account/favorites">{t('header.favorites')}</Link>
+                  <Link role="menuitem" to="/account/team">{t('header.myTeam')}</Link>
                   <button type="button" role="menuitem" data-testid="header-logout-btn" onClick={() => void handleLogout()}>
                     {t('header.logout')}
                   </button>

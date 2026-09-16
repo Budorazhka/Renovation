@@ -24,6 +24,10 @@ import { AdminBillingController } from './admin-billing.controller';
 import { AdminBillingPlansController } from './admin-billing-plans.controller';
 import { AdminNewsService } from './admin-news.service';
 import { AdminNewsController } from './admin-news.controller';
+import { AdminReferralService } from './admin-referral.service';
+import { AdminReferralNetworkController } from './admin-referral-network.controller';
+import { AdminCommissionsController } from './admin-commissions.controller';
+import { AdminCuratorPayoutsController } from './admin-curator-payouts.controller';
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { PublicationModule } from '../publication/publication.module';
 import { PropertyAssetsModule } from '../property-assets/property-assets.module';
@@ -33,6 +37,8 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { BillingModule } from '../billing/billing.module';
 import { RealtorReviewsModule } from '../realtor-reviews/realtor-reviews.module';
 import { NewsModule } from '../news/news.module';
+import { CrmModule } from '../crm/crm.module';
+import { ReferralNetworkModule } from '../referral-network/referral-network.module';
 
 /**
  * PermissionGrantRepository НЕ импортируется/регистрируется здесь напрямую
@@ -66,6 +72,8 @@ import { NewsModule } from '../news/news.module';
     BillingModule,
     RealtorReviewsModule,
     NewsModule,
+    CrmModule,
+    ReferralNetworkModule,
   ],
   controllers: [
     AdminPublicationController,
@@ -79,6 +87,9 @@ import { NewsModule } from '../news/news.module';
     AdminBillingController,
     AdminBillingPlansController,
     AdminNewsController,
+    AdminReferralNetworkController,
+    AdminCommissionsController,
+    AdminCuratorPayoutsController,
   ],
   providers: [
     AdminAccountRepository,
@@ -91,6 +102,7 @@ import { NewsModule } from '../news/news.module';
     AdminRealtorReviewService,
     AdminOrganizationService,
     AdminNewsService,
+    AdminReferralService,
   ],
   exports: [AdminAccountRepository],
 })

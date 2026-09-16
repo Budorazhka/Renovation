@@ -310,6 +310,25 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /client-registrations/:registrationId/complete': 'перевод в completed с expectedVersion — повтор упирается в статус, не в второй side-effect',
   'POST /client-registrations/:registrationId/cancel': 'снятие заявки с expectedVersion — повтор упирается в статус cancelled',
 
+  // --- Реферальная сеть BAZA ---
+  'POST /marketplace/referral/join':
+    'вступление по ссылке: повтор упирается в «уже в этой команде» (409) — уникальный индекс на открытое членство человека не даёт второй записи',
+  'POST /marketplace/referral/requests':
+    'заявка на решение BAZA: повтор того же типа, пока прежняя не решена, получает 409 — уникальный индекс на нерешённую заявку типа',
+  'POST /admin/referral-network/curators':
+    'назначение куратора: повтор получает «уже куратор» — уникальный индекс на действующего куратора человека',
+  'POST /admin/referral-network/curators/:identityId/retire': 'снятие куратора по id: повтор на уже снятом получает 404, команду второй раз не закрывает',
+  'POST /admin/referral-network/members':
+    'поставить в команду: повтор к тому же куратору получает 409 «уже в этой команде», второе членство невозможно по уникальному индексу',
+  'POST /admin/referral-network/members/:identityId/remove': 'убрать из команды: повтор получает 404 — открытого членства уже нет',
+  'POST /admin/referral-network/requests/:requestId/decide':
+    'решение заявки: условный переход из pending — повтор получает «заявка уже решена», второе применение невозможно',
+  'POST /admin/commissions/:dealId/received':
+    'отметка денег с expectedVersion (CAS) и условием «отметки ещё нет»; второе начисление куратору исключает частичный уникальный индекс по сделке',
+  'POST /admin/commissions/:dealId/cancel': 'снятие отметки с expectedVersion (CAS) и условием «отметка есть» — повтор получает 409 или «отметки нет»',
+  'POST /admin/curator-payouts/:identityId/pay':
+    'выплата по списку начислений: переводит только accrued этого куратора, повтор находит их уже paid и отвечает 404, второй выплаты не пишет',
+
   'POST /auth/change-password':
     'повтор того же запроса ставит тот же пароль и закрывает те же (уже закрытые) сессии; после первой смены прежний currentPassword перестаёт подходить — второй эффект недостижим',
 

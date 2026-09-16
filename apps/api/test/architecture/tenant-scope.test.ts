@@ -54,6 +54,14 @@ const NON_TENANT_REPOSITORIES = [
   'telegram-link-code',
   'notification-delivery',
   'telegram-bot-state',
+  // Реферальная сеть BAZA (решение владельца 16.09.2026): сеть принадлежит
+  // платформе и привязана к человеку, а не к организации — куратор и его
+  // команда состоят в разных компаниях, платит BAZA. Сделку, по которой
+  // пишется начисление, читает админский контур, а не tenant-запрос.
+  'referral-curator',
+  'referral-membership',
+  'referral-request',
+  'curator-accrual',
 ];
 
 /** `<файл>#<метод>` → почему запрос без organizationId здесь корректен. */
@@ -193,6 +201,22 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
   'development.repository.ts#findPublishedById':
     'Опубликованный ЖК читает ВТОРАЯ сторона сделки: агентство фиксирует клиента у чужого застройщика и обязано ' +
     'увидеть имя комплекса и его владельца. Фильтр {_id, status: active} — черновики и архив по id не отдаются.',
+  'position-assignment.repository.ts#findActiveByIdentities':
+    'Реферальная сеть BAZA (OrganizationsService.getPeopleSummaries): куратор и участники состоят в разных ' +
+    'компаниях, и чтобы показать, кто они, организацию берут ИЗ найденного назначения, а не задают фильтром. ' +
+    'identityIds приходят из записей сети, а не из запроса пользователя.',
+  'position.repository.ts#findByIds':
+    'То же: должности по id, взятым из активных назначений людей сети (getPeopleSummaries) или из сделок ' +
+    'админского раздела «Комиссии» (describePositions, после requireGrant). Наружу — имя и компания.',
+  'deal.repository.ts#findByIdForPlatform':
+    'Админский контур BAZA: менеджер BAZA отмечает пришедшую комиссию по сделкам всех организаций (решение ' +
+    'владельца 16.09.2026). Вызывается только из AdminCommissionsService после requireGrant(commission.confirm).',
+  'deal.repository.ts#listPrimaryForPlatform':
+    'То же: раздел «Комиссии» в админке — сделки первички всех организаций, ждут ли они денег.',
+  'deal.repository.ts#setCommissionReceivedForPlatform':
+    'То же: CAS-отметка «Комиссия получена» менеджером BAZA, фильтр {_id, version} — организация сделки не задаётся админом.',
+  'deal.repository.ts#clearCommissionReceivedForPlatform':
+    'То же: CAS-снятие отметки, фильтр {_id, version}.',
   'client-registration.repository.ts#listForDeveloper':
     'Входящие застройщика: запись принадлежит агентству, а читает её вторая сторона сделки — её собственный ' +
     'organizationId в записи не встречается вообще. Фильтр по developerOrganizationId из tenant-контекста ' +

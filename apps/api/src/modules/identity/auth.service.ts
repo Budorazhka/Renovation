@@ -297,6 +297,17 @@ export class AuthService {
   }
 
   /**
+   * Тот же безопасный срез, что findByIds, но по логину — для суперадмина,
+   * который назначает куратора или добавляет человека в команду по почте
+   * (реферальная сеть). Логин сравнивается в той же нормализации, что при
+   * входе.
+   */
+  async findByLogin(login: string): Promise<{ id: Types.ObjectId; normalizedLogin: string; status: string } | null> {
+    const identity = await this.identityRepository.findByNormalizedLogin(login.trim().toLowerCase());
+    return identity ? { id: identity._id, normalizedLogin: identity.normalizedLogin, status: identity.status } : null;
+  }
+
+  /**
    * domain-model.md Module 1 Identity command `deactivate` — teamApi.ts::
    * setStatus(id, 'blocked') резолвится в эту команду через TeamService
    * (Position→текущий occupant Identity, не Position сама по себе — status

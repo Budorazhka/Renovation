@@ -3096,6 +3096,583 @@ paths:
           description: VERSION_CONFLICT
           $ref: '#/components/responses/Error'
 
+  /marketplace/referral/me:
+    get:
+      operationId: getMyReferralNetwork
+      summary: >
+        Моя реферальная сеть в личном кабинете маркетплейса. role —
+        куратор, участник команды или пока никто. Куратору — код ссылки,
+        команда со статусом размера, начислено, выплачено и к выплате;
+        участнику — его куратор и начисления куратору с его сделок.
+      tags: [marketplace-referral]
+      responses:
+        '200':
+          description: Своя сеть
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReferralNetworkView'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+
+  /marketplace/referral/join:
+    post:
+      operationId: joinReferralTeam
+      summary: >
+        Вступить в команду по коду ссылки куратора. Куратор в чужую команду
+        не вступает (сеть одноуровневая); сотрудник агентства не входит в
+        команду куратора из другой компании — 409 REFERRAL_COMPANY_MISMATCH.
+        Уже в команде — 409 REFERRAL_ALREADY_IN_TEAM; сменить куратора можно
+        только заявкой.
+      tags: [marketplace-referral]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinReferralTeamRequest'
+      responses:
+        '200':
+          description: Вступил, возвращается своя сеть
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReferralNetworkView'
+        '400':
+          description: VALIDATION_FAILED — свой код или вступает куратор
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — код не найден или куратор снят
+          $ref: '#/components/responses/Error'
+        '409':
+          description: REFERRAL_ALREADY_IN_TEAM либо REFERRAL_COMPANY_MISMATCH
+          $ref: '#/components/responses/Error'
+
+  /marketplace/referral/requests:
+    post:
+      operationId: createReferralRequest
+      summary: >
+        Заявка на решение BAZA в индивидуальном порядке: стать куратором,
+        уйти из команды, сменить куратора (по коду ссылки нового). До решения
+        ничего не меняется. Нерешённая заявка того же типа уже есть — 409
+        REFERRAL_REQUEST_PENDING.
+      tags: [marketplace-referral]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReferralRequestRequest'
+      responses:
+        '201':
+          description: Заявка подана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralRequestView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — код нового куратора не найден
+          $ref: '#/components/responses/Error'
+        '409':
+          description: REFERRAL_REQUEST_PENDING либо REFERRAL_COMPANY_MISMATCH
+          $ref: '#/components/responses/Error'
+
+  /public/referral-invites/{code}:
+    get:
+      operationId: previewReferralInvite
+      summary: >
+        Страница ссылки-приглашения до регистрации: только имя куратора.
+        Перебор кодов ограничен по IP.
+      tags: [public-referral]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Кто зовёт
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralInvitePreview'
+        '404':
+          description: NOT_FOUND — код не найден или куратор снят
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMITED
+          $ref: '#/components/responses/Error'
+
+  /referral-network/me:
+    get:
+      operationId: getMyReferralNetworkErp
+      summary: То же, что /marketplace/referral/me, для сотрудника в ERP. Identity из сессии.
+      tags: [erp-referral]
+      responses:
+        '200':
+          description: Своя сеть
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReferralNetworkView'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+
+  /referral-network/organization:
+    get:
+      operationId: getOrganizationReferralNetwork
+      summary: >
+        Сеть глазами руководителя агентства: кураторы своей компании и их
+        команды; у куратора из другой компании — только свои сотрудники в
+        его команде. Без денег: начисления — отношения BAZA и куратора.
+      tags: [erp-referral]
+      responses:
+        '200':
+          description: Кураторы и команды компании
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationReferralNetworkView'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет referral_network.read
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network:
+    get:
+      operationId: adminGetReferralNetwork
+      summary: >
+        Вся реферальная сеть BAZA: кураторы с кодами, командами, деньгами и
+        сводка. Суперадмину — всегда, администратору — с грантом
+        referral_network.read.
+      tags: [admin]
+      responses:
+        '200':
+          description: Сеть
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralNetworkTree'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/people:
+    get:
+      operationId: adminFindReferralPerson
+      summary: Найти человека по логину, чтобы назначить куратором или поставить в команду.
+      tags: [admin]
+      parameters:
+        - name: login
+          in: query
+          required: true
+          schema: {type: string, minLength: 3, maxLength: 254}
+      responses:
+        '200':
+          description: Человек и его место в сети
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralPersonView'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/people/{identityId}/history:
+    get:
+      operationId: adminGetReferralMemberHistory
+      summary: История членства человека в командах — закрытые записи не перезаписываются.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: История
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralMembershipHistoryResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/curators:
+    post:
+      operationId: adminAppointCurator
+      summary: >
+        Назначить куратора — это и есть проверка «проверенный BAZA».
+        Назначенный выходит из своей команды: сеть одноуровневая. Пишет аудит
+        referral_network.appoint_curator.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAppointCuratorRequest'
+      responses:
+        '200':
+          description: Сеть после назначения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralNetworkTree'
+        '400':
+          description: VALIDATION_FAILED — уже куратор
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/curators/{identityId}/retire:
+    post:
+      operationId: adminRetireCurator
+      summary: >
+        Снять куратора. Его команда закрывается, начисленное остаётся за
+        ним. Пишет аудит referral_network.retire_curator.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReferralReasonRequest'
+      responses:
+        '200':
+          description: Сеть после снятия
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralNetworkTree'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/members:
+    post:
+      operationId: adminAssignReferralMember
+      summary: >
+        Поставить человека в команду куратора — добавить или перевести из
+        другой. Прежнее членство закрывается записью transferred. Правило
+        компании действует и для BAZA.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAssignReferralMemberRequest'
+      responses:
+        '200':
+          description: Сеть после правки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralNetworkTree'
+        '400':
+          description: VALIDATION_FAILED — в свою команду или куратора в команду
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — куратор не найден
+          $ref: '#/components/responses/Error'
+        '409':
+          description: REFERRAL_ALREADY_IN_TEAM либо REFERRAL_COMPANY_MISMATCH
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/members/{identityId}/remove:
+    post:
+      operationId: adminRemoveReferralMember
+      summary: Убрать человека из команды. Начисленное остаётся прежнему куратору.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReferralReasonRequest'
+      responses:
+        '200':
+          description: Сеть после правки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralNetworkTree'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — открытого членства нет
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/requests:
+    get:
+      operationId: adminListReferralRequests
+      summary: Очередь заявок — стать куратором, уйти, сменить куратора.
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: {type: string, enum: [pending, approved, rejected]}
+      responses:
+        '200':
+          description: Заявки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralRequestListResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.read
+          $ref: '#/components/responses/Error'
+
+  /admin/referral-network/requests/{requestId}/decide:
+    post:
+      operationId: adminDecideReferralRequest
+      summary: >
+        Решить заявку. Одобрение сразу применяет её в той же транзакции:
+        назначает куратора, закрывает членство или переводит к новому куратору.
+      tags: [admin]
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminDecideReferralRequestRequest'
+      responses:
+        '200':
+          description: Решённая заявка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReferralRequestView'
+        '400':
+          description: VALIDATION_FAILED — заявка уже решена или её нельзя применить
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет referral_network.manage
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: REFERRAL_COMPANY_MISMATCH
+          $ref: '#/components/responses/Error'
+
+  /admin/commissions:
+    get:
+      operationId: adminListCommissions
+      summary: >
+        Сделки первички всех организаций: received=false — ждут денег (без
+        проигранных), received=true — деньги пришли. С организацией, агентом
+        и начислением куратору.
+      tags: [admin]
+      parameters:
+        - name: received
+          in: query
+          required: false
+          schema: {type: string, enum: ['true', 'false']}
+      responses:
+        '200':
+          description: Сделки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCommissionListResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm
+          $ref: '#/components/responses/Error'
+
+  /admin/commissions/{dealId}/received:
+    post:
+      operationId: adminMarkCommissionReceived
+      summary: >
+        Менеджер BAZA отмечает, что комиссия по сделке первички пришла. В той
+        же транзакции куратору агента начисляется 7% от фактической суммы;
+        если начисления нет, accrual.reason объясняет почему. Пишет аудит
+        deal.commission_received.
+      tags: [admin]
+      parameters:
+        - name: dealId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminMarkCommissionReceivedRequest'
+      responses:
+        '200':
+          description: Отметка и результат начисления
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCommissionReceivedResult'
+        '400':
+          description: VALIDATION_FAILED — не первичка, проигранная сделка или отметка уже стоит
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+  /admin/commissions/{dealId}/cancel:
+    post:
+      operationId: adminCancelCommissionReceived
+      summary: >
+        Снять отметку по ошибке: начисление куратору сторнируется. Уже
+        выплаченное сторнирует только суперадмин — иначе 409
+        CURATOR_ACCRUAL_ALREADY_PAID.
+      tags: [admin]
+      parameters:
+        - name: dealId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCancelCommissionReceivedRequest'
+      responses:
+        '200':
+          description: Отметка снята
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCommissionCancelResult'
+        '400':
+          description: VALIDATION_FAILED — отметки нет
+          $ref: '#/components/responses/Error'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет commission.confirm
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT либо CURATOR_ACCRUAL_ALREADY_PAID
+          $ref: '#/components/responses/Error'
+
+  /admin/curator-payouts:
+    get:
+      operationId: adminListCuratorPayouts
+      summary: Кураторы с итогами по валютам — начислено, выплачено, к выплате.
+      tags: [admin]
+      responses:
+        '200':
+          description: Выплаты
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCuratorPayoutListResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark
+          $ref: '#/components/responses/Error'
+
+  /admin/curator-payouts/{identityId}/accruals:
+    get:
+      operationId: adminListCuratorAccruals
+      summary: Журнал начислений куратора, свежие первыми.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Начисления
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CuratorAccrualsResponse'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark
+          $ref: '#/components/responses/Error'
+
+  /admin/curator-payouts/{identityId}/pay:
+    post:
+      operationId: adminMarkCuratorPaid
+      summary: >
+        Отметить выплату куратору по списку начислений. Переводятся только
+        accrued этого куратора; платёж проводит бухгалтерия BAZA вне системы.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminMarkCuratorPaidRequest'
+      responses:
+        '200':
+          description: Сколько отмечено и журнал после
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCuratorPaidResult'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет curator_payout.mark
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — нечего выплачивать
+          $ref: '#/components/responses/Error'
+
   /me/notifications:
     get:
       operationId: getMyNotificationSettings
@@ -9605,6 +10182,380 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    MoneyAmountList:
+      type: array
+      items: {$ref: '#/components/schemas/MoneyAmount'}
+
+    ReferralPersonView:
+      type: object
+      required: [identityId, name, organizationName, organizationType]
+      properties:
+        identityId: {type: string}
+        name: {type: string}
+        organizationName: {type: string, nullable: true}
+        organizationType: {type: string, nullable: true}
+
+    AdminReferralPersonSummary:
+      allOf:
+        - $ref: '#/components/schemas/ReferralPersonView'
+        - type: object
+          required: [login]
+          properties:
+            login: {type: string}
+
+    ReferralMoneyTotals:
+      type: object
+      required: [earned, paid, due]
+      properties:
+        earned: {$ref: '#/components/schemas/MoneyAmountList'}
+        paid: {$ref: '#/components/schemas/MoneyAmountList'}
+        due: {$ref: '#/components/schemas/MoneyAmountList'}
+
+    ReferralTeamRules:
+      type: object
+      required: [ratePercent, teamSizeMin, teamSizeIdealMax]
+      properties:
+        ratePercent: {type: integer}
+        teamSizeMin: {type: integer}
+        teamSizeIdealMax: {type: integer}
+
+    ReferralTeamMemberView:
+      type: object
+      required: [person, joinedAt, joinedVia, status]
+      properties:
+        person: {$ref: '#/components/schemas/ReferralPersonView'}
+        joinedAt: {type: string, format: date-time}
+        joinedVia: {type: string, enum: [invite_link, admin]}
+        status: {type: string, enum: [active, on_review]}
+
+    ReferralCuratorNodeView:
+      type: object
+      required: [person, appointedAt, teamSize, teamStatus, members]
+      properties:
+        person: {$ref: '#/components/schemas/ReferralPersonView'}
+        appointedAt: {type: string, format: date-time}
+        teamSize: {type: integer}
+        teamStatus: {type: string, enum: [recruiting, healthy, time_to_split]}
+        members:
+          type: array
+          items: {$ref: '#/components/schemas/ReferralTeamMemberView'}
+
+    AdminReferralCuratorNodeView:
+      allOf:
+        - $ref: '#/components/schemas/ReferralCuratorNodeView'
+        - type: object
+          required: [inviteCode, totals]
+          properties:
+            inviteCode: {type: string}
+            totals: {$ref: '#/components/schemas/ReferralMoneyTotals'}
+
+    AdminReferralNetworkTree:
+      type: object
+      required: [rules, curators, summary]
+      properties:
+        rules: {$ref: '#/components/schemas/ReferralTeamRules'}
+        curators:
+          type: array
+          items: {$ref: '#/components/schemas/AdminReferralCuratorNodeView'}
+        summary:
+          type: object
+          required: [curators, members, membersOnReview, pendingRequests]
+          properties:
+            curators: {type: integer}
+            members: {type: integer}
+            membersOnReview: {type: integer}
+            pendingRequests: {type: integer}
+
+    OrganizationReferralNetworkView:
+      type: object
+      required: [rules, curators]
+      properties:
+        rules: {$ref: '#/components/schemas/ReferralTeamRules'}
+        curators:
+          type: array
+          items: {$ref: '#/components/schemas/ReferralCuratorNodeView'}
+
+    CuratorAccrualView:
+      type: object
+      required: [id, curator, member, dealId, commission, ratePercent, amount, status, accruedAt, paidAt, reversedAt]
+      properties:
+        id: {type: string}
+        curator: {$ref: '#/components/schemas/ReferralPersonView'}
+        member: {$ref: '#/components/schemas/ReferralPersonView'}
+        dealId: {type: string}
+        commission: {$ref: '#/components/schemas/MoneyAmount'}
+        ratePercent: {type: integer, description: Процент на момент начисления — снимок правила.}
+        amount: {$ref: '#/components/schemas/MoneyAmount'}
+        status: {type: string, enum: [accrued, paid, reversed]}
+        accruedAt: {type: string, format: date-time}
+        paidAt: {type: string, format: date-time, nullable: true}
+        reversedAt: {type: string, format: date-time, nullable: true}
+
+    ReferralRequestView:
+      type: object
+      required: [id, type, applicant, targetCurator, reason, status, decisionComment, createdAt, decidedAt]
+      properties:
+        id: {type: string}
+        type: {type: string, enum: [become_curator, leave_team, change_curator]}
+        applicant: {$ref: '#/components/schemas/ReferralPersonView'}
+        targetCurator:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ReferralPersonView'
+        reason: {type: string}
+        status: {type: string, enum: [pending, approved, rejected]}
+        decisionComment: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        decidedAt: {type: string, format: date-time, nullable: true}
+
+    ReferralRequestListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ReferralRequestView'}
+
+    MyReferralNetworkView:
+      type: object
+      required: [rules, role, curator, membership, requests]
+      properties:
+        rules: {$ref: '#/components/schemas/ReferralTeamRules'}
+        role: {type: string, enum: [curator, member, none]}
+        curator:
+          type: object
+          nullable: true
+          required: [inviteCode, node, totals, accruals]
+          properties:
+            inviteCode: {type: string}
+            node: {$ref: '#/components/schemas/ReferralCuratorNodeView'}
+            totals: {$ref: '#/components/schemas/ReferralMoneyTotals'}
+            accruals:
+              type: array
+              items: {$ref: '#/components/schemas/CuratorAccrualView'}
+        membership:
+          type: object
+          nullable: true
+          required: [curator, joinedAt, status, accruals]
+          properties:
+            curator: {$ref: '#/components/schemas/ReferralPersonView'}
+            joinedAt: {type: string, format: date-time}
+            status: {type: string, enum: [active, on_review]}
+            accruals:
+              type: array
+              items: {$ref: '#/components/schemas/CuratorAccrualView'}
+        requests:
+          type: array
+          items: {$ref: '#/components/schemas/ReferralRequestView'}
+
+    ReferralInvitePreview:
+      type: object
+      required: [curatorName]
+      properties:
+        curatorName: {type: string}
+
+    JoinReferralTeamRequest:
+      type: object
+      required: [code]
+      properties:
+        code: {type: string, minLength: 4, maxLength: 32}
+
+    CreateReferralRequestRequest:
+      type: object
+      required: [type, reason]
+      properties:
+        type: {type: string, enum: [become_curator, leave_team, change_curator]}
+        reason: {type: string, minLength: 3, maxLength: 1000}
+        targetInviteCode: {type: string, minLength: 4, maxLength: 32, description: Только для смены куратора.}
+
+    AdminReferralPersonView:
+      type: object
+      required: [person, isCurator, membership]
+      properties:
+        person: {$ref: '#/components/schemas/AdminReferralPersonSummary'}
+        isCurator: {type: boolean}
+        membership:
+          type: object
+          nullable: true
+          required: [curator, status]
+          properties:
+            curator: {$ref: '#/components/schemas/ReferralPersonView'}
+            status: {type: string, enum: [active, on_review, ended]}
+
+    ReferralMembershipHistoryResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [curator, status, joinedAt, joinedVia, endedAt, endReason, note]
+            properties:
+              curator: {$ref: '#/components/schemas/ReferralPersonView'}
+              status: {type: string, enum: [active, on_review, ended]}
+              joinedAt: {type: string, format: date-time}
+              joinedVia: {type: string, enum: [invite_link, admin]}
+              endedAt: {type: string, format: date-time, nullable: true}
+              endReason: {type: string, nullable: true}
+              note: {type: string, nullable: true}
+
+    AdminReferralReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 3, maxLength: 1000}
+
+    AdminAppointCuratorRequest:
+      allOf:
+        - $ref: '#/components/schemas/AdminReferralReasonRequest'
+        - type: object
+          required: [identityId]
+          properties:
+            identityId: {type: string}
+
+    AdminAssignReferralMemberRequest:
+      allOf:
+        - $ref: '#/components/schemas/AdminReferralReasonRequest'
+        - type: object
+          required: [memberIdentityId, curatorIdentityId]
+          properties:
+            memberIdentityId: {type: string}
+            curatorIdentityId: {type: string}
+
+    AdminDecideReferralRequestRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [approved, rejected]}
+        comment: {type: string, minLength: 1, maxLength: 1000}
+
+    PlatformDealView:
+      type: object
+      required: [id, organizationId, ownerPositionId, title, stage, dealType, expectedCommission, commissionReceived, commissionReceivedAt, version, createdAt]
+      properties:
+        id: {type: string}
+        organizationId: {type: string}
+        ownerPositionId: {type: string}
+        title: {type: string}
+        stage: {$ref: '#/components/schemas/DealStage'}
+        dealType: {type: string, nullable: true}
+        expectedCommission:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MoneyAmount'
+        commissionReceived:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/MoneyAmount'
+        commissionReceivedAt: {type: string, format: date-time, nullable: true}
+        version: {type: integer}
+        createdAt: {type: string, format: date-time}
+
+    AdminCommissionDealView:
+      allOf:
+        - $ref: '#/components/schemas/PlatformDealView'
+        - type: object
+          required: [organizationName, agentName, curatorAccrual]
+          properties:
+            organizationName: {type: string, nullable: true}
+            agentName: {type: string, nullable: true}
+            curatorAccrual:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/CuratorAccrualView'
+
+    AdminCommissionListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/AdminCommissionDealView'}
+
+    AdminMarkCommissionReceivedRequest:
+      type: object
+      required: [expectedVersion, amountMinorUnits, currency]
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+        amountMinorUnits: {type: integer, minimum: 1}
+        currency: {type: string, enum: [USD, GEL, RUB]}
+        receivedAt: {type: string, format: date-time, description: Когда деньги пришли; по умолчанию сейчас.}
+
+    AdminCommissionReceivedResult:
+      type: object
+      required: [deal, accrual]
+      properties:
+        deal: {$ref: '#/components/schemas/PlatformDealView'}
+        accrual:
+          type: object
+          required: [accrued]
+          properties:
+            accrued: {type: boolean}
+            accrualId: {type: string}
+            curatorIdentityId: {type: string}
+            amount: {$ref: '#/components/schemas/MoneyAmount'}
+            reason:
+              type: string
+              enum: [not_primary, no_occupant, not_in_team, membership_on_review, company_mismatch, curator_retired]
+
+    AdminCancelCommissionReceivedRequest:
+      allOf:
+        - $ref: '#/components/schemas/AdminReferralReasonRequest'
+        - type: object
+          required: [expectedVersion]
+          properties:
+            expectedVersion: {type: integer, minimum: 0}
+
+    AdminCommissionCancelResult:
+      type: object
+      required: [deal, accrualReversed]
+      properties:
+        deal: {$ref: '#/components/schemas/PlatformDealView'}
+        accrualReversed: {type: boolean}
+
+    AdminCuratorPayoutListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [curator, inviteCode, totals]
+            properties:
+              curator: {$ref: '#/components/schemas/AdminReferralPersonSummary'}
+              inviteCode: {type: string, nullable: true}
+              totals: {$ref: '#/components/schemas/ReferralMoneyTotals'}
+
+    CuratorAccrualsResponse:
+      type: object
+      required: [totals, accruals]
+      properties:
+        totals: {$ref: '#/components/schemas/ReferralMoneyTotals'}
+        accruals:
+          type: array
+          items: {$ref: '#/components/schemas/CuratorAccrualView'}
+
+    AdminMarkCuratorPaidRequest:
+      type: object
+      required: [accrualIds]
+      properties:
+        accrualIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: {type: string}
+        paidAt: {type: string, format: date-time}
+
+    AdminCuratorPaidResult:
+      allOf:
+        - $ref: '#/components/schemas/CuratorAccrualsResponse'
+        - type: object
+          required: [paid]
+          properties:
+            paid: {type: integer}
+
     MoneyAmount:
       type: object
       required: [amountMinorUnits, currency]
@@ -12028,6 +12979,12 @@ components:
           $ref: '#/components/schemas/DealStage'
         expectedCommission:
           $ref: '#/components/schemas/MoneyAmount'
+        commissionReceived:
+          nullable: true
+          description: Фактическая комиссия, которую отметил менеджер BAZA; до отметки null.
+          allOf:
+            - $ref: '#/components/schemas/MoneyAmount'
+        commissionReceivedAt: {type: string, format: date-time, nullable: true}
         participants:
           type: array
           items:

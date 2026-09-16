@@ -1,0 +1,710 @@
+/* Реферальная сеть BAZA, комиссии и выплаты кураторам.
+ * Та же палитра, что app.css: лес, бумага, акцент BAZA.
+ */
+
+.tab-bar {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--admin-line-strong);
+}
+
+.tab-bar button {
+  margin-bottom: -1px;
+  padding: 0.6rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  box-shadow: none;
+}
+
+.tab-bar button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.referral-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.75rem;
+  margin: -0.75rem 0 1.25rem;
+  color: var(--ink-soft);
+}
+
+.referral-summary strong {
+  margin-right: 0.3rem;
+  color: var(--ink);
+  font-size: 1.35rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-summary .is-warning strong {
+  color: var(--warn-ink);
+}
+
+.referral-notice {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: oklch(0.94 0.04 155);
+  color: var(--admin-forest-deep);
+}
+
+.referral-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.referral-layout__canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.referral-search {
+  align-items: end;
+}
+
+.referral-search__hint {
+  align-self: center;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.referral-search__hint.is-error {
+  color: var(--danger);
+}
+
+.referral-layout__panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.referral-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 8px;
+  background: var(--admin-panel-raised);
+  box-shadow: var(--admin-shadow);
+}
+
+.referral-card__header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.referral-card__header p,
+.referral-card__note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.referral-card__facts {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.referral-card__facts div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.referral-card__facts dt {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.referral-card__facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.referral-card__facts .is-warning dd {
+  color: var(--warn-ink);
+}
+
+.referral-card__team,
+.referral-card__history ol {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.referral-card__team li,
+.referral-card__history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.2rem 0.75rem;
+}
+
+.referral-card__history h3 {
+  margin: 0 0 0.5rem;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.referral-card__muted {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.referral-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.team-status--healthy {
+  color: var(--accent);
+}
+
+.team-status--recruiting {
+  color: var(--ink-soft);
+}
+
+.team-status--time_to_split {
+  color: var(--warn-ink);
+}
+
+.team-fill__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.team-fill__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: oklch(0.42 0.11 155 / 0.18);
+}
+
+.team-fill__value {
+  position: relative;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.team-fill__scale {
+  position: relative;
+  height: 1.1rem;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.team-fill__scale span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.money-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.7fr) minmax(0, 1.4fr);
+  gap: 0.75rem;
+}
+
+.money-fields > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.data-table--compact td,
+.data-table--compact th {
+  padding-block: 0.45rem;
+}
+
+.data-table tr.is-muted td {
+  color: var(--ink-soft);
+  text-decoration: line-through;
+}
+
+.payout-details > td {
+  background: var(--admin-paper-warm);
+}
+
+.accruals-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.accruals-list__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 960px) {
+  .referral-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .referral-layout__panel {
+    position: static;
+  }
+}
+
+@media (max-width: 560px) {
+  .money-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Дерево сети: карточки сверху вниз, команда «вешалкой» ──────────────
+ * docs/research/2026-09-16-referral-tree-ux.md. Лес — BAZA и кураторы,
+ * бумага — участники. Статус — точка и слово, цвет не одинок.
+ */
+
+.network-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.network-controls__segmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 6px;
+  background: var(--admin-panel-raised);
+}
+
+.network-controls__segmented button {
+  min-height: 34px;
+  padding: 0.3rem 0.9rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-soft);
+  box-shadow: none;
+}
+
+.network-controls__segmented button.is-active {
+  background: var(--admin-forest-deep);
+  color: var(--admin-ink-on-dark);
+}
+
+.genealogy {
+  position: relative;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 1px 1px, oklch(0.8 0.02 145 / 0.55) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--admin-paper-warm);
+  box-shadow: var(--admin-shadow);
+  overflow: hidden;
+}
+
+.genealogy__toolbar {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.35rem;
+}
+
+.genealogy__toolbar button {
+  min-width: 36px;
+  min-height: 34px;
+  padding: 0.3rem 0.65rem;
+  background: var(--admin-panel-raised);
+}
+
+.genealogy__viewport {
+  position: relative;
+  height: min(72vh, 760px);
+  min-height: 420px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.genealogy__viewport:active {
+  cursor: grabbing;
+}
+
+.genealogy__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  transition: transform 280ms var(--admin-ease);
+}
+
+.genealogy__links {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.genealogy__link {
+  fill: none;
+  stroke: var(--admin-line-strong);
+  stroke-width: 1.5;
+  transition: stroke 160ms var(--admin-ease), opacity 160ms var(--admin-ease);
+}
+
+.genealogy__link.is-highlighted {
+  stroke: var(--accent);
+  stroke-width: 2.25;
+}
+
+.genealogy__link.is-dimmed {
+  opacity: 0.45;
+}
+
+/* Карточка приглушается без прозрачности: иначе сквозь неё просвечивают линии. */
+.genealogy-card.is-dimmed {
+  filter: saturate(0.35) brightness(1.04);
+  box-shadow: none;
+}
+
+.genealogy-card--member.is-dimmed .genealogy-card__name,
+.genealogy-card--member.is-dimmed .genealogy-avatar {
+  color: var(--ink-soft);
+}
+
+.genealogy-card {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 8px;
+  background: var(--admin-panel-raised);
+  color: var(--ink);
+  box-shadow: 0 6px 16px oklch(0.22 0.04 145 / 0.08);
+  text-align: left;
+  transition:
+    box-shadow 160ms var(--admin-ease),
+    opacity 160ms var(--admin-ease),
+    border-color 160ms var(--admin-ease);
+  animation: genealogy-in 360ms var(--admin-ease) both;
+}
+
+@keyframes genealogy-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+button.genealogy-card,
+.genealogy-card button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button.genealogy-card:hover:not(:disabled),
+.genealogy-card:hover {
+  box-shadow: var(--admin-shadow-hover);
+  transform: none;
+}
+
+.genealogy-card.is-selected {
+  border-color: var(--admin-forest-deep);
+  box-shadow: 0 0 0 2px var(--accent), var(--admin-shadow-hover);
+}
+
+.genealogy-card--root {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.1rem;
+  border-color: transparent;
+  background: linear-gradient(160deg, var(--admin-forest) 0%, var(--admin-forest-deep) 100%);
+  color: var(--admin-ink-on-dark);
+  text-align: center;
+}
+
+.genealogy-card__root-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.genealogy-card__root-sub {
+  color: var(--admin-accent-on-dark);
+  font-size: 0.78rem;
+}
+
+.genealogy-card--curator {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
+  padding: 0;
+  border-color: transparent;
+  background: var(--admin-forest-deep);
+  color: var(--admin-ink-on-dark);
+  overflow: hidden;
+}
+
+.genealogy-card__main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 0;
+  padding: 0.65rem 0.8rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.genealogy-card__main:hover:not(:disabled) {
+  transform: none;
+}
+
+.genealogy-card__text {
+  display: grid;
+  min-width: 0;
+  gap: 0.05rem;
+}
+
+.genealogy-card__name {
+  overflow: hidden;
+  font-size: 0.92rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.genealogy-card__sub {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.genealogy-card--curator .genealogy-card__sub {
+  color: var(--admin-accent-on-dark);
+}
+
+.genealogy-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  background: oklch(0.3 0.05 155);
+}
+
+.genealogy-card__footer .genealogy-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.genealogy-card__toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 28px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid oklch(0.82 0.1 155 / 0.45);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--admin-ink-on-dark);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+
+.genealogy-card__toggle[aria-expanded='true'] {
+  background: var(--admin-accent-on-dark);
+  color: var(--admin-forest-deep);
+}
+
+.genealogy-card__warn {
+  color: oklch(0.85 0.13 75);
+}
+
+.genealogy-card__toggle[aria-expanded='true'] .genealogy-card__warn {
+  color: oklch(0.45 0.12 60);
+}
+
+.genealogy-card__chevron {
+  font-size: 0.7rem;
+}
+
+.genealogy-card__empty {
+  color: var(--admin-accent-on-dark);
+  font-size: 0.78rem;
+}
+
+.genealogy-card--member.is-review {
+  border-color: oklch(0.72 0.14 70);
+  border-style: dashed;
+}
+
+.genealogy-card--member.is-review .genealogy-card__sub {
+  color: var(--warn-ink);
+}
+
+.genealogy-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: oklch(0.93 0.04 155);
+  color: var(--admin-forest-deep);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.genealogy-avatar--curator {
+  width: 40px;
+  height: 40px;
+  background: var(--admin-accent-on-dark);
+  font-size: 0.85rem;
+}
+
+.genealogy-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.genealogy-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.genealogy-status--healthy .genealogy-status__dot {
+  background: oklch(0.72 0.14 150);
+}
+
+.genealogy-status--recruiting .genealogy-status__dot {
+  border: 1.5px solid currentColor;
+}
+
+.genealogy-status--time_to_split .genealogy-status__dot {
+  background: oklch(0.78 0.15 70);
+}
+
+/* Список с отступами */
+
+.network-list,
+.network-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.network-list {
+  border: 1px solid var(--admin-line-strong);
+  border-radius: 8px;
+  background: var(--admin-panel-raised);
+  box-shadow: var(--admin-shadow);
+  overflow: hidden;
+}
+
+.network-list ul {
+  padding-left: 2.6rem;
+  background: var(--admin-paper-warm);
+}
+
+.network-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  padding: 0.5rem 0.9rem;
+}
+
+.network-list > li + li > .network-list__row {
+  border-top: 1px solid var(--line);
+}
+
+.network-list__row.is-selected {
+  background: oklch(0.94 0.04 155);
+}
+
+.network-list__toggle {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  box-shadow: none;
+}
+
+.network-list__name {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.network-list__row--member .network-list__name {
+  font-weight: 400;
+}
+
+.network-list__meta {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+}
+
+.network-list__warn {
+  color: var(--warn-ink);
+  font-size: 0.86rem;
+}
+
+.network-list .genealogy-status--healthy {
+  color: var(--accent);
+}
+
+.network-list .genealogy-status--time_to_split {
+  color: var(--warn-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .genealogy__canvas,
+  .genealogy-card,
+  .genealogy__link {
+    animation: none;
+    transition: none;
+  }
+}

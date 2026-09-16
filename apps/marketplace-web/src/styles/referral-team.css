@@ -1,0 +1,578 @@
+/* «Моя команда» и страница приглашения — реферальная сеть BAZA в кабинете.
+ * Токены витрины из Figma: зелёный бренда, лес, бумага; заголовки Plus
+ * Jakarta Sans, текст Comfortaa. Дерево — куратор сверху, команда «вешалкой».
+ */
+
+.team-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-base) var(--space-xl);
+}
+
+.team-page--narrow {
+  width: min(640px, 100%);
+}
+
+.team-page__header h1,
+.team-card h1 {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-forest-deep);
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.team-page__header p {
+  max-width: 70ch;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-base);
+  line-height: 1.6;
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-base);
+}
+
+.team-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-base) var(--space-base) calc(var(--space-base) + 2px);
+  border: 1px solid var(--color-card-line);
+  border-radius: 16px;
+  background: var(--color-paper-raised);
+  box-shadow: var(--shadow-editorial);
+}
+
+.team-card h2 {
+  margin: 0;
+  color: var(--color-forest-deep);
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.team-card__lead {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-card__muted {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.team-card__warning {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 10px;
+  background: #fff6e6;
+  color: #7a4a00;
+  font-size: var(--text-sm);
+}
+
+.team-card__error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--text-sm);
+}
+
+.team-card--invite {
+  background: linear-gradient(160deg, var(--color-forest) 0%, var(--color-forest-deep) 100%);
+  border-color: transparent;
+}
+
+.team-card--invite h2,
+.team-card--invite .team-card__muted {
+  color: var(--color-white);
+}
+
+.team-card--invite .team-card__muted {
+  opacity: 0.82;
+}
+
+.team-card--invite-landing {
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.team-card--invite-landing p {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.6;
+}
+
+.team-card--tree {
+  align-items: center;
+  padding: var(--space-md);
+}
+
+.team-invite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.team-invite input,
+.team-request-form input,
+.team-request-form textarea {
+  flex: 1 1 220px;
+  min-height: 46px;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-card-line);
+  border-radius: 10px;
+  background: var(--color-white);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.team-request-form textarea {
+  padding: var(--space-sm) var(--space-md);
+  resize: vertical;
+}
+
+.team-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.team-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 var(--space-base);
+  border: 0;
+  border-radius: 10px;
+  background: var(--color-brand-green);
+  color: var(--color-white);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, transform 160ms ease-out;
+}
+
+.team-button:hover:not(:disabled) {
+  background: var(--color-brand-green-hover);
+}
+
+.team-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.team-button--ghost {
+  border: 1px solid var(--color-card-line);
+  background: var(--color-white);
+  color: var(--color-forest-deep);
+}
+
+.team-button--ghost:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+}
+
+.team-status {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.team-status--healthy,
+.team-status--approved {
+  color: var(--color-brand-green);
+}
+
+.team-status--recruiting,
+.team-status--pending {
+  color: var(--color-ink-muted);
+}
+
+.team-status--time_to_split,
+.team-status--rejected {
+  color: #a3620a;
+}
+
+.team-fill {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--color-paper-deep);
+  overflow: hidden;
+}
+
+.team-fill__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(22, 150, 0, 0.16);
+}
+
+.team-fill__value {
+  position: relative;
+  height: 100%;
+  border-radius: 5px;
+  background: var(--color-brand-green);
+}
+
+.team-money {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin: var(--space-xs) 0 0;
+}
+
+.team-money div {
+  display: grid;
+  gap: 2px;
+}
+
+.team-money dt {
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+}
+
+.team-money dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-table-scroll {
+  overflow-x: auto;
+}
+
+.team-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.team-table th {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-card-line);
+  color: var(--color-ink-muted);
+  font-weight: 400;
+  text-align: left;
+}
+
+.team-table td {
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--color-line);
+  font-variant-numeric: tabular-nums;
+}
+
+.team-table tr.is-reversed td {
+  color: var(--color-text-disabled);
+  text-decoration: line-through;
+}
+
+.team-requests {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-requests li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-md);
+  align-items: baseline;
+}
+
+.team-request-form {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.team-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--color-paper);
+}
+
+.team-segmented button {
+  min-height: 38px;
+  padding: 0 var(--space-md);
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-ink-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.team-segmented button.is-active {
+  background: var(--color-white);
+  color: var(--color-forest-deep);
+  box-shadow: 0 2px 8px rgba(17, 63, 45, 0.12);
+}
+
+/* ─── Дерево команды: куратор сверху, команда «вешалкой» ─────────────────
+ * docs/research/2026-09-16-referral-tree-ux.md. Сетка: две колонки слева,
+ * стержень, две справа; на телефоне по одной. Связи рисуют псевдоэлементы
+ * под карточками: от края карточки до середины стержня.
+ */
+
+.team-tree {
+  --tree-card-h: 64px;
+  --tree-gap: 12px;
+  --tree-stem: 32px;
+  --tree-drop: 28px;
+  --tree-line: var(--color-moss);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding-block: var(--space-xs);
+}
+
+.team-tree__curator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: min(320px, 100%);
+  padding: 12px var(--space-md);
+  border-radius: var(--radius-md);
+  background: var(--color-forest-deep);
+  color: var(--color-white);
+  box-shadow: 0 10px 24px rgba(8, 40, 29, 0.18);
+}
+
+.team-tree__hanger {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) var(--tree-stem) repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows-wide), var(--tree-card-h));
+  gap: var(--tree-gap);
+  width: min(940px, 100%);
+  margin: var(--tree-drop) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-tree__stem {
+  position: relative;
+  grid-column: 3;
+  grid-row: 1 / -1;
+}
+
+.team-tree__stem::before {
+  content: '';
+  position: absolute;
+  top: calc(-1 * var(--tree-drop));
+  bottom: calc(var(--tree-card-h) / 2 - 1px);
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--tree-line);
+}
+
+.team-tree__member {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  grid-row: var(--row-wide);
+  grid-column: var(--col-wide);
+  padding: 0 12px;
+  border: 1px solid var(--color-card-line);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-raised);
+  outline: none;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.team-tree__member::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: var(--tree-line);
+  transition: background-color 160ms ease-out;
+}
+
+.team-tree__member[data-side-wide='left']::before {
+  left: 100%;
+}
+
+.team-tree__member[data-side-wide='right']::before {
+  right: 100%;
+}
+
+.team-tree__member[data-depth-wide='0']::before {
+  width: calc(var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+}
+
+.team-tree__member[data-depth-wide='1']::before {
+  width: calc(100% + 2 * var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+}
+
+.team-tree__member:hover,
+.team-tree__member:focus-visible {
+  border-color: var(--color-brand-green);
+  box-shadow: 0 6px 16px rgba(17, 63, 45, 0.12);
+}
+
+.team-tree__member:hover::before,
+.team-tree__member:focus-visible::before {
+  background: var(--color-brand-green);
+}
+
+.team-tree__member.is-review {
+  border-style: dashed;
+  border-color: #d08a14;
+}
+
+.team-tree__member.is-review .team-tree__sub {
+  color: #8a5500;
+}
+
+.team-tree__avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-forest-deep);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.team-tree__avatar--curator {
+  width: 44px;
+  height: 44px;
+  background: var(--color-brand-green);
+  color: var(--color-white);
+  font-size: 15px;
+}
+
+.team-tree__text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.team-tree__name {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-tree__sub {
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.team-tree__curator .team-tree__name {
+  color: var(--color-white);
+  font-size: var(--text-base);
+}
+
+.team-tree__curator .team-tree__sub {
+  color: var(--color-brand-green-light);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 640px) {
+  .team-tree {
+    --tree-gap: 8px;
+    --tree-stem: 24px;
+  }
+
+  .team-tree__hanger {
+    grid-template-columns: minmax(0, 1fr) var(--tree-stem) minmax(0, 1fr);
+    grid-template-rows: repeat(var(--rows-narrow), var(--tree-card-h));
+  }
+
+  .team-tree__stem {
+    grid-column: 2;
+  }
+
+  .team-tree__member {
+    grid-row: var(--row-narrow);
+    grid-column: var(--col-narrow);
+    padding: 0 8px;
+  }
+
+  .team-tree__member::before {
+    right: auto;
+    left: auto;
+  }
+
+  .team-tree__member[data-side-narrow='left']::before {
+    left: 100%;
+  }
+
+  .team-tree__member[data-side-narrow='right']::before {
+    right: 100%;
+  }
+
+  .team-tree__member[data-depth-wide]::before {
+    width: calc(var(--tree-gap) + var(--tree-stem) / 2 + 1px);
+  }
+
+  .team-tree__member .team-tree__avatar {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .team-page {
+    padding-inline: var(--space-md);
+  }
+
+  .team-money {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-tree__member,
+  .team-tree__member::before,
+  .team-button {
+    animation: none;
+    transition: none;
+  }
+}

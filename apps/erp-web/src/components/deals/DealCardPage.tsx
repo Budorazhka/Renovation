@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { CheckSquare, Square, AlertTriangle, User, Building2, Bookmark, Contact, ArrowRight } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
@@ -26,6 +26,7 @@ import { FMT_USD, formatUsdMillions, formatUsdThousands } from '@/lib/format-cur
 import { CLIENTS_MOCK } from '@/data/clients-mock'
 import { STAGE_LABELS, STAGE_ORDER, type DealStage, type PaymentStatus } from '@/types/deals'
 import { useI18n } from "@/i18n";
+import { referralNetworkApi, type Accrual } from '@/services/referralNetworkApi'
 
 const STAGE_COLORS: Record<DealStage, string> = {
   showing:     '#60a5fa',
@@ -76,6 +77,30 @@ export function DealCardPage() {
   } | null>(null)
 
   const deal = deals.find(d => d.id === dealId)
+
+  /**
+   * Начисление куратору по этой сделке. Сервер отдаёт человеку только его
+   * собственное место в сети, поэтому строку видит агент из команды на своей
+   * сделке; остальным её просто неоткуда взять — и не нужно.
+   */
+  const [curatorAccrual, setCuratorAccrual] = useState<Accrual | null>(null)
+  useEffect(() => {
+    if (tab !== 'finances' || !deal?.commissionReceived) return
+    let cancelled = false
+    referralNetworkApi
+      .getMine()
+      .then((network) => {
+        if (cancelled) return
+        const found = network.membership?.accruals.find((a) => a.dealId === deal.id && a.status !== 'reversed')
+        setCuratorAccrual(found ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setCuratorAccrual(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tab, deal?.id, deal?.commissionReceived])
 
   /** Связанный лид в CRM: sourceLeadId, clientId lead-* или клиент с convertedFromLeadId, если лид есть в пуле */
   const linkedLeadId = useMemo(() => {
@@ -335,12 +360,31 @@ export function DealCardPage() {
                 { label: 'Стоимость объекта', value: deal.price > 0 ? formatUsdMillions(deal.price, 2) : '—', color: C.white },
                 { label: 'Комиссия агентства', value: FMT_USD.format(deal.commission), color: C.gold },
                 { label: 'Ставка комиссии', value: deal.price > 0 ? `${((deal.commission / deal.price) * 100).toFixed(1)}%` : '—', color: C.gold },
-              ].map((row, i) => (
+                // Деньги отмечает менеджер BAZA в админке — здесь только чтение.
+                {
+                  label: t('mlm.dealCommissionReceived'),
+                  value: deal.commissionReceived
+                    ? `${new Intl.NumberFormat('ru-RU', { style: 'currency', currency: deal.commissionReceived.currency }).format(deal.commissionReceived.amount)} · ${new Date(deal.commissionReceived.receivedAt).toLocaleDateString('ru-RU')}`
+                    : t('mlm.dealCommissionNotYet'),
+                  color: deal.commissionReceived ? C.gold : C.whiteLow,
+                },
+                ...(curatorAccrual
+                  ? [
+                      {
+                        label: t('mlm.dealCuratorAccrual', { rate: curatorAccrual.ratePercent }),
+                        value: new Intl.NumberFormat('ru-RU', { style: 'currency', currency: curatorAccrual.amount.currency }).format(
+                          curatorAccrual.amount.amountMinorUnits / 100,
+                        ),
+                        color: C.gold,
+                      },
+                    ]
+                  : []),
+              ].map((row, i, rows) => (
                 <div key={i} style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   padding: '12px 0',
-                  borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                  borderBottom: i < rows.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                 }}>
                   <span style={{ fontSize: 16, color: C.whiteLow }}>{row.label}</span>
                   <span style={{ fontSize: 16, fontWeight: 400, color: row.color }}>{row.value}</span>

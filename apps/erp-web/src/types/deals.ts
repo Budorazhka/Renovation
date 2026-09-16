@@ -79,6 +79,8 @@ export interface Deal {
   price: number
   /** Комиссия агентства */
   commission: number
+  /** Комиссия, которая фактически пришла BAZA (отметка менеджера BAZA). Нет — ещё не пришла. */
+  commissionReceived?: { amount: number; currency: string; receivedAt: string }
   /** Дата создания */
   createdAt: string
   /** Дата последнего обновления */

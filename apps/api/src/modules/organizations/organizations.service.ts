@@ -21,6 +21,17 @@ import type { OrganizationDocument, OrganizationType } from './schemas/organizat
 import type { FixedRole, PositionDocument } from './schemas/position.schema';
 import type { PermissionScope } from '../authorization/schemas/permission-grant.schema';
 
+/** Человек с его компанией — для экранов, где люди из разных организаций рядом (реферальная сеть). */
+export interface PersonSummary {
+  identityId: Types.ObjectId;
+  login: string;
+  name: string;
+  positionId: Types.ObjectId | null;
+  organizationId: Types.ObjectId | null;
+  organizationName: string | null;
+  organizationType: OrganizationType | null;
+}
+
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
@@ -99,6 +110,70 @@ export class OrganizationsService {
    * сам решает, как откатиться (не бросает NotFoundException: это
    * вспомогательное обогащение, не критичная проверка владения).
    */
+  /**
+   * Кто эти люди: имя, логин и компания — для реферальной сети BAZA, где
+   * куратор и участники состоят в разных организациях. Boundary-метод:
+   * репозитории позиций, назначений и Identity наружу не выходят.
+   *
+   * Имя — как человека зовут в его должности; у человека без должности
+   * (зарегистрирован только на маркетплейсе) — его логин.
+   */
+  async getPeopleSummaries(identityIds: Types.ObjectId[]): Promise<PersonSummary[]> {
+    if (identityIds.length === 0) return [];
+    const [identities, assignments] = await Promise.all([
+      this.authService.findByIds(identityIds),
+      this.positionAssignmentRepository.findActiveByIdentities(identityIds),
+    ]);
+    const positions = await this.positionRepository.findByIds(assignments.map((a) => a.positionId));
+    const organizations = await this.organizationRepository.findPublicByIds(assignments.map((a) => a.organizationId));
+
+    const assignmentByIdentity = new Map(assignments.map((a) => [a.identityId.toString(), a]));
+    const positionById = new Map(positions.map((p) => [p._id.toString(), p]));
+    const organizationById = new Map(organizations.map((o) => [o.id.toString(), o]));
+
+    return identities.map((identity) => {
+      const assignment = assignmentByIdentity.get(identity.id.toString());
+      const position = assignment ? positionById.get(assignment.positionId.toString()) : undefined;
+      const organization = assignment ? organizationById.get(assignment.organizationId.toString()) : undefined;
+      return {
+        identityId: identity.id,
+        login: identity.normalizedLogin,
+        name: position?.currentOccupantName?.trim() || identity.normalizedLogin,
+        positionId: assignment?.positionId ?? null,
+        organizationId: organization?.id ?? null,
+        organizationName: organization?.name ?? null,
+        organizationType: organization?.type ?? null,
+      };
+    });
+  }
+
+  /**
+   * Кто сидит в должностях и в каких компаниях — для админского раздела
+   * «Комиссии», где сделки всех организаций в одном списке.
+   */
+  async describePositions(
+    positionIds: Types.ObjectId[],
+  ): Promise<Map<string, { occupantName: string | null; organizationName: string | null }>> {
+    const positions = await this.positionRepository.findByIds(positionIds);
+    const organizations = await this.organizationRepository.findPublicByIds(positions.map((p) => p.organizationId));
+    const organizationById = new Map(organizations.map((o) => [o.id.toString(), o.name]));
+    return new Map(
+      positions.map((p) => [
+        p._id.toString(),
+        {
+          occupantName: p.currentOccupantName?.trim() || null,
+          organizationName: organizationById.get(p.organizationId.toString()) ?? null,
+        },
+      ]),
+    );
+  }
+
+  /** Кто сейчас занимает должность — для сделки, у которой известна только должность владельца. */
+  async getActiveOccupantIdentityId(positionId: Types.ObjectId): Promise<Types.ObjectId | null> {
+    const assignment = await this.positionAssignmentRepository.findActiveByPosition(positionId);
+    return assignment?.identityId ?? null;
+  }
+
   async getPositionSummary(
     positionId: Types.ObjectId,
     organizationId: Types.ObjectId,
