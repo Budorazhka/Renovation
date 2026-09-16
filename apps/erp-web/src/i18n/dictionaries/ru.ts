@@ -3903,7 +3903,20 @@ export const ru = {
       emptyFiltered: 'Нет броней в этой категории',
     },
     registrations: {
+      incomingHint: "Заявки агентств по этому комплексу. Подтверждение закрепляет клиента за агентством на шесть месяцев.",
+      accept: "Подтвердить",
+      reject: "Отклонить",
+      rejectReason: "Причина отказа",
+      statuses: {
+          pending: "Ждёт решения",
+          active: "Закреплён",
+          rejected: "Отказ",
+          completed: "Сделка состоялась",
+          cancelled: "Снята агентством"
+      },
       errors: {
+        conflict: "Заявку изменили в другом месте, список обновлён",
+        alreadyDecided: "По заявке уже принято решение",
         nameRequired: 'Укажите имя клиента',
         phoneRequired: 'Укажите телефон',
         realtorRequired: 'Укажите риэлтора',
@@ -3924,6 +3937,7 @@ export const ru = {
       submit: 'Зафиксировать',
       addButton: 'Зафиксировать клиента',
       columns: {
+        decision: "Решение",
         client: 'Клиент',
         phone: 'Телефон',
         realtor: 'Риэлтор',
@@ -7888,6 +7902,59 @@ export const ru = {
             "reopen": "Вернуть в работу",
             "reschedule": "Перенести",
             "delete": "Удалить"
+        }
+    },
+    "registrations": {
+        "title": "Фиксация клиента у застройщика",
+        "subtitle": "Заявка по ЖК платформы уходит застройщику: он подтверждает или отклоняет её",
+        "counts": "Ждут ответа: {pending} · закреплено: {active} · истекло: {expired}",
+        "newTitle": "Новая фиксация",
+        "submit": "Зафиксировать",
+        "saving": "Сохраняем…",
+        "filterAll": "Все",
+        "empty": "Фиксаций пока нет",
+        "loadFailed": "Не удалось загрузить реестр",
+        "retry": "Повторить",
+        "createFailed": "Не удалось подать заявку",
+        "actionFailed": "Не удалось сохранить решение",
+        "alreadyRegistered": "Клиент уже закреплён в этом ЖК за другим агентством",
+        "alreadyDecided": "По заявке уже принято решение",
+        "conflict": "Заявку изменили в другом месте, список обновлён",
+        "awaitsDeveloper": "Ждёт ответа застройщика",
+        "reservedUntil": "Закреплён до {date}",
+        "cityPlaceholder": "Город",
+        "developmentLabel": "ЖК на платформе",
+        "developmentPlaceholder": "Выберите ЖК",
+        "catalogEmpty": "В каталоге нет опубликованных ЖК",
+        "catalogFailed": "Каталог не загрузился",
+        "developerPlaceholder": "Застройщик",
+        "projectPlaceholder": "Проект или ЖК",
+        "unitPlaceholder": "Лот, корпус, квартира",
+        "clientNamePlaceholder": "Имя клиента",
+        "clientPhonePlaceholder": "Телефон клиента",
+        "leadLabel": "Лид",
+        "leadNone": "Без привязки к лиду",
+        "notesPlaceholder": "Заметка для себя",
+        "linkPartnersReport": "Отчёт по первичному рынку",
+        "linkBookings": "Брони по шахматке",
+        "hintPlatform": "Застройщик увидит заявку в своей системе и ответит. Подтверждение закрепляет клиента на шесть месяцев.",
+        "hintExternal": "Застройщика нет на платформе: отметьте заявку подтверждённой сами, когда получите ответ.",
+        "target": {
+            "platform": "ЖК на платформе",
+            "external": "Застройщик вне платформы"
+        },
+        "status": {
+            "pending": "Ждёт ответа",
+            "active": "Закреплён",
+            "rejected": "Отказ",
+            "completed": "Сделка состоялась",
+            "cancelled": "Снята",
+            "expired": "Срок истёк"
+        },
+        "actions": {
+            "confirm": "Отметить подтверждённой",
+            "complete": "Сделка состоялась",
+            "cancel": "Снять заявку"
         }
     },
     "settings": {

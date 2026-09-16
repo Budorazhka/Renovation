@@ -6,6 +6,13 @@ import { AppException } from '../../shared/errors/app-exception';
 import { ErrorCode } from '../../shared/errors/error-codes';
 import { runInTransaction } from '../../shared/transactions/run-in-transaction';
 
+/** Что о чужом опубликованном ЖК знает вторая сторона сделки — не документ целиком. */
+export interface PublishedDevelopmentSummary {
+  id: Types.ObjectId;
+  organizationId: Types.ObjectId;
+  name: string;
+}
+
 /** Параметры идемпотентности создающей команды. */
 interface IdempotencyParams {
   identityId: Types.ObjectId;
@@ -223,6 +230,27 @@ export class DevelopmentsService {
     params: { cursor?: Types.ObjectId; limit: number },
   ): Promise<DevelopmentDocument[]> {
     return this.developmentRepository.listForOrganization(organizationId, params);
+  }
+
+  /**
+   * Краткая карточка опубликованного ЖК для ВТОРОЙ стороны сделки: агентство
+   * фиксирует клиента у чужого застройщика (ClientRegistrationsService) и
+   * обязано увидеть имя комплекса и организацию-владельца. Неопубликованный
+   * комплекс отвечает 404 — по id нельзя узнавать о чужих черновиках.
+   *
+   * ADR-001: cross-module связь идёт через сервис, а не через чужой
+   * репозиторий; наружу отдаются три поля, а не документ целиком.
+   */
+  async getPublishedDevelopmentSummary(id: Types.ObjectId): Promise<PublishedDevelopmentSummary> {
+    const development = await this.developmentRepository.findPublishedById(id);
+    if (!development) {
+      throw new NotFoundException('Development not found');
+    }
+    return {
+      id: development._id,
+      organizationId: development.organizationId,
+      name: development.name,
+    };
   }
 
   /**

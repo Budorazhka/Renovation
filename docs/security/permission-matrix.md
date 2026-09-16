@@ -224,6 +224,26 @@ Telegram выбирает публикующий; свои настройки у
 (`/me/notifications`) меняет только сам сотрудник, отдельного права не
 нужно. См. [operations/news.md](../operations/news.md).
 
+### 1.13. Фиксация клиента у застройщика (client_registration)
+
+| Permission | owner | director | rop | manager | administrator | marketer |
+|---|---|---|---|---|---|---|
+| `client_registration.read.organization` | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| `client_registration.create.organization` | ✓ | ✓ | ✓ | ✓ | — | — |
+| `client_registration.update.organization` | ✓ | ✓ | ✓ | ✓ | — | — |
+| `client_registration.decide.organization` | ✓ | ✓ | ✓ | — | — | — |
+
+`developer` — `read` и `decide` (scope `organization`).
+
+**16.09.2026, решение владельца.** Заявку подаёт агентство, подтверждает
+застройщик на платформе; подтверждение закрепляет клиента за агентством на
+шесть месяцев. `decide` — сторона застройщика: он отвечает на заявки по своим
+ЖК (фильтр по `developerOrganizationId`, не по владельцу записи). `update` —
+сторона агентства: правка заявки, ручное подтверждение по застройщику вне
+платформы, завершение и снятие. У агентства входящие всегда пусты, у
+застройщика пуст свой реестр — сторона определяется данными, а не отдельным
+правом. См. [operations/client-registrations.md](../operations/client-registrations.md).
+
 ## 2. Системные admin actors
 
 *(ADR-009)*

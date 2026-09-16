@@ -1163,6 +1163,143 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/client-registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Реестр фиксаций клиентов у застройщиков своей организации, свежие первыми (до 200). isExpired считается на чтении из reservedUntil: отдельного статуса «истекла» сервер не хранит. */
+        get: operations["listClientRegistrations"];
+        put?: never;
+        /** Зафиксировать клиента у застройщика. Либо developmentId — ЖК на платформе, тогда организацию застройщика и название проекта сервер берёт из комплекса сам, а заявка ждёт ответа застройщика; либо пара developerName и projectName для застройщика вне платформы — такую заявку агентство подтверждает у себя вручную. Клиент, уже закреплённый в этом ЖК за кем-то другим, отвечает 409 CLIENT_ALREADY_REGISTERED без названия агентства-конкурента. Пишет аудит client_registration.create. */
+        post: operations["createClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/incoming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Входящие заявки застройщика — те, что агентства подали по его ЖК. Запись принадлежит агентству, застройщик видит её как вторая сторона сделки; фильтр идёт по его организации, а не по владельцу записи. */
+        get: operations["listIncomingClientRegistrations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Правка своей заявки — лот и заметка. Клиент и застройщик не меняются: это была бы другая заявка. Не присланное необязательное поле снимается. expectedVersion — версия, которую видел менеджер. */
+        patch: operations["updateClientRegistration"];
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Застройщик подтверждает заявку: клиент закрепляется за агентством на шесть месяцев (решение владельца 16.09.2026). Подтвердить можно только заявку в статусе pending, адресованную своей организации. Пишет аудит client_registration.accept. */
+        post: operations["acceptClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Застройщик отклоняет заявку с причиной — агентству нужна причина, а не только статус. Пишет аудит client_registration.reject. */
+        post: operations["rejectClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}/confirm-external": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ручное подтверждение заявки по застройщику вне платформы: менеджер отмечает её подтверждённой, когда получил ответ по почте. Для ЖК на платформе запрещено — там подтверждает застройщик. */
+        post: operations["confirmExternalClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Сделка по закреплённому клиенту состоялась. Разрешено только из статуса active. */
+        post: operations["completeClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/client-registrations/{registrationId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Агентство снимает свою заявку — клиент сразу освобождается для других. Разрешено из pending и active. */
+        post: operations["cancelClientRegistration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/notifications": {
         parameters: {
             query?: never;
@@ -5537,6 +5674,78 @@ export interface components {
             email: components["schemas"]["DeliveryCounts"];
             telegram: components["schemas"]["DeliveryCounts"];
         };
+        /**
+         * @description pending — заявка подана; active — клиент закреплён до reservedUntil; rejected — застройщик отказал; completed — сделка состоялась; cancelled — агентство сняло заявку. Истёкшее закрепление отдельным статусом не хранится, см. isExpired.
+         * @enum {string}
+         */
+        ClientRegistrationStatus: "pending" | "active" | "rejected" | "completed" | "cancelled";
+        ClientRegistrationView: {
+            id: string;
+            /** @description ЖК на платформе; у застройщика вне платформы null. */
+            developmentId: string | null;
+            /** @description Имя застройщика на момент подачи — снимок. */
+            developerName: string;
+            projectName: string;
+            unitLabel: string | null;
+            clientName: string;
+            clientPhone: string;
+            leadId: string | null;
+            /** @description Позиция менеджера */
+            agentPositionId: string;
+            status: components["schemas"]["ClientRegistrationStatus"];
+            /** @description Срок закрепления истёк. Считается на чтении из reservedUntil и статуса. */
+            isExpired: boolean;
+            /** @description Ждёт ответа застройщика на платформе. У внешнего застройщика false — отвечать некому. */
+            awaitsDeveloper: boolean;
+            /** Format: date-time */
+            reservedUntil: string | null;
+            /** Format: date-time */
+            decidedAt: string | null;
+            /** @description Причина отказа застройщика. */
+            decisionNote: string | null;
+            notes: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Версия для expectedVersion. */
+            version: number;
+        };
+        ClientRegistrationListResponse: {
+            items: components["schemas"]["ClientRegistrationView"][];
+        };
+        IncomingClientRegistrationView: components["schemas"]["ClientRegistrationView"] & {
+            /** @description Агентство, подавшее заявку — застройщику нужно знать, с кем он имеет дело. */
+            agencyOrganizationId: string;
+        };
+        IncomingClientRegistrationListResponse: {
+            items: components["schemas"]["IncomingClientRegistrationView"][];
+        };
+        CreateClientRegistrationRequest: {
+            /** @description ЖК на платформе. Организацию застройщика сервер выводит из него сам — клиент её не передаёт. */
+            developmentId?: string;
+            /** @description Адрес карточки ЖК на витрине — им комплекс адресует каталог платформы, идентификатора у публичной карточки нет. Неизвестный или неопубликованный адрес — 404. */
+            developmentSlug?: string;
+            developerName?: string;
+            projectName?: string;
+            unitLabel?: string;
+            clientName: string;
+            clientPhone: string;
+            /** @description Лид CRM */
+            leadId?: string;
+            notes?: string;
+        };
+        UpdateClientRegistrationRequest: {
+            expectedVersion: number;
+            unitLabel?: string;
+            notes?: string;
+        };
+        DecideClientRegistrationRequest: {
+            expectedVersion: number;
+        };
+        RejectClientRegistrationRequest: {
+            expectedVersion: number;
+            /** @description Причина отказа — она нужна агентству. */
+            reason: string;
+        };
         NewsArticleView: {
             id: string;
             source: components["schemas"]["NewsSource"];
@@ -9240,6 +9449,311 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description NOT_FOUND */
             404: components["responses"]["Error"];
+        };
+    };
+    listClientRegistrations: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ClientRegistrationStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Реестр агентства */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationListResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.read */
+            403: components["responses"]["Error"];
+        };
+    };
+    createClientRegistration: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка подана */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED либо IDEMPOTENCY_KEY_REQUIRED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.create */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — ЖК не найден или не опубликован */
+            404: components["responses"]["Error"];
+            /** @description CLIENT_ALREADY_REGISTERED — клиент уже закреплён в этом ЖК */
+            409: components["responses"]["Error"];
+        };
+    };
+    listIncomingClientRegistrations: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ClientRegistrationStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Входящие заявки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingClientRegistrationListResponse"];
+                };
+            };
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.decide */
+            403: components["responses"]["Error"];
+        };
+    };
+    updateClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка изменена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — заявка чужой организации или не существует */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT — заявку изменили после чтения */
+            409: components["responses"]["Error"];
+        };
+    };
+    acceptClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка подтверждена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — заявка уже в другом статусе */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.decide */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — заявка адресована не этой организации */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    rejectClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка отклонена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.decide */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    confirmExternalClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка подтверждена вручную */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — заявка адресована застройщику на платформе или уже в другом статусе */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    completeClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка завершена */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — заявка не в статусе active */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    cancelClientRegistration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registrationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideClientRegistrationRequest"];
+            };
+        };
+        responses: {
+            /** @description Заявка снята */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRegistrationView"];
+                };
+            };
+            /** @description VALIDATION_FAILED — заявка уже закрыта */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION */
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет client_registration.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
         };
     };
     getMyNotificationSettings: {

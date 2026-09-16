@@ -66,6 +66,7 @@
 | `CONTACT_PHONE_TAKEN` | Новый телефон в PATCH /leads/:leadId уже принадлежит ДРУГОМУ контакту этой организации | `PATCH /leads/:leadId` (name/phone/email правка контакта) |
 | `LIBRARY_FOLDER_NOT_EMPTY` | В папке личной библиотеки ещё есть файлы или подпапки | `DELETE /library/folders/:folderId` (сначала удалить содержимое) |
 | `NOTIFICATION_CHANNEL_NOT_CONFIGURED` | Канал уведомлений не настроен на сервере (нет бота уведомлений Telegram) | `POST /me/notifications/telegram-link` — настроить `TELEGRAM_NOTIFY_BOT_TOKEN`/`TELEGRAM_NOTIFY_BOT_USERNAME` (docs/operations/news.md) |
+| `CLIENT_ALREADY_REGISTERED` | Клиент уже закреплён в этом ЖК за другим агентством: есть заявка в статусе `pending` либо действующее закрепление | `POST /client-registrations` — сообщение содержит дату окончания закрепления, но не название агентства-конкурента (docs/operations/client-registrations.md) |
 
 ## Validation
 

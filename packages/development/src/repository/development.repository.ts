@@ -60,6 +60,18 @@ export class DevelopmentRepository {
     return this.model.findById(id).exec();
   }
 
+  /**
+   * Опубликованный комплекс без привязки к организации-читателю. Нужен
+   * второй стороне сделки: агентство фиксирует клиента у ЧУЖОГО
+   * застройщика и обязано увидеть имя комплекса и его владельца
+   * (ClientRegistrationsService.resolveTarget). `status: 'active'` в
+   * фильтре обязателен: по id нельзя узнавать о чужих черновиках и
+   * архиве, наружу отдаётся только то, что застройщик уже опубликовал.
+   */
+  async findPublishedById(id: Types.ObjectId): Promise<DevelopmentDocument | null> {
+    return this.model.findOne({ _id: id, status: 'active' }).exec();
+  }
+
   async listForOrganization(
     organizationId: Types.ObjectId,
     params: { cursor?: Types.ObjectId; limit: number },

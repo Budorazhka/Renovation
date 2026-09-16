@@ -31,6 +31,7 @@ import { NotesModule } from './modules/notes/notes.module';
 import { LibraryModule } from './modules/library/library.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { NewsModule } from './modules/news/news.module';
+import { ClientRegistrationsModule } from './modules/client-registrations/client-registrations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
@@ -78,6 +79,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     LibraryModule,
     PlansModule,
     NewsModule,
+    ClientRegistrationsModule,
     NotificationsModule,
   ],
   controllers: [HealthController],

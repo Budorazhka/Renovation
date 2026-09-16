@@ -3967,7 +3967,20 @@ export const es = {
       emptyFiltered: "No hay reservas en esta categoría."
     },
     registrations: {
+      incomingHint: "Solicitudes de agencias por este complejo. La aceptación reserva al cliente para la agencia durante seis meses.",
+      accept: "Aceptar",
+      reject: "Rechazar",
+      rejectReason: "Motivo del rechazo",
+      statuses: {
+          pending: "Espera decisión",
+          active: "Reservado",
+          rejected: "Rechazada",
+          completed: "Operación cerrada",
+          cancelled: "Retirada por la agencia"
+      },
       errors: {
+        conflict: "La solicitud cambió en otro sitio, la lista se actualizó",
+        alreadyDecided: "La solicitud ya tiene decisión",
         nameRequired: "Introduzca el nombre del cliente",
         phoneRequired: "Por favor ingresa tu número de teléfono",
         realtorRequired: "Por favor indique su agente inmobiliario"
@@ -3988,6 +4001,7 @@ export const es = {
       submit: "Comprometerse",
       addButton: "Registrar un cliente",
       columns: {
+        decision: "Decisión",
         client: "Cliente",
         phone: "Teléfono",
         realtor: "Corredor de bienes raíces",
@@ -7952,6 +7966,59 @@ export const es = {
           reopen: "Reabrir",
           reschedule: "Aplazar",
           delete: "Eliminar"
+      }
+  },
+  registrations: {
+      title: "Registro del cliente con la promotora",
+      subtitle: "La solicitud por un complejo de la plataforma llega a su promotora, que la acepta o la rechaza",
+      counts: "Esperan respuesta: {pending} · reservados: {active} · vencidos: {expired}",
+      newTitle: "Nuevo registro",
+      submit: "Registrar",
+      saving: "Guardando…",
+      filterAll: "Todos",
+      empty: "Aún no hay registros",
+      loadFailed: "No se pudo cargar el registro",
+      retry: "Reintentar",
+      createFailed: "No se pudo enviar la solicitud",
+      actionFailed: "No se pudo guardar la decisión",
+      alreadyRegistered: "El cliente ya está reservado en este complejo por otra agencia",
+      alreadyDecided: "La solicitud ya tiene decisión",
+      conflict: "La solicitud cambió en otro sitio, la lista se actualizó",
+      awaitsDeveloper: "Espera respuesta de la promotora",
+      reservedUntil: "Reservado hasta {date}",
+      cityPlaceholder: "Ciudad",
+      developmentLabel: "Complejo en la plataforma",
+      developmentPlaceholder: "Elija un complejo",
+      catalogEmpty: "El catálogo no tiene complejos publicados",
+      catalogFailed: "El catálogo no se cargó",
+      developerPlaceholder: "Promotora",
+      projectPlaceholder: "Proyecto o complejo",
+      unitPlaceholder: "Lote, bloque, vivienda",
+      clientNamePlaceholder: "Nombre del cliente",
+      clientPhonePlaceholder: "Teléfono del cliente",
+      leadLabel: "Lead",
+      leadNone: "Sin lead vinculado",
+      notesPlaceholder: "Nota para usted",
+      linkPartnersReport: "Informe del mercado primario",
+      linkBookings: "Reservas del tablero",
+      hintPlatform: "La promotora ve la solicitud en su sistema y responde. La aceptación reserva al cliente durante seis meses.",
+      hintExternal: "La promotora no está en la plataforma: marque la solicitud como confirmada cuando le respondan.",
+      target: {
+          platform: "Complejo en la plataforma",
+          external: "Promotora fuera de la plataforma"
+      },
+      status: {
+          pending: "Espera respuesta",
+          active: "Reservado",
+          rejected: "Rechazada",
+          completed: "Operación cerrada",
+          cancelled: "Retirada",
+          expired: "Vencido"
+      },
+      actions: {
+          confirm: "Marcar como confirmada",
+          complete: "Operación cerrada",
+          cancel: "Retirar"
       }
   },
   settings: {

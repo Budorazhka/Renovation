@@ -85,6 +85,9 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
   'POST /library/folders': 'дубль папки личной библиотеки — две одноимённые папки на одном уровне',
   'POST /news': 'дубль новости компании — одна и та же новость дважды в ленте всех сотрудников организации',
   'POST /admin/news': 'дубль новости платформы — одна и та же новость дважды в ленте сотрудников всех организаций',
+  'POST /client-registrations':
+    'дубль фиксации клиента у застройщика — две заявки на одного человека, и вторая из них блокирует первую же ' +
+    'проверкой «клиент уже закреплён»',
 };
 
 /**
@@ -295,6 +298,17 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /admin/news/images/upload-intent':
     'тот же разбор, что POST /media/upload-intent: ответ — presigned URL на 5 минут, запись идемпотентности вернула бы мёртвую ссылку; неподтверждённый дубль удаляет media-cleanup',
   'POST /admin/news/images/:assetId/confirm': 'подтверждение по id, идемпотентно (тот же MediaService.confirmUpload)',
+
+  // --- Фиксация клиента у застройщика ---
+  'PATCH /client-registrations/:registrationId':
+    'правка лота и заметки с expectedVersion (CAS) — повтор с той же версией получает 409, вторая правка не применяется',
+  'POST /client-registrations/:registrationId/accept':
+    'решение застройщика с expectedVersion и фильтром по статусу pending — повтор получает 409 или «уже active», второго закрепления не создаёт',
+  'POST /client-registrations/:registrationId/reject': 'то же решение в другую сторону, тот же CAS и тот же фильтр по статусу',
+  'POST /client-registrations/:registrationId/confirm-external':
+    'ручное подтверждение по внешнему застройщику, тот же CAS: повтор получает 409 или «уже active»',
+  'POST /client-registrations/:registrationId/complete': 'перевод в completed с expectedVersion — повтор упирается в статус, не в второй side-effect',
+  'POST /client-registrations/:registrationId/cancel': 'снятие заявки с expectedVersion — повтор упирается в статус cancelled',
 
   'POST /auth/change-password':
     'повтор того же запроса ставит тот же пароль и закрывает те же (уже закрытые) сессии; после первой смены прежний currentPassword перестаёт подходить — второй эффект недостижим',

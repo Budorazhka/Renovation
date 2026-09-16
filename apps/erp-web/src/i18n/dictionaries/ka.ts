@@ -3967,7 +3967,20 @@ export const ka = {
       emptyFiltered: "ამ კატეგორიაში არ არის დათქმები"
     },
     registrations: {
+      incomingHint: "სააგენტოების განაცხადები ამ კომპლექსზე. დადასტურება კლიენტს სააგენტოზე ექვს თვეზე ამაგრებს.",
+      accept: "დადასტურება",
+      reject: "უარყოფა",
+      rejectReason: "უარის მიზეზი",
+      statuses: {
+          pending: "ელოდება გადაწყვეტილებას",
+          active: "დაფიქსირებულია",
+          rejected: "უარი",
+          completed: "გარიგება შედგა",
+          cancelled: "სააგენტომ მოხსნა"
+      },
       errors: {
+        conflict: "განაცხადი სხვაგან შეიცვალა, სია განახლდა",
+        alreadyDecided: "განაცხადზე გადაწყვეტილება უკვე მიღებულია",
         nameRequired: "შეიყვანეთ კლიენტის სახელი",
         phoneRequired: "გთხოვთ შეიყვანოთ თქვენი ტელეფონის ნომერი",
         realtorRequired: "გთხოვთ მიუთითოთ თქვენი რეალტორი"
@@ -3988,6 +4001,7 @@ export const ka = {
       submit: "ვალდებულება",
       addButton: "ჩაწერეთ კლიენტი",
       columns: {
+        decision: "გადაწყვეტილება",
         client: "კლიენტი",
         phone: "ტელეფონი",
         realtor: "რეალტორი",
@@ -7952,6 +7966,59 @@ export const ka = {
           reopen: "დაბრუნება",
           reschedule: "გადატანა",
           delete: "წაშლა"
+      }
+  },
+  registrations: {
+      title: "კლიენტის დაფიქსირება დეველოპერთან",
+      subtitle: "პლატფორმის კომპლექსზე შეტანილი განაცხადი მიდის დეველოპერთან, ის ადასტურებს ან უარყოფს",
+      counts: "პასუხის მოლოდინში: {pending} · დაფიქსირებული: {active} · ვადაგასული: {expired}",
+      newTitle: "ახალი დაფიქსირება",
+      submit: "დაფიქსირება",
+      saving: "ინახება…",
+      filterAll: "ყველა",
+      empty: "ჯერ დაფიქსირება არ არის",
+      loadFailed: "რეესტრის ჩატვირთვა ვერ მოხერხდა",
+      retry: "ხელახლა",
+      createFailed: "განაცხადის შეტანა ვერ მოხერხდა",
+      actionFailed: "გადაწყვეტილების შენახვა ვერ მოხერხდა",
+      alreadyRegistered: "კლიენტი ამ კომპლექსში უკვე დაფიქსირებულია სხვა სააგენტოზე",
+      alreadyDecided: "განაცხადზე გადაწყვეტილება უკვე მიღებულია",
+      conflict: "განაცხადი სხვაგან შეიცვალა, სია განახლდა",
+      awaitsDeveloper: "ელოდება დეველოპერის პასუხს",
+      reservedUntil: "დაფიქსირებულია {date}-მდე",
+      cityPlaceholder: "ქალაქი",
+      developmentLabel: "კომპლექსი პლატფორმაზე",
+      developmentPlaceholder: "აირჩიეთ კომპლექსი",
+      catalogEmpty: "კატალოგში გამოქვეყნებული კომპლექსი არ არის",
+      catalogFailed: "კატალოგი ვერ ჩაიტვირთა",
+      developerPlaceholder: "დეველოპერი",
+      projectPlaceholder: "პროექტი ან კომპლექსი",
+      unitPlaceholder: "ლოტი, კორპუსი, ბინა",
+      clientNamePlaceholder: "კლიენტის სახელი",
+      clientPhonePlaceholder: "კლიენტის ტელეფონი",
+      leadLabel: "ლიდი",
+      leadNone: "ლიდის მიბმის გარეშე",
+      notesPlaceholder: "შენიშვნა თქვენთვის",
+      linkPartnersReport: "პირველადი ბაზრის ანგარიში",
+      linkBookings: "ჯავშნები შახმატის მიხედვით",
+      hintPlatform: "დეველოპერი დაინახავს განაცხადს თავის სისტემაში და უპასუხებს. დადასტურება კლიენტს ექვს თვეზე ამაგრებს.",
+      hintExternal: "დეველოპერი პლატფორმაზე არ არის: პასუხის მიღების შემდეგ თავად მონიშნეთ განაცხადი დადასტურებულად.",
+      target: {
+          platform: "კომპლექსი პლატფორმაზე",
+          external: "დეველოპერი პლატფორმის გარეთ"
+      },
+      status: {
+          pending: "პასუხის მოლოდინში",
+          active: "დაფიქსირებულია",
+          rejected: "უარი",
+          completed: "გარიგება შედგა",
+          cancelled: "გაუქმებული",
+          expired: "ვადა გავიდა"
+      },
+      actions: {
+          confirm: "მონიშვნა დადასტურებულად",
+          complete: "გარიგება შედგა",
+          cancel: "განაცხადის მოხსნა"
       }
   },
   settings: {

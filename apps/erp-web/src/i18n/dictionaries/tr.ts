@@ -3967,7 +3967,20 @@ export const tr = {
       emptyFiltered: "Bu kategoride rezervasyon yok"
     },
     registrations: {
+      incomingHint: "Bu projeye ajansların başvuruları. Onay müşteriyi ajansa altı ay bağlar.",
+      accept: "Onayla",
+      reject: "Reddet",
+      rejectReason: "Ret gerekçesi",
+      statuses: {
+          pending: "Karar bekliyor",
+          active: "Bağlandı",
+          rejected: "Reddedildi",
+          completed: "Satış tamamlandı",
+          cancelled: "Ajans geri çekti"
+      },
       errors: {
+        conflict: "Başvuru başka yerde değişti, liste yenilendi",
+        alreadyDecided: "Başvuru zaten karara bağlandı",
         nameRequired: "Müşterinin adını girin",
         phoneRequired: "Lütfen telefon numaranızı girin",
         realtorRequired: "Lütfen emlakçınızı belirtin"
@@ -3988,6 +4001,7 @@ export const tr = {
       submit: "İşlemek",
       addButton: "Bir müşteriyi kaydedin",
       columns: {
+        decision: "Karar",
         client: "Müşteri",
         phone: "Telefon",
         realtor: "Emlakçı",
@@ -7952,6 +7966,59 @@ export const tr = {
           reopen: "Geri al",
           reschedule: "Ertele",
           delete: "Sil"
+      }
+  },
+  registrations: {
+      title: "Müşterinin geliştiriciye kaydı",
+      subtitle: "Platformdaki projeye verilen başvuru geliştiriciye ulaşır, o da onaylar ya da reddeder",
+      counts: "Yanıt bekleyen: {pending} · bağlanan: {active} · süresi dolan: {expired}",
+      newTitle: "Yeni kayıt",
+      submit: "Kaydet",
+      saving: "Kaydediliyor…",
+      filterAll: "Tümü",
+      empty: "Henüz kayıt yok",
+      loadFailed: "Kayıt defteri yüklenemedi",
+      retry: "Tekrar dene",
+      createFailed: "Başvuru gönderilemedi",
+      actionFailed: "Karar kaydedilemedi",
+      alreadyRegistered: "Müşteri bu projede başka bir ajansa bağlı",
+      alreadyDecided: "Başvuru zaten karara bağlandı",
+      conflict: "Başvuru başka yerde değişti, liste yenilendi",
+      awaitsDeveloper: "Geliştiricinin yanıtını bekliyor",
+      reservedUntil: "{date} tarihine kadar bağlı",
+      cityPlaceholder: "Şehir",
+      developmentLabel: "Platformdaki proje",
+      developmentPlaceholder: "Proje seçin",
+      catalogEmpty: "Katalogda yayımlanmış proje yok",
+      catalogFailed: "Katalog yüklenemedi",
+      developerPlaceholder: "Geliştirici",
+      projectPlaceholder: "Proje ya da site",
+      unitPlaceholder: "Parsel, blok, daire",
+      clientNamePlaceholder: "Müşteri adı",
+      clientPhonePlaceholder: "Müşteri telefonu",
+      leadLabel: "Aday",
+      leadNone: "Adaya bağlanmadan",
+      notesPlaceholder: "Kendiniz için not",
+      linkPartnersReport: "Birincil piyasa raporu",
+      linkBookings: "Şablon rezervasyonları",
+      hintPlatform: "Geliştirici başvuruyu kendi sisteminde görür ve yanıtlar. Onay müşteriyi altı ay bağlar.",
+      hintExternal: "Geliştirici platformda değil: yanıt aldığınızda başvuruyu kendiniz onaylanmış olarak işaretleyin.",
+      target: {
+          platform: "Platformdaki proje",
+          external: "Platform dışı geliştirici"
+      },
+      status: {
+          pending: "Yanıt bekliyor",
+          active: "Bağlandı",
+          rejected: "Reddedildi",
+          completed: "Satış tamamlandı",
+          cancelled: "Geri çekildi",
+          expired: "Süresi doldu"
+      },
+      actions: {
+          confirm: "Onaylandı olarak işaretle",
+          complete: "Satış tamamlandı",
+          cancel: "Geri çek"
       }
   },
   settings: {

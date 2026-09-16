@@ -1,480 +1,444 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  Clock3,
-  FileText,
-  Filter,
-  ListChecks,
-  UserPlus,
-  UserRound,
-} from 'lucide-react'
+import { ArrowRight, Building2, CheckCircle2, Clock3, ShieldCheck, UserPlus, XCircle } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { BOOKINGS_MOCK } from '@/data/bookings-mock'
-import type { Booking, BookingStatus } from '@/types/bookings'
 import { useLeads } from '@/context/LeadsContext'
-import { useAuth } from '@/context/AuthContext'
+import { useI18n } from '@/i18n'
 import {
-  countSessionRegistrations,
-  loadSessionRegistrations,
-  prependSessionRegistration,
-} from '@/lib/newbuild-registrations-storage'
-import { useI18n } from "@/i18n";
+  clientRegistrationsApi,
+  newIdempotencyKey,
+  type ClientRegistration,
+  type ClientRegistrationStatus,
+} from '@/services/clientRegistrationsApi'
+import { publicDevelopmentsApi, type PublicDevelopmentCard } from '@/services/publicDevelopmentsApi'
 
-const FORM_SELECT_CLASS =
-  'rounded-md border border-[var(--hub-card-border)] bg-[color-mix(in_srgb,var(--rail-bg)_82%,transparent)] px-2 py-2 text-sm text-[color:var(--workspace-text)] [color-scheme:dark]'
-const FORM_INPUT_CLASS =
-  'rounded-md border border-[var(--workspace-row-border)] bg-[color-mix(in_srgb,var(--rail-bg)_82%,transparent)] px-2 py-2 text-sm text-[color:var(--workspace-text)]'
+const MUTED = 'text-[color:var(--app-text-muted)]'
+const FIELD =
+  'h-10 w-full rounded-sm bg-[var(--workspace-row-bg)] px-3 text-[16px] text-[color:var(--app-text)] outline-none'
+const GOLD_BTN =
+  'rounded-sm bg-[var(--gold)] px-3 py-1.5 text-[16px] font-medium text-[color:var(--gold-btn-text)] disabled:opacity-60'
+const QUIET_BTN = `rounded-sm px-3 py-1.5 text-[16px] ${MUTED} hover:text-[color:var(--app-text)] disabled:opacity-60`
 
-const DEVELOPERS = ['Группа ПИК', 'MR Group', 'Эталон', 'Самолёт', 'Другое'] as const
+type StatusFilter = 'all' | ClientRegistrationStatus
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function hoursFromNow(h: number): string {
-  const d = new Date(Date.now() + h * 60 * 60 * 1000)
-  return d.toISOString()
-}
-
-function statusLabel(status: Booking['status']) {
-  if (status === 'active') return 'Активна'
-  if (status === 'pending') return 'Новая'
-  if (status === 'completed') return 'Завершена'
-  if (status === 'expired') return 'Просрочена'
-  return 'Отклонена'
-}
-
-const SEED_CLIENT_BOOKINGS = BOOKINGS_MOCK.filter((b) => b.type === 'client')
-
+/**
+ * Фиксация клиента у застройщика — реестр агентства.
+ *
+ * Раньше экран работал на вшитых примерах и localStorage: заявка не уходила
+ * никуда, застройщик её не видел, а «активная бронь» жила до перезагрузки
+ * страницы. Теперь это серверный модуль: заявка по ЖК платформы приходит
+ * застройщику в его ERP, он подтверждает или отклоняет, подтверждение
+ * закрепляет клиента за агентством на шесть месяцев.
+ */
 export default function RegistrationsPage() {
-    const { t } = useI18n();
+  const { t, formatDate } = useI18n()
   const { state: leadsState } = useLeads()
-  const { currentUser } = useAuth()
-  const [sessionRows, setSessionRows] = useState<Booking[]>(() => loadSessionRegistrations())
 
-  const registrations = useMemo(
-    () => [...sessionRows, ...SEED_CLIENT_BOOKINGS],
-    [sessionRows],
-  )
+  const [items, setItems] = useState<ClientRegistration[]>([])
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [filter, setFilter] = useState<StatusFilter>('all')
 
-  const [selectedId, setSelectedId] = useState<string>(() => {
-    const s = loadSessionRegistrations()
-    return s[0]?.id ?? SEED_CLIENT_BOOKINGS[0]?.id ?? ''
-  })
-  const [status, setStatus] = useState<'all' | BookingStatus>('all')
-  const [agent, setAgent] = useState<string>('all')
-  const [riskOnly, setRiskOnly] = useState(false)
-
+  const [target, setTarget] = useState<'platform' | 'external'>('platform')
+  const [city, setCity] = useState('')
+  const [catalog, setCatalog] = useState<PublicDevelopmentCard[]>([])
+  const [catalogStatus, setCatalogStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [developmentSlug, setDevelopmentSlug] = useState('')
+  const [developerName, setDeveloperName] = useState('')
+  const [projectName, setProjectName] = useState('')
+  const [unitLabel, setUnitLabel] = useState('')
   const [clientName, setClientName] = useState('')
-  const [developerChoice, setDeveloperChoice] = useState<string>(DEVELOPERS[0])
-  const [developerOther, setDeveloperOther] = useState('')
-  const [projectLine, setProjectLine] = useState('')
-  const [lotLine, setLotLine] = useState('')
-  const [leadId, setLeadId] = useState<string>('none')
-  const [agentName, setAgentName] = useState(() => currentUser?.name ?? 'Менеджер')
+  const [clientPhone, setClientPhone] = useState('')
+  const [leadId, setLeadId] = useState('')
   const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const leadOptions = useMemo(() => [...leadsState.leadPool].slice(0, 150), [leadsState.leadPool])
-
-  const agentOptions = useMemo(() => Array.from(new Set(registrations.map((r) => r.agentName))).sort(), [registrations])
-
-  const filtered = useMemo(() => {
-    let rows = [...registrations]
-    if (status !== 'all') rows = rows.filter((r) => r.status === status)
-    if (agent !== 'all') rows = rows.filter((r) => r.agentName === agent)
-    if (riskOnly) rows = rows.filter((r) => r.status === 'expired' || r.status === 'rejected' || r.status === 'pending')
-    return rows
-  }, [agent, registrations, riskOnly, status])
-
-  const selected = useMemo(
-    () => filtered.find((r) => r.id === selectedId) ?? filtered[0] ?? registrations.find((r) => r.id === selectedId),
-    [filtered, registrations, selectedId],
-  )
+  const load = useCallback(async () => {
+    setStatus('loading')
+    try {
+      setItems(await clientRegistrationsApi.list())
+      setStatus('ready')
+    } catch {
+      setItems([])
+      setStatus('error')
+    }
+  }, [])
 
   useEffect(() => {
-    if (selectedId && registrations.some((r) => r.id === selectedId)) return
-    const next = registrations[0]?.id ?? ''
-    if (next) setSelectedId(next)
-  }, [registrations, selectedId])
+    void load()
+  }, [load])
 
-  const kpi = useMemo(() => {
-    const total = filtered.length
-    const active = filtered.filter((r) => r.status === 'active').length
-    const pending = filtered.filter((r) => r.status === 'pending').length
-    const risk = filtered.filter((r) => r.status === 'expired' || r.status === 'rejected').length
-    const completed = filtered.filter((r) => r.status === 'completed').length
-    return { total, active, pending, risk, completed }
-  }, [filtered])
+  const loadCatalog = useCallback(async () => {
+    setCatalogStatus('loading')
+    try {
+      setCatalog(await publicDevelopmentsApi.list({ city }))
+      setCatalogStatus('idle')
+    } catch {
+      setCatalog([])
+      setCatalogStatus('error')
+    }
+  }, [city])
 
-  const needsAttention = useMemo(
-    () => registrations.filter((r) => r.status === 'expired' || r.status === 'pending' || r.status === 'rejected'),
-    [registrations],
+  useEffect(() => {
+    if (target === 'platform') void loadCatalog()
+  }, [loadCatalog, target])
+
+  /**
+   * Отказ сервера остаётся отказом: список перечитывается, чтобы на экране не
+   * осталось решение, которого нет в базе. 409 — заявку изменили в другом
+   * месте, 400 — она уже в другом статусе; это разные сообщения.
+   */
+  const runAction = useCallback(
+    async (registration: ClientRegistration, action: () => Promise<ClientRegistration>) => {
+      setBusyId(registration.id)
+      setActionError(null)
+      try {
+        const updated = await action()
+        setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      } catch (error) {
+        const code = (error as { response?: { status?: number } }).response?.status
+        setActionError(
+          code === 409
+            ? t('registrations.conflict')
+            : code === 400
+              ? t('registrations.alreadyDecided')
+              : t('registrations.actionFailed'),
+        )
+        await load()
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [load, t],
   )
 
-  function submitRegistration() {
-    const name = clientName.trim()
-    const project = projectLine.trim()
-    if (!name || !project) return
-
-    const developer =
-      developerChoice === 'Другое' ? developerOther.trim() || 'Застройщик не указан' : developerChoice
-
-    const address = lotLine.trim() ? `${project}, ${lotLine.trim()}` : project
-    const linkedLead = leadId !== 'none' ? leadsState.leadPool.find((l) => l.id === leadId) : null
-
-    const row: Booking = {
-      id: `reg-${Date.now()}`,
-      type: 'client',
-      status: 'pending',
-      clientId: `cl-reg-${Date.now()}`,
-      clientName: name,
-      propertyAddress: address,
-      propertyType: 'Регистрация у застройщика',
-      developerName: developer,
-      sourceLeadId: linkedLead?.id,
-      agentId: currentUser?.id ?? 'lm-1',
-      agentName: agentName.trim() || 'Не назначен',
-      bookedAt: new Date().toISOString(),
-      durationHours: 72,
-      expiresAt: hoursFromNow(72),
-      notes:
-        notes.trim() ||
-        `Заявка на регистрацию клиента в системе застройщика. ${linkedLead ? `Лид: ${linkedLead.name ?? linkedLead.id}.` : 'Лид не привязан.'}`,
+  const submit = async () => {
+    if (!clientName.trim() || !clientPhone.trim()) return
+    if (target === 'platform' ? !developmentSlug : !developerName.trim() || !projectName.trim()) return
+    setSaving(true)
+    setActionError(null)
+    try {
+      const created = await clientRegistrationsApi.create(
+        {
+          ...(target === 'platform'
+            ? { developmentSlug }
+            : { developerName: developerName.trim(), projectName: projectName.trim() }),
+          unitLabel: unitLabel.trim() || undefined,
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          leadId: leadId || undefined,
+          notes: notes.trim() || undefined,
+        },
+        newIdempotencyKey(),
+      )
+      setItems((prev) => [created, ...prev])
+      setClientName('')
+      setClientPhone('')
+      setUnitLabel('')
+      setLeadId('')
+      setNotes('')
+    } catch (error) {
+      const code = (error as { response?: { status?: number } }).response?.status
+      setActionError(code === 409 ? t('registrations.alreadyRegistered') : t('registrations.createFailed'))
+    } finally {
+      setSaving(false)
     }
-
-    prependSessionRegistration(row)
-    setSessionRows(loadSessionRegistrations())
-    setSelectedId(row.id)
-    setClientName('')
-    setProjectLine('')
-    setLotLine('')
-    setLeadId('none')
-    setNotes('')
-    setDeveloperChoice(DEVELOPERS[0])
-    setDeveloperOther('')
   }
 
-  const sessionCount = countSessionRegistrations()
+  const visible = useMemo(
+    () => (filter === 'all' ? items : items.filter((item) => item.status === filter)),
+    [filter, items],
+  )
+
+  const counts = useMemo(
+    () => ({
+      pending: items.filter((item) => item.status === 'pending').length,
+      active: items.filter((item) => item.status === 'active' && !item.isExpired).length,
+      expired: items.filter((item) => item.isExpired).length,
+    }),
+    [items],
+  )
+
+  const leadOptions = useMemo(() => leadsState.leadPool.slice(0, 150), [leadsState.leadPool])
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-      <DashboardShell scrollMain={false}>
-        <div className="flex min-h-0 w-full flex-1 flex-col gap-3 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-          <div className="shrink-0">
-            <h1 className="text-xl font-normal text-[color:var(--theme-accent-heading)]">
-              {t('newbuild.registrationsPage.фиксация_клиента_у_з')}</h1>
-            <p className="mt-1 text-sm text-[color:var(--app-text-muted)]">
-              {t('newbuild.registrationsPage.здесь_вы_заводите_за')}</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <Link
-                to="/dashboard/new-buildings/report-partners"
-                className="inline-flex items-center gap-1 rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-2.5 py-1 text-[color:var(--workspace-text)] hover:border-[var(--hub-card-border-hover)]"
+    <DashboardShell>
+      <div className="flex w-full max-w-[1000px] flex-col gap-6 px-6 pb-12 pt-6 text-[color:var(--app-text)]">
+        <header>
+          <h1 className="text-[30px] font-normal leading-tight text-[color:var(--theme-accent-heading)]">
+            {t('registrations.title')}
+          </h1>
+          <p className={`mt-1 text-[17px] ${MUTED}`}>{t('registrations.subtitle')}</p>
+          <p className={`mt-1 text-[16px] ${MUTED}`}>
+            {t('registrations.counts', { pending: counts.pending, active: counts.active, expired: counts.expired })}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3 text-[16px]">
+            <Link to="/dashboard/new-buildings/report-partners" className="flex items-center gap-1 text-[color:var(--gold)]">
+              {t('registrations.linkPartnersReport')} <ArrowRight className="size-4" aria-hidden />
+            </Link>
+            <Link to="/dashboard/bookings" className="flex items-center gap-1 text-[color:var(--gold)]">
+              {t('registrations.linkBookings')} <ArrowRight className="size-4" aria-hidden />
+            </Link>
+          </div>
+        </header>
+
+        <section className="flex flex-col gap-3 rounded-md bg-[var(--hub-card-bg)] p-4">
+          <h2 className="flex items-center gap-2 text-[17px]">
+            <UserPlus className="size-4 text-[color:var(--gold)]" aria-hidden /> {t('registrations.newTitle')}
+          </h2>
+
+          <div className="flex flex-wrap gap-1">
+            {(['platform', 'external'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTarget(key)}
+                aria-pressed={target === key}
+                className={`rounded-sm px-3 py-1.5 text-[16px] ${
+                  target === key
+                    ? 'bg-[var(--gold)] font-medium text-[color:var(--gold-btn-text)]'
+                    : `${MUTED} hover:text-[color:var(--app-text)]`
+                }`}
               >
-                {t('newbuild.registrationsPage.отч_т_по_первичному')}<ArrowRight className="size-3" />
-              </Link>
-              <Link
-                to="/dashboard/bookings"
-                className="inline-flex items-center gap-1 rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-2.5 py-1 text-[color:var(--workspace-text)] hover:border-[var(--hub-card-border-hover)]"
-              >
-                {t('newbuild.registrationsPage.брони_по_шахматке')}<ArrowRight className="size-3" />
-              </Link>
-            </div>
+                {t(`registrations.target.${key}`)}
+              </button>
+            ))}
           </div>
 
-          <section className="shrink-0 rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <UserPlus className="size-4 text-[color:var(--gold)]" />
-                <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.registrationsPage.новая_регистрация')}</h2>
-              </div>
-              <p className="text-[11px] text-[color:var(--app-text-muted)]">
-                {t('newbuild.registrationsPage.в_этой_сессии_создан')}<span className="text-[color:var(--workspace-text)]">{sessionCount}</span>
-              </p>
-            </div>
-            <ol className="mb-3 list-decimal space-y-1 pl-4 text-[11px] text-[color:var(--workspace-text-muted)]">
-              <li>{t('newbuild.registrationsPage.заполните_клиента_за')}</li>
-              <li>{t('newbuild.registrationsPage.при_необходимости_пр')}</li>
-              <li>{t('newbuild.registrationsPage.нажмите_отправить_за')}</li>
-            </ol>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+          {target === 'platform' ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder={t('newbuild.registrationsPage.фио_клиента')}
-                className={FORM_INPUT_CLASS}
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                placeholder={t('registrations.cityPlaceholder')}
+                aria-label={t('registrations.cityPlaceholder')}
+                className={`${FIELD} sm:max-w-[220px]`}
               />
               <select
-                value={developerChoice}
-                onChange={(e) => setDeveloperChoice(e.target.value)}
-                className={FORM_SELECT_CLASS}
+                value={developmentSlug}
+                onChange={(event) => setDevelopmentSlug(event.target.value)}
+                aria-label={t('registrations.developmentLabel')}
+                className={FIELD}
               >
-                {DEVELOPERS.map((d) => (
-                  <option key={d} value={d}>
-                    {t('newbuild.registrationsPage.застройщик')}{d}
+                <option value="">
+                  {catalogStatus === 'loading'
+                    ? t('common.loading')
+                    : catalogStatus === 'error'
+                      ? t('registrations.catalogFailed')
+                      : catalog.length === 0
+                        ? t('registrations.catalogEmpty')
+                        : t('registrations.developmentPlaceholder')}
+                </option>
+                {catalog.map((card) => (
+                  <option key={card.slug} value={card.slug}>
+                    {card.name}
+                    {card.publisher?.name ? ` · ${card.publisher.name}` : ''}
+                    {card.location?.city ? ` · ${card.location.city}` : ''}
                   </option>
                 ))}
               </select>
-              {developerChoice === 'Другое' && (
-                <input
-                  value={developerOther}
-                  onChange={(e) => setDeveloperOther(e.target.value)}
-                  placeholder={t('newbuild.registrationsPage.название_застройщика')}
-                  className={FORM_INPUT_CLASS}
-                />
-              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
-                value={projectLine}
-                onChange={(e) => setProjectLine(e.target.value)}
-                placeholder={t('newbuild.registrationsPage.проект_жк_например_ж')}
-                className={FORM_INPUT_CLASS}
+                value={developerName}
+                onChange={(event) => setDeveloperName(event.target.value)}
+                placeholder={t('registrations.developerPlaceholder')}
+                aria-label={t('registrations.developerPlaceholder')}
+                className={FIELD}
               />
               <input
-                value={lotLine}
-                onChange={(e) => setLotLine(e.target.value)}
-                placeholder={t('newbuild.registrationsPage.лот_квартира_необяза')}
-                className={FORM_INPUT_CLASS}
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder={t('registrations.projectPlaceholder')}
+                aria-label={t('registrations.projectPlaceholder')}
+                className={FIELD}
               />
-              <select value={leadId} onChange={(e) => setLeadId(e.target.value)} className={FORM_SELECT_CLASS}>
-                <option value="none">{t('newbuild.registrationsPage.связать_с_лидом_не_в')}</option>
-                {leadOptions.map((lead) => (
-                  <option key={lead.id} value={lead.id}>
-                    {(lead.name ?? lead.id)} · {lead.id}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={agentName}
-                onChange={(e) => setAgentName(e.target.value)}
-                placeholder={t('newbuild.registrationsPage.ответственный_менедж')}
-                className={FORM_INPUT_CLASS}
-              />
-              <input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={t('newbuild.registrationsPage.комментарий_к_заявке')}
-                className={`md:col-span-2 lg:col-span-3 ${FORM_INPUT_CLASS}`}
-              />
-              <button
-                type="button"
-                onClick={submitRegistration}
-                disabled={!clientName.trim() || !projectLine.trim()}
-                className="rounded-md border border-[var(--hub-card-border)] bg-[color:var(--gold)]/15 px-3 py-2 text-sm font-normal text-[color:var(--workspace-text)] hover:bg-[color:var(--gold)]/25 disabled:opacity-40"
-              >
-                {t('newbuild.registrationsPage.отправить_заявку_на')}</button>
             </div>
-          </section>
+          )}
 
-          <section className="shrink-0 rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <div className="mb-3 flex items-center gap-2">
-              <Filter className="size-4 text-[color:var(--gold)]" />
-              <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.registrationsPage.фильтры_реестра')}</h2>
-            </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as 'all' | BookingStatus)}
-                className={FORM_SELECT_CLASS}
-              >
-                <option value="all">{t('newbuild.registrationsPage.статус_все')}</option>
-                <option value="pending">{t('newbuild.registrationsPage.новая')}</option>
-                <option value="active">{t('newbuild.registrationsPage.активна')}</option>
-                <option value="completed">{t('newbuild.registrationsPage.завершена')}</option>
-                <option value="expired">{t('newbuild.registrationsPage.просрочена')}</option>
-                <option value="rejected">{t('newbuild.registrationsPage.отклонена')}</option>
-              </select>
-              <select value={agent} onChange={(e) => setAgent(e.target.value)} className={FORM_SELECT_CLASS}>
-                <option value="all">{t('newbuild.registrationsPage.ответственный_все')}</option>
-                {agentOptions.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[var(--hub-card-border)] bg-[color-mix(in_srgb,var(--rail-bg)_82%,transparent)] px-2 py-2 text-sm text-[color:var(--workspace-text)] [color-scheme:dark]">
-                <input
-                  type="checkbox"
-                  checked={riskOnly}
-                  onChange={(e) => setRiskOnly(e.target.checked)}
-                  className="size-4 appearance-none rounded border border-[var(--hub-card-border)] bg-[color-mix(in_srgb,var(--rail-bg)_82%,transparent)] checked:border-[var(--gold)] checked:bg-[var(--gold)]"
-                />
-                {t('newbuild.registrationsPage.только_риск_ожидание')}</label>
-            </div>
-          </section>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              value={clientName}
+              onChange={(event) => setClientName(event.target.value)}
+              placeholder={t('registrations.clientNamePlaceholder')}
+              aria-label={t('registrations.clientNamePlaceholder')}
+              className={FIELD}
+            />
+            <input
+              value={clientPhone}
+              onChange={(event) => setClientPhone(event.target.value)}
+              placeholder={t('registrations.clientPhonePlaceholder')}
+              aria-label={t('registrations.clientPhonePlaceholder')}
+              className={FIELD}
+            />
+            <input
+              value={unitLabel}
+              onChange={(event) => setUnitLabel(event.target.value)}
+              placeholder={t('registrations.unitPlaceholder')}
+              aria-label={t('registrations.unitPlaceholder')}
+              className={FIELD}
+            />
+          </div>
 
-          <section className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
-            <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.в_выборке')}</p>
-              <p className="text-xl font-normal text-[color:var(--theme-accent-heading)]">{kpi.total}</p>
-            </div>
-            <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.активные')}</p>
-              <p className="text-xl font-normal text-emerald-400">{kpi.active}</p>
-            </div>
-            <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.новые')}</p>
-              <p className="text-xl font-normal text-blue-400">{kpi.pending}</p>
-            </div>
-            <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.завершены')}</p>
-              <p className="text-xl font-normal text-[color:var(--workspace-text)]">{kpi.completed}</p>
-            </div>
-            <div className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <p className="text-[10px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.риск')}</p>
-              <p className="text-xl font-normal text-red-400">{kpi.risk}</p>
-            </div>
-          </section>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <select
+              value={leadId}
+              onChange={(event) => setLeadId(event.target.value)}
+              aria-label={t('registrations.leadLabel')}
+              className={FIELD}
+            >
+              <option value="">{t('registrations.leadNone')}</option>
+              {leadOptions.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.name || lead.phone || lead.id}
+                </option>
+              ))}
+            </select>
+            <input
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder={t('registrations.notesPlaceholder')}
+              aria-label={t('registrations.notesPlaceholder')}
+              className={FIELD}
+            />
+            <button type="button" onClick={() => void submit()} disabled={saving} className={GOLD_BTN}>
+              {saving ? t('registrations.saving') : t('registrations.submit')}
+            </button>
+          </div>
+          <p className={`text-[16px] ${MUTED}`}>
+            {t(target === 'platform' ? 'registrations.hintPlatform' : 'registrations.hintExternal')}
+          </p>
+        </section>
 
-          <div className="grid min-h-[min(400px,55vh)] flex-1 grid-cols-1 gap-3 lg:min-h-0 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,1fr)]">
-            <section className="flex min-h-0 flex-col rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-              <div className="mb-2 flex shrink-0 items-center gap-2">
-                <FileText className="size-4 text-[color:var(--gold)]" />
-                <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.registrationsPage.реестр_регистраций')}</h2>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-[color:var(--workspace-row-border)] text-left text-[11px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">
-                      <th className="px-2 py-2">{t('newbuild.registrationsPage.клиент')}</th>
-                      <th className="px-2 py-2">{t('newbuild.registrationsPage.объект')}</th>
-                      <th className="px-2 py-2">{t('newbuild.registrationsPage.статус')}</th>
-                      <th className="px-2 py-2">{t('newbuild.registrationsPage.агент')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((item) => {
-                      const isSel = item.id === selected?.id
-                      return (
-                        <tr
-                          key={item.id}
-                          className={
-                            isSel
-                              ? 'cursor-pointer border-b border-[color:var(--workspace-row-border)] bg-[color:var(--gold)]/10'
-                              : 'cursor-pointer border-b border-[color:var(--workspace-row-border)] hover:bg-[var(--workspace-row-bg)]'
-                          }
-                          onClick={() => setSelectedId(item.id)}
-                        >
-                          <td className="px-2 py-2 font-medium text-[color:var(--workspace-text)]">{item.clientName}</td>
-                          <td className="max-w-[200px] truncate px-2 py-2 text-[color:var(--workspace-text-muted)]" title={item.propertyAddress}>
-                            {item.propertyAddress}
-                          </td>
-                          <td className="px-2 py-2 text-xs text-[color:var(--workspace-text)]">{statusLabel(item.status)}</td>
-                          <td className="px-2 py-2 text-[color:var(--workspace-text-muted)]">{item.agentName}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {filtered.length === 0 && <p className="mt-2 shrink-0 text-sm text-[color:var(--app-text-muted)]">{t('newbuild.registrationsPage.нет_записей_по_фильт')}</p>}
-            </section>
+        {actionError ? (
+          <p role="alert" className="text-[17px] text-[#ffb4ab]">
+            {actionError}
+          </p>
+        ) : null}
 
-            <section className="flex min-h-[min(280px,40vh)] flex-col overflow-hidden rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3 lg:min-h-0">
-              <div className="mb-2 flex shrink-0 items-center gap-2">
-                <UserRound className="size-4 text-[color:var(--gold)]" />
-                <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.registrationsPage.карточка_регистрации')}</h2>
-              </div>
-              {selected ? (
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
-                  <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-3">
-                    <p className="text-sm font-normal text-[color:var(--workspace-text)]">{selected.clientName}</p>
-                    <p className="mt-1 text-xs text-[color:var(--workspace-text-muted)]">{selected.propertyAddress}</p>
-                    {selected.propertyType && (
-                      <p className="mt-1 text-xs text-[color:var(--app-text-subtle)]">{selected.propertyType}</p>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-                    <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2">
-                      <p className="text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.статус')}</p>
-                      <p className="mt-1 font-normal text-[color:var(--workspace-text)]">{statusLabel(selected.status)}</p>
-                    </div>
-                    <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2">
-                      <p className="text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.застройщик')}</p>
-                      <p className="mt-1 font-normal text-[color:var(--workspace-text)]">{selected.developerName ?? '—'}</p>
-                    </div>
-                    <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2">
-                      <p className="text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.источник_лида')}</p>
-                      <p className="mt-1 font-normal text-[color:var(--workspace-text)]">{selected.sourceLeadId ?? 'Не указан'}</p>
-                    </div>
-                    <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2">
-                      <p className="text-[color:var(--app-text-subtle)]">{t('newbuild.registrationsPage.ответственный')}</p>
-                      <p className="mt-1 font-normal text-[color:var(--workspace-text)]">{selected.agentName}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2 text-xs text-[color:var(--workspace-text-muted)]">
-                    <p className="flex items-center gap-1">
-                      <Clock3 className="size-3.5" /> {t('newbuild.registrationsPage.создана')}{formatDate(selected.bookedAt)}
+        <div className="flex flex-wrap gap-1">
+          {(['all', 'pending', 'active', 'rejected', 'completed', 'cancelled'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              aria-pressed={filter === key}
+              className={`rounded-sm px-3 py-1.5 text-[16px] ${
+                filter === key
+                  ? 'bg-[var(--gold)] font-medium text-[color:var(--gold-btn-text)]'
+                  : `${MUTED} hover:text-[color:var(--app-text)]`
+              }`}
+            >
+              {key === 'all' ? t('registrations.filterAll') : t(`registrations.status.${key}`)}
+            </button>
+          ))}
+        </div>
+
+        {status === 'loading' ? <p className={`text-[17px] ${MUTED}`}>{t('common.loading')}</p> : null}
+        {status === 'error' ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 text-[17px] text-[#ffb4ab]">
+            {t('registrations.loadFailed')}
+            <button type="button" onClick={() => void load()} className={GOLD_BTN}>
+              {t('registrations.retry')}
+            </button>
+          </div>
+        ) : null}
+        {status === 'ready' && visible.length === 0 ? (
+          <p className={`text-[17px] ${MUTED}`}>{t('registrations.empty')}</p>
+        ) : null}
+
+        <section className="flex flex-col gap-2">
+          {visible.map((item) => {
+            const busy = busyId === item.id
+            return (
+              <article key={item.id} className="flex flex-col gap-2 rounded-md bg-[var(--hub-card-bg)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-[220px] flex-1">
+                    <h3 className="text-[17px]">{item.clientName}</h3>
+                    <p className={`text-[16px] ${MUTED}`}>{item.clientPhone}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-3 text-[16px]">
+                      <span className={MUTED}>
+                        <Building2 className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                        {item.developerName} · {item.projectName}
+                        {item.unitLabel ? ` · ${item.unitLabel}` : ''}
+                      </span>
+                      <span className={statusTone(item)}>
+                        {item.isExpired ? t('registrations.status.expired') : t(`registrations.status.${item.status}`)}
+                      </span>
+                      {item.awaitsDeveloper ? (
+                        <span className={MUTED}>
+                          <Clock3 className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                          {t('registrations.awaitsDeveloper')}
+                        </span>
+                      ) : null}
+                      {item.reservedUntil ? (
+                        <span className={MUTED}>
+                          <ShieldCheck className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                          {t('registrations.reservedUntil', {
+                            date: formatDate(item.reservedUntil, { day: 'numeric', month: 'long', year: 'numeric' }),
+                          })}
+                        </span>
+                      ) : null}
                     </p>
-                    <p className="flex items-center gap-1">
-                      <CheckCircle2 className="size-3.5" /> {t('newbuild.registrationsPage.действует_до')}{formatDate(selected.expiresAt)} ({selected.durationHours} {t('newbuild.registrationsPage.ч')}</p>
-                    {selected.dealId && <p className="text-[color:var(--workspace-text)]">{t('newbuild.registrationsPage.сделка')}{selected.dealId}</p>}
+                    {item.decisionNote ? (
+                      <p className="mt-1 text-[16px] text-[#ffb4ab]">
+                        <XCircle className="mr-1 inline size-4 align-text-bottom" aria-hidden />
+                        {item.decisionNote}
+                      </p>
+                    ) : null}
+                    {item.notes ? <p className={`mt-1 text-[16px] ${MUTED}`}>{item.notes}</p> : null}
                   </div>
-                  {selected.notes && (
-                    <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2 text-xs text-[color:var(--workspace-text-muted)]">
-                      {selected.notes}
-                    </div>
-                  )}
-                  <div className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-3">
-                    <div className="mb-2 flex items-center gap-2 text-[11px] font-normal uppercase tracking-wide text-[color:var(--app-text-subtle)]">
-                      <ListChecks className="size-3.5" />
-                      {t('newbuild.registrationsPage.этапы')}</div>
-                    <ul className="space-y-1.5 text-xs text-[color:var(--workspace-text)]">
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" />
-                        {t('newbuild.registrationsPage.заявка_в_системе_зас')}</li>
-                      <li className="flex items-center gap-2">
-                        <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" />
-                        {t('newbuild.registrationsPage.проверка_уникальност')}</li>
-                      <li className="flex items-center gap-2">
-                        {selected.status === 'active' || selected.status === 'completed' ? (
-                          <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" />
-                        ) : (
-                          <Clock3 className="size-3.5 shrink-0 text-amber-400" />
-                        )}
-                        {t('newbuild.registrationsPage.подбор_лота_бронь_по')}</li>
-                      <li className="flex items-center gap-2">
-                        {selected.status === 'completed' ? (
-                          <CheckCircle2 className="size-3.5 shrink-0 text-emerald-400" />
-                        ) : (
-                          <Clock3 className="size-3.5 shrink-0 text-[color:var(--workspace-text-muted)]" />
-                        )}
-                        {t('newbuild.registrationsPage.закрытие_сделки')}</li>
-                    </ul>
+
+                  <div className="flex flex-wrap items-center gap-1">
+                    {item.status === 'pending' && !item.awaitsDeveloper ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void runAction(item, () => clientRegistrationsApi.confirmExternal(item.id, item.version))
+                        }
+                        className={GOLD_BTN}
+                      >
+                        <span className="flex items-center gap-2">
+                          <CheckCircle2 className="size-4" aria-hidden /> {t('registrations.actions.confirm')}
+                        </span>
+                      </button>
+                    ) : null}
+                    {item.status === 'active' ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void runAction(item, () => clientRegistrationsApi.complete(item.id, item.version))}
+                        className={GOLD_BTN}
+                      >
+                        {t('registrations.actions.complete')}
+                      </button>
+                    ) : null}
+                    {item.status === 'pending' || item.status === 'active' ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void runAction(item, () => clientRegistrationsApi.cancel(item.id, item.version))}
+                        className={QUIET_BTN}
+                      >
+                        {t('registrations.actions.cancel')}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-[color:var(--workspace-text-muted)]">{t('newbuild.registrationsPage.нет_данных_о_регистр')}</p>
-              )}
-            </section>
-          </div>
-
-          <section className="max-h-[min(200px,28vh)] shrink-0 overflow-hidden rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
-            <div className="mb-2 flex items-center gap-2">
-              <AlertTriangle className="size-4 text-amber-400" />
-              <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.registrationsPage.требуют_внимания')}</h2>
-            </div>
-            <p className="mb-2 text-xs text-[color:var(--app-text-muted)]">{t('newbuild.registrationsPage.по_всем_регистрациям')}</p>
-            <ul className="max-h-[min(120px,18vh)] space-y-2 overflow-y-auto pr-1">
-              {needsAttention.map((r) => (
-                <li
-                  key={r.id}
-                  className="cursor-pointer rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] px-3 py-2 text-sm text-[color:var(--workspace-text)]"
-                  onClick={() => setSelectedId(r.id)}
-                >
-                  {r.clientName} · {r.propertyAddress} · {statusLabel(r.status)}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      </DashboardShell>
-    </div>
+              </article>
+            )
+          })}
+        </section>
+      </div>
+    </DashboardShell>
   )
+}
+
+function statusTone(item: ClientRegistration): string {
+  if (item.isExpired || item.status === 'rejected') return 'text-[#ffb4ab]'
+  if (item.status === 'active') return 'text-[color:var(--gold)]'
+  return MUTED
 }

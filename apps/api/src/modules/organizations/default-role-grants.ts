@@ -328,6 +328,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'create', scope: 'organization' },
+    { resource: 'client_registration', action: 'update', scope: 'organization' },
+    { resource: 'client_registration', action: 'decide', scope: 'organization' },
   ],
   director: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -420,6 +424,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'create', scope: 'organization' },
+    { resource: 'client_registration', action: 'update', scope: 'organization' },
+    { resource: 'client_registration', action: 'decide', scope: 'organization' },
   ],
   rop: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -510,6 +518,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'news', action: 'read', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'create', scope: 'organization' },
+    { resource: 'client_registration', action: 'update', scope: 'organization' },
+    { resource: 'client_registration', action: 'decide', scope: 'organization' },
   ],
   manager: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -588,6 +600,9 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'news', action: 'read', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'own' },
     { resource: 'library_item', action: 'delete', scope: 'own' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'create', scope: 'organization' },
+    { resource: 'client_registration', action: 'update', scope: 'organization' },
   ],
   administrator: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -628,6 +643,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'plan', action: 'read', scope: 'own' },
     { resource: 'plan', action: 'update', scope: 'own' },
     { resource: 'news', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
   ],
   marketer: [
     { resource: 'position', action: 'read', scope: 'organization' },
@@ -748,5 +764,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'news', action: 'delete', scope: 'organization' },
     { resource: 'library_item', action: 'create', scope: 'organization' },
     { resource: 'library_item', action: 'delete', scope: 'organization' },
+    { resource: 'client_registration', action: 'read', scope: 'organization' },
+    { resource: 'client_registration', action: 'decide', scope: 'organization' },
   ],
 };

@@ -190,6 +190,21 @@ const ALLOWED_WITHOUT_ORGANIZATION_ID: Record<string, string> = {
     'То же: чтение новости платформы администратором перед правкой, фильтр {_id, source: platform}.',
   'news-article.repository.ts#updatePlatform':
     'То же: CAS-правка новости платформы администратором, фильтр {_id, source: platform, version}.',
+  'development.repository.ts#findPublishedById':
+    'Опубликованный ЖК читает ВТОРАЯ сторона сделки: агентство фиксирует клиента у чужого застройщика и обязано ' +
+    'увидеть имя комплекса и его владельца. Фильтр {_id, status: active} — черновики и архив по id не отдаются.',
+  'client-registration.repository.ts#listForDeveloper':
+    'Входящие застройщика: запись принадлежит агентству, а читает её вторая сторона сделки — её собственный ' +
+    'organizationId в записи не встречается вообще. Фильтр по developerOrganizationId из tenant-контекста ' +
+    'застройщика; область видимости не шире, а другая.',
+  'client-registration.repository.ts#findForDeveloper':
+    'То же для одной заявки: фильтр {_id, developerOrganizationId} из сессии застройщика, чужую заявку так не достать.',
+  'client-registration.repository.ts#findBlocking':
+    'Проверка «клиент уже закреплён» намеренно смотрит по всем агентствам: в этом и состоит смысл фиксации у ' +
+    'застройщика. Наружу отдаётся только дата окончания закрепления, без названия агентства-конкурента.',
+  'client-registration.repository.ts#decide':
+    'Владелец записи подставляется вызывающим: агентство фильтруется по organizationId, застройщик — по ' +
+    'developerOrganizationId. Оба варианта фильтра строит сервис из tenant-контекста, клиент их не задаёт.',
 };
 
 const QUERY = /this\.model\.(find|findOne|findOneAndUpdate|updateOne|updateMany|deleteOne|deleteMany|countDocuments|aggregate|distinct)\b/;

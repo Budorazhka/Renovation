@@ -32,6 +32,19 @@ export class PublicationService {
   ) {}
 
   /**
+   * ЖК по адресу его карточки на витрине. Нужен второй стороне сделки:
+   * агентство нашло комплекс в каталоге платформы и фиксирует у его
+   * застройщика клиента (ClientRegistrationsService), а витрина наружу
+   * отдаёт slug, не идентификатор. Неопубликованный или чужого типа —
+   * null, тот же ответ, что у неизвестного адреса.
+   */
+  async findPublishedDevelopmentIdBySlug(slug: string): Promise<Types.ObjectId | null> {
+    const publication = await this.publicationRepository.findBySlug(slug);
+    if (!publication || publication.sourceType !== 'development') return null;
+    return publication.sourceId;
+  }
+
+  /**
    * ADR-005: команда publish — упсерт MarketplacePublication немедленно со
    * status:publication_pending + outbox-событие PublicationRequested — ОБА
    * в ТОЙ ЖЕ транзакции, что и смена canonical-статуса (session передаётся

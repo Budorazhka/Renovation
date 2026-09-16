@@ -3970,7 +3970,20 @@ export const en: TranslationSchema<typeof ru> = {
       emptyFiltered: "No bookings in this category"
     },
     registrations: {
+      incomingHint: "Agency requests for this development. Acceptance reserves the client for the agency for six months.",
+      accept: "Accept",
+      reject: "Decline",
+      rejectReason: "Reason for declining",
+      statuses: {
+          pending: "Awaiting a decision",
+          active: "Reserved",
+          rejected: "Declined",
+          completed: "Deal closed",
+          cancelled: "Withdrawn by the agency"
+      },
       errors: {
+        conflict: "The request was changed elsewhere, the list is refreshed",
+        alreadyDecided: "The request has already been decided",
         nameRequired: "Enter client name",
         phoneRequired: "Enter phone number",
         realtorRequired: "Enter realtor name"
@@ -3991,6 +4004,7 @@ export const en: TranslationSchema<typeof ru> = {
       submit: "Register",
       addButton: "Register client",
       columns: {
+        decision: "Decision",
         client: "Client",
         phone: "Phone",
         realtor: "Realtor",
@@ -7955,6 +7969,59 @@ export const en: TranslationSchema<typeof ru> = {
           reopen: "Reopen",
           reschedule: "Reschedule",
           delete: "Delete"
+      }
+  },
+  registrations: {
+      title: "Client registration with a developer",
+      subtitle: "A request for a development on the platform reaches its developer, who accepts or declines it",
+      counts: "Awaiting a reply: {pending} · reserved: {active} · expired: {expired}",
+      newTitle: "New registration",
+      submit: "Register",
+      saving: "Saving…",
+      filterAll: "All",
+      empty: "No registrations yet",
+      loadFailed: "Could not load the registry",
+      retry: "Try again",
+      createFailed: "Could not file the request",
+      actionFailed: "Could not save the decision",
+      alreadyRegistered: "The client is already reserved in this development by another agency",
+      alreadyDecided: "The request has already been decided",
+      conflict: "The request was changed elsewhere, the list is refreshed",
+      awaitsDeveloper: "Awaiting the developer",
+      reservedUntil: "Reserved until {date}",
+      cityPlaceholder: "City",
+      developmentLabel: "Development on the platform",
+      developmentPlaceholder: "Choose a development",
+      catalogEmpty: "The catalogue has no published developments",
+      catalogFailed: "The catalogue did not load",
+      developerPlaceholder: "Developer",
+      projectPlaceholder: "Project or development",
+      unitPlaceholder: "Lot, building, apartment",
+      clientNamePlaceholder: "Client name",
+      clientPhonePlaceholder: "Client phone",
+      leadLabel: "Lead",
+      leadNone: "No lead attached",
+      notesPlaceholder: "Note for yourself",
+      linkPartnersReport: "Primary market report",
+      linkBookings: "Chessboard bookings",
+      hintPlatform: "The developer sees the request in their own system and answers. Acceptance reserves the client for six months.",
+      hintExternal: "The developer is not on the platform: mark the request confirmed yourself once they answer.",
+      target: {
+          platform: "Development on the platform",
+          external: "Developer outside the platform"
+      },
+      status: {
+          pending: "Awaiting a reply",
+          active: "Reserved",
+          rejected: "Declined",
+          completed: "Deal closed",
+          cancelled: "Withdrawn",
+          expired: "Expired"
+      },
+      actions: {
+          confirm: "Mark as confirmed",
+          complete: "Deal closed",
+          cancel: "Withdraw"
       }
   },
   settings: {

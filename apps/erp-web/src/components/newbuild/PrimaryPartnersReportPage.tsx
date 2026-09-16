@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, BarChart3, Filter, HandCoins, ReceiptText, TrendingUp } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { countSessionRegistrations } from '@/lib/newbuild-registrations-storage'
+import { clientRegistrationsApi } from '@/services/clientRegistrationsApi'
 import { useI18n } from "@/i18n";
 
 type PartnerRow = {
@@ -41,7 +41,23 @@ const WEEKLY: Array<{ week: string; reg: number; book: number; deals: number }> 
 
 export default function PrimaryPartnersReportPage() {
     const { t } = useI18n();
-  const sessionRegs = countSessionRegistrations()
+  // Счётчик заявок — с сервера, а не из localStorage вкладки: фиксация
+  // клиента живёт в модуле client-registrations и видна всей организации.
+  const [sessionRegs, setSessionRegs] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    clientRegistrationsApi
+      .list()
+      .then((items) => {
+        if (!cancelled) setSessionRegs(items.length)
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRegs(0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const [region, setRegion] = useState<string>('all')
   const [partner, setPartner] = useState<string>('all')

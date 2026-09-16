@@ -2751,6 +2751,351 @@ paths:
           description: NOT_FOUND
           $ref: '#/components/responses/Error'
 
+  /client-registrations:
+    get:
+      operationId: listClientRegistrations
+      summary: >
+        Реестр фиксаций клиентов у застройщиков своей организации, свежие
+        первыми (до 200). isExpired считается на чтении из reservedUntil:
+        отдельного статуса «истекла» сервер не хранит.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/ClientRegistrationStatus'}
+      responses:
+        '200':
+          description: Реестр агентства
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationListResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.read
+          $ref: '#/components/responses/Error'
+
+    post:
+      operationId: createClientRegistration
+      summary: >
+        Зафиксировать клиента у застройщика. Либо developmentId — ЖК на
+        платформе, тогда организацию застройщика и название проекта сервер
+        берёт из комплекса сам, а заявка ждёт ответа застройщика; либо пара
+        developerName и projectName для застройщика вне платформы — такую
+        заявку агентство подтверждает у себя вручную. Клиент, уже
+        закреплённый в этом ЖК за кем-то другим, отвечает 409
+        CLIENT_ALREADY_REGISTERED без названия агентства-конкурента. Пишет
+        аудит client_registration.create.
+      tags: [erp-client-registrations]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateClientRegistrationRequest'
+      responses:
+        '201':
+          description: Заявка подана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED либо IDEMPOTENCY_KEY_REQUIRED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.create
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — ЖК не найден или не опубликован
+          $ref: '#/components/responses/Error'
+        '409':
+          description: CLIENT_ALREADY_REGISTERED — клиент уже закреплён в этом ЖК
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/incoming:
+    get:
+      operationId: listIncomingClientRegistrations
+      summary: >
+        Входящие заявки застройщика — те, что агентства подали по его ЖК.
+        Запись принадлежит агентству, застройщик видит её как вторая сторона
+        сделки; фильтр идёт по его организации, а не по владельцу записи.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: {$ref: '#/components/schemas/ClientRegistrationStatus'}
+      responses:
+        '200':
+          description: Входящие заявки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncomingClientRegistrationListResponse'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.decide
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}:
+    patch:
+      operationId: updateClientRegistration
+      summary: >
+        Правка своей заявки — лот и заметка. Клиент и застройщик не меняются:
+        это была бы другая заявка. Не присланное необязательное поле
+        снимается. expectedVersion — версия, которую видел менеджер.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка изменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — заявка чужой организации или не существует
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT — заявку изменили после чтения
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}/accept:
+    post:
+      operationId: acceptClientRegistration
+      summary: >
+        Застройщик подтверждает заявку: клиент закрепляется за агентством на
+        шесть месяцев (решение владельца 16.09.2026). Подтвердить можно
+        только заявку в статусе pending, адресованную своей организации.
+        Пишет аудит client_registration.accept.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка подтверждена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED — заявка уже в другом статусе
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.decide
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — заявка адресована не этой организации
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}/reject:
+    post:
+      operationId: rejectClientRegistration
+      summary: >
+        Застройщик отклоняет заявку с причиной — агентству нужна причина, а
+        не только статус. Пишет аудит client_registration.reject.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка отклонена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.decide
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}/confirm-external:
+    post:
+      operationId: confirmExternalClientRegistration
+      summary: >
+        Ручное подтверждение заявки по застройщику вне платформы: менеджер
+        отмечает её подтверждённой, когда получил ответ по почте. Для ЖК на
+        платформе запрещено — там подтверждает застройщик.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка подтверждена вручную
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED — заявка адресована застройщику на платформе или уже в другом статусе
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}/complete:
+    post:
+      operationId: completeClientRegistration
+      summary: Сделка по закреплённому клиенту состоялась. Разрешено только из статуса active.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка завершена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED — заявка не в статусе active
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
+  /client-registrations/{registrationId}/cancel:
+    post:
+      operationId: cancelClientRegistration
+      summary: >
+        Агентство снимает свою заявку — клиент сразу освобождается для
+        других. Разрешено из pending и active.
+      tags: [erp-client-registrations]
+      parameters:
+        - name: registrationId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideClientRegistrationRequest'
+      responses:
+        '200':
+          description: Заявка снята
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientRegistrationView'
+        '400':
+          description: VALIDATION_FAILED — заявка уже закрыта
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет client_registration.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
   /me/notifications:
     get:
       operationId: getMyNotificationSettings
@@ -11138,6 +11483,115 @@ components:
       properties:
         email: {$ref: '#/components/schemas/DeliveryCounts'}
         telegram: {$ref: '#/components/schemas/DeliveryCounts'}
+
+    ClientRegistrationStatus:
+      type: string
+      enum: [pending, active, rejected, completed, cancelled]
+      description: >
+        pending — заявка подана; active — клиент закреплён до reservedUntil;
+        rejected — застройщик отказал; completed — сделка состоялась;
+        cancelled — агентство сняло заявку. Истёкшее закрепление отдельным
+        статусом не хранится, см. isExpired.
+
+    ClientRegistrationView:
+      type: object
+      required: [id, developmentId, developerName, projectName, unitLabel, clientName, clientPhone, leadId, agentPositionId, status, isExpired, awaitsDeveloper, reservedUntil, decidedAt, decisionNote, notes, createdAt, version]
+      properties:
+        id: {type: string}
+        developmentId:
+          type: string
+          nullable: true
+          description: ЖК на платформе; у застройщика вне платформы null.
+        developerName: {type: string, description: Имя застройщика на момент подачи — снимок.}
+        projectName: {type: string}
+        unitLabel: {type: string, nullable: true}
+        clientName: {type: string}
+        clientPhone: {type: string}
+        leadId: {type: string, nullable: true}
+        agentPositionId: {type: string, description: Позиция менеджера, подавшего заявку.}
+        status: {$ref: '#/components/schemas/ClientRegistrationStatus'}
+        isExpired:
+          type: boolean
+          description: Срок закрепления истёк. Считается на чтении из reservedUntil и статуса.
+        awaitsDeveloper:
+          type: boolean
+          description: Ждёт ответа застройщика на платформе. У внешнего застройщика false — отвечать некому.
+        reservedUntil: {type: string, format: date-time, nullable: true}
+        decidedAt: {type: string, format: date-time, nullable: true}
+        decisionNote: {type: string, nullable: true, description: Причина отказа застройщика.}
+        notes: {type: string, nullable: true}
+        createdAt: {type: string, format: date-time}
+        version: {type: integer, description: Версия для expectedVersion.}
+
+    ClientRegistrationListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ClientRegistrationView'}
+
+    IncomingClientRegistrationView:
+      allOf:
+        - $ref: '#/components/schemas/ClientRegistrationView'
+        - type: object
+          required: [agencyOrganizationId]
+          properties:
+            agencyOrganizationId:
+              type: string
+              description: Агентство, подавшее заявку — застройщику нужно знать, с кем он имеет дело.
+
+    IncomingClientRegistrationListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/IncomingClientRegistrationView'}
+
+    CreateClientRegistrationRequest:
+      type: object
+      required: [clientName, clientPhone]
+      properties:
+        developmentId:
+          type: string
+          description: ЖК на платформе. Организацию застройщика сервер выводит из него сам — клиент её не передаёт.
+        developmentSlug:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: >
+            Адрес карточки ЖК на витрине — им комплекс адресует каталог
+            платформы, идентификатора у публичной карточки нет. Неизвестный
+            или неопубликованный адрес — 404.
+        developerName: {type: string, minLength: 2, maxLength: 200}
+        projectName: {type: string, minLength: 2, maxLength: 200}
+        unitLabel: {type: string, minLength: 1, maxLength: 200}
+        clientName: {type: string, minLength: 2, maxLength: 200}
+        clientPhone: {type: string, minLength: 5, maxLength: 40}
+        leadId: {type: string, description: Лид CRM, из которого выросла регистрация.}
+        notes: {type: string, minLength: 1, maxLength: 2000}
+
+    UpdateClientRegistrationRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+        unitLabel: {type: string, minLength: 1, maxLength: 200}
+        notes: {type: string, minLength: 1, maxLength: 2000}
+
+    DecideClientRegistrationRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+
+    RejectClientRegistrationRequest:
+      type: object
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+        reason: {type: string, minLength: 3, maxLength: 1000, description: Причина отказа — она нужна агентству.}
 
     NewsArticleView:
       type: object
