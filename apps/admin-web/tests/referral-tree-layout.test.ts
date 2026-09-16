@@ -68,14 +68,15 @@ describe('дерево сети сверху вниз', () => {
 
   it('«вешалка»: ряд заполняется от стержня наружу, по perSide с каждой стороны', () => {
     const stemX = 1000
-    const places = hangerPlaces(5, stemX, 0, ADMIN_TREE_SIZES)
+    const wide = { ...ADMIN_TREE_SIZES, perSide: 2 }
+    const places = hangerPlaces(5, stemX, 0, wide)
     expect(places.map((p) => p.side)).toEqual(['left', 'right', 'left', 'right', 'left'])
     expect(places[0]!.x + ADMIN_TREE_SIZES.member.width).toBeLessThan(stemX)
     expect(places[1]!.x).toBeGreaterThan(stemX)
     expect(places[2]!.x).toBeLessThan(places[0]!.x)
     expect(places[4]!.y).toBeGreaterThan(places[0]!.y)
     for (const place of places) {
-      expect(Math.abs(place.x + (place.side === 'left' ? ADMIN_TREE_SIZES.member.width : 0) - stemX)).toBeLessThanOrEqual(hangerHalfWidth(ADMIN_TREE_SIZES))
+      expect(Math.abs(place.x + (place.side === 'left' ? wide.member.width : 0) - stemX)).toBeLessThanOrEqual(hangerHalfWidth(wide))
     }
 
     const narrow = { ...ADMIN_TREE_SIZES, perSide: 1 }

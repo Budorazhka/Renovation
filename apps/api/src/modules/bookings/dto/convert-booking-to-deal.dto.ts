@@ -8,8 +8,7 @@
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MoneyAmountDto } from '../../developments/dto/money-amount.dto';
-
-const DEAL_TYPES = ['primary', 'secondary', 'rental', 'assignment'] as const;
+import { DEAL_TYPES, type DealType } from '../../crm/deal-type';
 
 export class ConvertBookingToDealDto {
   @IsOptional()
@@ -23,7 +22,7 @@ export class ConvertBookingToDealDto {
 
   @IsOptional()
   @IsIn(DEAL_TYPES)
-  dealType?: (typeof DEAL_TYPES)[number];
+  dealType?: DealType;
 
   @IsOptional()
   @IsMongoId()

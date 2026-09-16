@@ -69,6 +69,8 @@
 | `REFERRAL_ALREADY_IN_TEAM` | Человек уже в команде: в этой или в другой. Сменить куратора можно только заявкой | `POST /marketplace/referral/join`, `POST /admin/referral-network/members` (docs/operations/referral-network.md) |
 | `REFERRAL_COMPANY_MISMATCH` | Сотрудник агентства не может состоять в команде куратора из другой компании — правило действует и для суперадмина | `POST /marketplace/referral/join`, `/requests`, `POST /admin/referral-network/members`, решение заявки |
 | `REFERRAL_REQUEST_PENDING` | Нерешённая заявка того же типа уже в очереди BAZA | `POST /marketplace/referral/requests` |
+| `PERSON_WITHOUT_POSITION` | Сменить имя нельзя: у человека нет должности, он зарегистрирован только на маркетплейсе и виден по логину | `PATCH /admin/people/:identityId` |
+| `DEAL_TYPE_LOCKED` | BAZA уже отметила пришедшую комиссию по сделке: начисление куратору сделано по текущему типу, менять его нельзя | `PATCH /deals/:dealId` с `dealType` |
 | `CURATOR_ACCRUAL_ALREADY_PAID` | Куратору уже выплачено по сделке: сторнировать может только суперадмин | `POST /admin/commissions/:dealId/cancel` |
 | `CLIENT_ALREADY_REGISTERED` | Клиент уже закреплён в этом ЖК за другим агентством: есть заявка в статусе `pending` либо действующее закрепление | `POST /client-registrations` — сообщение содержит дату окончания закрепления, но не название агентства-конкурента (docs/operations/client-registrations.md) |
 

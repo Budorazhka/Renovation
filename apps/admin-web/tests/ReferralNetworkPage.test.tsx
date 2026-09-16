@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -70,6 +70,9 @@ async function renderPage() {
   )
 }
 
+// Первый рендер ждёт холодный импорт страницы: под параллельной нагрузкой всего воркспейса это дольше секунды по умолчанию.
+configure({ asyncUtilTimeout: 5000 })
+
 afterEach(() => {
   cleanup()
   vi.resetModules()
@@ -130,6 +133,29 @@ describe('ReferralNetworkPage', () => {
 
     await waitFor(() => expect(appointCurator).toHaveBeenCalledWith('new1', 'Проверен BAZA'))
     await waitFor(() => expect(screen.queryByText('Новый Риэлтор назначен куратором.')).not.toBeNull())
+  })
+
+  it('имя меняют в карточке человека: новое имя и причина обязательны', async () => {
+    const renamePerson = vi.fn(() =>
+      Promise.resolve({ ...person('cur1', 'Анна Кураторова-Беридзе'), login: 'cur1@example.test' }),
+    )
+    mockAdminApi({ renamePerson })
+    await renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Куратор Анна Кураторова, в команде 1' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Изменить имя' }))
+    const dialog = screen.getByRole('dialog')
+    const confirm = within(dialog).getByRole('button', { name: 'Сохранить имя' }) as HTMLButtonElement
+    // То же имя сохранять нечего.
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /Причина/ }), { target: { value: 'Вышла замуж' } })
+    expect(confirm.disabled).toBe(true)
+
+    fireEvent.change(within(dialog).getByLabelText('Новое имя'), { target: { value: 'Анна Кураторова-Беридзе' } })
+    expect(confirm.disabled).toBe(false)
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(renamePerson).toHaveBeenCalledWith('cur1', 'Анна Кураторова-Беридзе', 'Вышла замуж'))
+    await waitFor(() => expect(screen.queryByText('Имя изменено: Анна Кураторова-Беридзе.')).not.toBeNull())
   })
 
   it('отказ сервера по правилу компании показывается словами', async () => {

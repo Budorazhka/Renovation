@@ -22,7 +22,8 @@ export type DealStage =
   | 'referral'     // Взять рекомендацию
   | 'closed_lost'  // Сделка сорвалась
 
-export type DealType = 'primary' | 'secondary'
+/** Первичка, вторичка, аренда, переуступка — то же, что DealTypeV2 на backend. */
+export type DealType = 'primary' | 'secondary' | 'rental' | 'assignment'
 
 export interface DealParticipant {
   role: 'agent' | 'lawyer' | 'rop' | 'buyer' | 'seller'

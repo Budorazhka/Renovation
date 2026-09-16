@@ -19,6 +19,9 @@ function makeDeal(overrides: Partial<DealV2> = {}): DealV2 {
     description: null,
     stage: 'showing',
     expectedCommission: null,
+    commissionReceived: null,
+    commissionReceivedAt: null,
+    dealType: 'secondary',
     participants: [],
     checklistItems: [],
     version: 0,
@@ -71,9 +74,14 @@ describe('deal-v2-legacy-adapter', () => {
     expect(legacy.commission).toBe(0)
   })
 
-  it('честные пробелы: type всегда "primary", propertyAddress/propertyType — плейсхолдер, price — 0', () => {
+  it('type — прямо из dealType backend: от него зависит начисление куратору', () => {
+    expect(mapDealV2ToLegacy(makeDeal(), new Map()).type).toBe('secondary')
+    expect(mapDealV2ToLegacy(makeDeal({ dealType: 'primary' }), new Map()).type).toBe('primary')
+    expect(mapDealV2ToLegacy(makeDeal({ dealType: 'assignment' }), new Map()).type).toBe('assignment')
+  })
+
+  it('честные пробелы: propertyAddress/propertyType — плейсхолдер, price — 0', () => {
     const legacy = mapDealV2ToLegacy(makeDeal(), new Map())
-    expect(legacy.type).toBe('primary')
     expect(legacy.propertyAddress).toBe('Не указано в CRM')
     expect(legacy.propertyType).toBe('Не указано в CRM')
     expect(legacy.price).toBe(0)

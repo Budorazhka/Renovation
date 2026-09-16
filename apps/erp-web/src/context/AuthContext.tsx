@@ -196,7 +196,7 @@ interface AuthContextValue {
    * organization-onboarding.controller.ts докстринг описывает. Второй шаг
    * уже ставит session cookie — отдельный login() после этого не нужен.
    */
-  registerOrganization: (params: { login: string; password: string; type: OrganizationType; name: string }) => Promise<RegisterResult>
+  registerOrganization: (params: { login: string; password: string; type: OrganizationType; name: string; ownerName?: string }) => Promise<RegisterResult>
   /** Войти в кабинет как выбранный тип и роль (демо, без пароля) */
   enterAs: (accountType: AccountType, role: UserRole) => void
   logout: () => void
@@ -535,6 +535,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string
     type: OrganizationType
     name: string
+    ownerName?: string
   }): Promise<RegisterResult> {
     const trimmedLogin = params.login.trim()
 
@@ -552,13 +553,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password: params.password,
         type: params.type,
         name: params.name,
+        ownerName: params.ownerName || undefined,
       })
 
       localStorage.setItem('crm_session_active', '1')
 
       setCurrentUser({
         id: result.positionId,
-        name: trimmedLogin,
+        name: params.ownerName || trimmedLogin,
         login: trimmedLogin,
         role: 'owner',
         accountType: params.type === 'developer' ? 'developer' : 'agency',

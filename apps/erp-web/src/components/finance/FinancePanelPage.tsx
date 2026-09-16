@@ -10,6 +10,8 @@ const money = new Intl.NumberFormat('ru-RU')
 const TYPE_LABEL: Record<DealType, string> = {
   primary: 'Первичка',
   secondary: 'Вторичка',
+  rental: 'Аренда',
+  assignment: 'Переуступка',
 }
 
 export default function FinancePanelPage() {
@@ -72,6 +74,8 @@ export default function FinancePanelPage() {
                 <option value="all">{t('finance.financePanelPage.тип_все')}</option>
                 <option value="primary">{TYPE_LABEL.primary}</option>
                 <option value="secondary">{TYPE_LABEL.secondary}</option>
+                <option value="rental">{TYPE_LABEL.rental}</option>
+                <option value="assignment">{TYPE_LABEL.assignment}</option>
               </select>
             </div>
           </section>

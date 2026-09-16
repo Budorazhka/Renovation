@@ -182,6 +182,32 @@ describe('POST /organizations/register — organization onboarding (real HTTP fl
     expect(positionDoc?.fixedRole).toBe('owner');
   });
 
+  it('имя владельца из регистрации — в команде; без имени независимый риэлтор виден по названию организации, а не «Owner»', async () => {
+    const password = 'correct horse battery staple';
+
+    async function registerOwner(type: string, name: string, ownerName?: string) {
+      const login = `named-owner-${new Types.ObjectId().toString()}@example.test`;
+      await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { login, password } });
+      const orgRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/organizations/register',
+        payload: { login, password, type, name, ...(ownerName ? { ownerName } : {}) },
+      });
+      expect(orgRes.statusCode).toBe(201);
+      const self = await app.inject({
+        method: 'POST',
+        url: '/api/v1/team-users/ensure-self',
+        headers: { cookie: extractSessionCookie(orgRes) },
+      });
+      return self.json().data.name as string;
+    }
+
+    expect(await registerOwner('agency', 'Агентство Batumi Home', 'Лаша Гогиберидзе')).toBe('Лаша Гогиберидзе');
+    expect(await registerOwner('independent_realtor', 'Нино Беридзе')).toBe('Нино Беридзе');
+    // Старое поведение для агентства без имени не ломается: заглушка остаётся, пока владелец её не сменит.
+    expect(await registerOwner('agency', 'Агентство без имени')).toBe('Owner');
+  });
+
   it('неверный пароль — AUTH_INVALID_CREDENTIALS, организация не создаётся', async () => {
     const login = `wrong-pw-${Date.now()}@example.test`;
     await app.inject({ method: 'POST', url: '/api/v1/auth/register', payload: { login, password: 'correct horse battery staple' } });

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { DEAL_TYPES, type DealType } from '../deal-type';
 import { MoneyAmountDto } from './money-amount.dto';
 
 /**
@@ -28,4 +29,9 @@ export class UpdateDealDto {
   @ValidateNested()
   @Type(() => MoneyAmountDto)
   expectedCommission?: MoneyAmountDto;
+
+  /** Меняется, пока BAZA не отметила пришедшую комиссию; после отметки — DEAL_TYPE_LOCKED. */
+  @IsOptional()
+  @IsIn(DEAL_TYPES)
+  dealType?: DealType;
 }

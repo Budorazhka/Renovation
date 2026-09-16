@@ -94,6 +94,8 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
       'referral_requests',
       'curator_accruals',
       'deals',
+      'deal_events',
+      'contacts',
       'admin_accounts',
       'positions',
       'position_assignments',
@@ -216,6 +218,31 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
     return app.inject({ method: 'POST', url: `/api/v1${url}`, headers: { cookie }, payload });
   }
 
+  function patch(url: string, cookie: string, payload: Record<string, unknown>) {
+    return app.inject({ method: 'PATCH', url: `/api/v1${url}`, headers: { cookie }, payload });
+  }
+
+  /** Сделка агента настоящим путём ERP: POST /deals, тип — полем сделки. */
+  async function createDealViaErp(owner: Person, title: string, dealType?: string): Promise<{ id: string; dealType: string; version: number }> {
+    const contactId = new Types.ObjectId();
+    await connection.collection('contacts').insertOne({
+      _id: contactId,
+      organizationId: owner.organizationId,
+      name: 'Покупатель Квартиры',
+      phone: '+995555112233',
+      roles: ['buyer'],
+      createdAt: new Date(),
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/deals',
+      headers: { cookie: owner.erpCookie, 'idempotency-key': new Types.ObjectId().toString() },
+      payload: { contactId: contactId.toString(), title, ...(dealType ? { dealType } : {}) },
+    });
+    expect(res.statusCode).toBe(201);
+    return res.json();
+  }
+
   function get(url: string, cookie: string) {
     return app.inject({ method: 'GET', url: `/api/v1${url}`, headers: { cookie } });
   }
@@ -248,12 +275,21 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
     expect(again.statusCode).toBe(409);
     expect(again.json().error.code).toBe('REFERRAL_ALREADY_IN_TEAM');
 
-    const dealId = await seedPrimaryDeal(agent, 'Квартира в ЖК Солнечный');
-    const commissions = await get('/admin/commissions', superAdmin.cookie);
-    expect(commissions.json().items.map((d: { id: string }) => d.id)).toContain(dealId.toString());
+    // Агент ведёт сделку в своей CRM. Без типа это вторичка, в «Комиссии» BAZA она не попадает.
+    const created = await createDealViaErp(agent, 'Квартира в ЖК Солнечный');
+    expect(created.dealType).toBe('secondary');
+    const dealId = created.id;
+    expect((await get('/admin/commissions', superAdmin.cookie)).json().items.map((d: { id: string }) => d.id)).not.toContain(dealId);
 
-    const received = await post(`/admin/commissions/${dealId.toString()}/received`, superAdmin.cookie, {
-      expectedVersion: 0,
+    // Агент отмечает, что это первичка.
+    const retyped = await patch(`/deals/${dealId}`, agent.erpCookie, { expectedVersion: 0, dealType: 'primary' });
+    expect(retyped.statusCode).toBe(200);
+    expect(retyped.json()).toMatchObject({ dealType: 'primary', version: 1 });
+    const commissions = await get('/admin/commissions', superAdmin.cookie);
+    expect(commissions.json().items.map((d: { id: string }) => d.id)).toContain(dealId);
+
+    const received = await post(`/admin/commissions/${dealId}/received`, superAdmin.cookie, {
+      expectedVersion: 1,
       amountMinorUnits: 300_000,
       currency: 'USD',
     });
@@ -262,6 +298,15 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
       accrued: true,
       amount: { amountMinorUnits: 21_000, currency: 'USD' },
     });
+
+    // Начисление сделано по первичке — задним числом сделать её вторичкой нельзя.
+    const locked = await patch(`/deals/${dealId}`, agent.erpCookie, { expectedVersion: 2, dealType: 'secondary' });
+    expect(locked.statusCode).toBe(409);
+    expect(locked.json().error.code).toBe('DEAL_TYPE_LOCKED');
+    // Название и прочее по-прежнему правятся.
+    const renamed = await patch(`/deals/${dealId}`, agent.erpCookie, { expectedVersion: 2, title: 'Квартира 12, ЖК Солнечный' });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json().dealType).toBe('primary');
 
     // Кабинет куратора: команда и деньги.
     const mine = await get('/marketplace/referral/me', curator.marketplaceCookie);
@@ -283,16 +328,16 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
     // Менеджер BAZA с правом на комиссии не может сторнировать выплаченное.
     const manager = await seedAdmin(false);
     await grant(manager.adminAccountId, 'commission', 'confirm');
-    const cancelByManager = await post(`/admin/commissions/${dealId.toString()}/cancel`, manager.cookie, {
-      expectedVersion: 1,
+    const cancelByManager = await post(`/admin/commissions/${dealId}/cancel`, manager.cookie, {
+      expectedVersion: 3,
       reason: 'Ошибся суммой',
     });
     expect(cancelByManager.statusCode).toBe(409);
     expect(cancelByManager.json().error.code).toBe('CURATOR_ACCRUAL_ALREADY_PAID');
 
     // Суперадмин может — начисление становится reversed, отметка снимается.
-    const cancelBySuper = await post(`/admin/commissions/${dealId.toString()}/cancel`, superAdmin.cookie, {
-      expectedVersion: 1,
+    const cancelBySuper = await post(`/admin/commissions/${dealId}/cancel`, superAdmin.cookie, {
+      expectedVersion: 3,
       reason: 'Ошибся суммой',
     });
     expect(cancelBySuper.statusCode).toBe(200);
@@ -394,6 +439,39 @@ describe('Referral network — HTTP Integration (AppModule)', () => {
 
     const history = await get(`/admin/referral-network/people/${agent.identityId.toString()}/history`, superAdmin.cookie);
     expect(history.json().items.map((h: { endReason: string | null }) => h.endReason)).toEqual([null, 'transferred']);
+  });
+
+  it('имя после регистрации меняет BAZA в админке: с причиной, в аудит; без гранта — 403, без должности — 409', async () => {
+    const superAdmin = await seedAdmin(true);
+    const curator = await seedOwner('independent_realtor', 'ИП Кураторов', 'Owner');
+    await post('/admin/referral-network/curators', superAdmin.cookie, { identityId: curator.identityId.toString(), reason: 'Проверен' });
+
+    const rename = (cookie: string, identityId: string, payload: Record<string, unknown>) =>
+      app.inject({ method: 'PATCH', url: `/api/v1/admin/people/${identityId}`, headers: { cookie }, payload });
+
+    const renamed = await rename(superAdmin.cookie, curator.identityId.toString(), { name: 'Анна Кураторова', reason: 'Попросила по телефону' });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json()).toMatchObject({ identityId: curator.identityId.toString(), name: 'Анна Кураторова' });
+
+    const tree = await get('/admin/referral-network', superAdmin.cookie);
+    expect(tree.json().curators[0].person.name).toBe('Анна Кураторова');
+    const audit = await connection.collection('audit_events').findOne({ action: 'person.rename' });
+    expect(audit).toMatchObject({ reason: 'Попросила по телефону', before: { name: 'Owner' }, after: { name: 'Анна Кураторова' } });
+
+    // Причина обязательна.
+    expect((await rename(superAdmin.cookie, curator.identityId.toString(), { name: 'Без причины' })).statusCode).toBe(400);
+
+    // Администратор без гранта person.rename — 403, с грантом — может.
+    const manager = await seedAdmin(false);
+    expect((await rename(manager.cookie, curator.identityId.toString(), { name: 'Кто-то', reason: 'Без права' })).statusCode).toBe(403);
+    await grant(manager.adminAccountId, 'person', 'rename');
+    expect((await rename(manager.cookie, curator.identityId.toString(), { name: 'Анна К.', reason: 'Опечатка' })).statusCode).toBe(200);
+
+    // Человек только с маркетплейса: должности нет, менять нечего.
+    const guestId = await authService.registerIdentity({ login: `guest-${new Types.ObjectId().toString()}@example.test`, password: PASSWORD });
+    const guest = await rename(superAdmin.cookie, guestId.toString(), { name: 'Гость', reason: 'Проверка' });
+    expect(guest.statusCode).toBe(409);
+    expect(guest.json().error.code).toBe('PERSON_WITHOUT_POSITION');
   });
 
   it('без гранта администратор сеть не видит, а менеджер с правом на комиссии не правит сеть', async () => {

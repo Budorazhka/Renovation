@@ -105,6 +105,26 @@
   letter-spacing: -0.02em;
 }
 
+/* Действие над данными, не опасное: нейтральная ссылка, а не красная .link-button. */
+.referral-card__rename {
+  min-height: 0;
+  margin: 0 0 0.35rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.referral-card__rename:hover:not(:disabled) {
+  color: var(--ink);
+  transform: none;
+}
+
 .referral-card__header p,
 .referral-card__note {
   margin: 0;
@@ -339,7 +359,8 @@
 .genealogy__viewport {
   position: relative;
   height: min(72vh, 760px);
-  min-height: 420px;
+  min-height: 360px;
+  max-height: 72vh;
   overflow: hidden;
   touch-action: none;
   cursor: grab;

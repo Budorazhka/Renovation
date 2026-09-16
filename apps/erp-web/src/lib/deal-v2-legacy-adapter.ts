@@ -1,4 +1,4 @@
-import type { Deal, DealChecklistItem, DealParticipant, DealStage, DealType } from '@/types/deals'
+import type { Deal, DealChecklistItem, DealParticipant, DealStage } from '@/types/deals'
 import type { DealParticipantV2, DealV2 } from '@/types/dealsV2'
 
 /**
@@ -16,10 +16,6 @@ import type { DealParticipantV2, DealV2 } from '@/types/dealsV2'
  *
  * Честные пробелы этого адаптера (backend Deal не хранит эти поля вовсе —
  * не выдумываются, не подставляются фиктивные данные):
- *  - `type` ('primary'|'secondary') — на Deal-агрегате backend нет понятия
- *    первичка/вторичка. Всегда 'primary' — фильтр по типу на экранах
- *    отчётов/финансов останется рабочим синтаксически, но не будет
- *    разделять сделки по смыслу, пока это поле не появится на backend.
  *  - `propertyAddress`/`propertyType` — на Deal нет связи с
  *    PropertyAsset/Listing (ни поля, ни поиска по leadId → listing).
  *    Плейсхолдер `'Не указано в CRM'` вместо реального адреса/типа объекта.
@@ -67,8 +63,8 @@ export function mapDealV2ToLegacy(deal: DealV2, managerNameById: Map<string, str
   return {
     id: deal.id,
     sourceLeadId: deal.leadId ?? undefined,
-    // Честный пробел — см. докстринг выше.
-    type: 'primary' as DealType,
+    // Тип хранит backend (dealType); у старых сделок без поля — вторичка.
+    type: deal.dealType ?? 'secondary',
     stage: deal.stage as unknown as DealStage,
     clientId: deal.contactId,
     clientName: deal.contact?.name ?? '',

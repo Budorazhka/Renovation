@@ -1,4 +1,4 @@
-import { IsIn, IsString, Length, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length, MinLength } from 'class-validator';
 import type { OrganizationType } from '../schemas/organization.schema';
 
 const ORGANIZATION_TYPES: OrganizationType[] = ['agency', 'developer', 'independent_realtor'];
@@ -27,4 +27,14 @@ export class RegisterOrganizationDto {
   @IsString()
   @Length(1, 200)
   name!: string;
+
+  /**
+   * Как зовут владельца. Без него в должность пишется заглушка «Owner», и
+   * человек так и виден в команде, сделках, рейтинге риэлторов и реферальной
+   * сети. Необязателен ради клиентов, которые его ещё не присылают.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  ownerName?: string;
 }

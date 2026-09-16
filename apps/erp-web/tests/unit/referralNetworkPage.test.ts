@@ -63,21 +63,27 @@ describe('«Партнёры → MLM»', () => {
           },
           membership: null,
         }),
-      getOrganization: () => Promise.resolve({ rules: { ratePercent: 7, teamSizeMin: 5, teamSizeIdealMax: 20 }, curators: [curatorNode] }),
+      getOrganization: () =>
+        Promise.resolve({
+          rules: { ratePercent: 7, teamSizeMin: 5, teamSizeIdealMax: 20 },
+          curators: [curatorNode, { ...curatorNode, person: person('cur2', 'Второй Куратор') }],
+        }),
     })
 
-    const trees = await screen.findAllByRole('figure', { name: 'Команда куратора Анна Кураторова: участников 2' })
-    expect(trees).toHaveLength(2)
-    expect(within(trees[0]!).getByLabelText('Вера Сменила, связь под вопросом')).not.toBeNull()
-    expect(within(trees[0]!).getByText('Куратор · 1 в команде')).not.toBeNull()
+    // Свою команду куратор видит один раз — деревом наверху, в списке компании себя не повторяет.
+    const mine = await screen.findAllByRole('figure', { name: 'Команда куратора Анна Кураторова: участников 2' })
+    expect(mine).toHaveLength(1)
+    expect(within(mine[0]!).getByLabelText('Вера Сменила, связь под вопросом')).not.toBeNull()
+    expect(within(mine[0]!).getByText('Куратор · 1 в команде')).not.toBeNull()
 
-    // В списке компании команда свёрнута, пока её не раскроют.
-    expect(within(trees[1]!).queryByLabelText('Вера Сменила, связь под вопросом')).toBeNull()
-    const toggle = within(trees[1]!).getByRole('button', { name: 'Показать команду' })
+    // В списке компании команда другого куратора свёрнута, пока её не раскроют.
+    const colleague = screen.getByRole('figure', { name: 'Команда куратора Второй Куратор: участников 2' })
+    expect(within(colleague).queryByLabelText('Вера Сменила, связь под вопросом')).toBeNull()
+    const toggle = within(colleague).getByRole('button', { name: 'Показать команду' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(toggle)
-    expect(within(trees[1]!).getByLabelText('Вера Сменила, связь под вопросом')).not.toBeNull()
-    expect(within(trees[1]!).getByRole('button', { name: 'Свернуть команду' }).getAttribute('aria-expanded')).toBe('true')
+    expect(within(colleague).getByLabelText('Вера Сменила, связь под вопросом')).not.toBeNull()
+    expect(within(colleague).getByRole('button', { name: 'Свернуть команду' }).getAttribute('aria-expanded')).toBe('true')
     expect(screen.getAllByText(/210,00/).length).toBeGreaterThan(0)
     expect(screen.getByText('Кураторы компании')).not.toBeNull()
   })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
-import { teamStatusLabel, teamStatusShortLabel } from '../lib/referral-format'
+import { companyLine, teamStatusLabel, teamStatusShortLabel } from '../lib/referral-format'
 import {
   ADMIN_TREE_SIZES,
   branchKeys,
@@ -31,6 +31,10 @@ interface View {
 
 const MIN_SCALE = 0.3
 const MAX_SCALE = 1.6
+/** Мельче «Уместить» не уменьшает: подписи 12–14px при 0.75 ещё читаются, дальше — нет. Остальное двигают. */
+const MIN_FIT_SCALE = 0.75
+const MIN_FRAME_HEIGHT = 360
+const MAX_FRAME_HEIGHT = 760
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -65,6 +69,8 @@ export function ReferralGenealogy({ curators, rules, expanded, onToggle, selecte
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   const dragRef = useRef<{ id: number; startX: number; startY: number; origin: View; moved: boolean } | null>(null)
   const fittedRef = useRef(false)
+  /** Высота холста по дереву: маленькая сеть не оставляет под собой пустое поле. */
+  const [frameHeight, setFrameHeight] = useState(MAX_FRAME_HEIGHT)
 
   const byKey = useMemo(() => new Map(layout.cards.map((card) => [card.key, card])), [layout])
   const curatorById = useMemo(() => new Map(curators.map((c) => [c.person.identityId, c])), [curators])
@@ -83,11 +89,14 @@ export function ReferralGenealogy({ curators, rules, expanded, onToggle, selecte
   const fit = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport) return
-    const { clientWidth, clientHeight } = viewport
+    const { clientWidth } = viewport
     if (clientWidth === 0) return
-    const scale = clamp(Math.min((clientWidth - 24) / layout.width, (clientHeight - 24) / layout.height, 1), MIN_SCALE, 1)
+    const scale = clamp((clientWidth - 24) / layout.width, MIN_FIT_SCALE, 1)
+    const height = clamp(Math.ceil(layout.height * scale) + 24, MIN_FRAME_HEIGHT, MAX_FRAME_HEIGHT)
+    setFrameHeight(height)
+    // Влезает — по центру; не влезает — с левого края: сеть читается слева направо, остальное двигают.
     setView({ scale, x: Math.max(12, (clientWidth - layout.width * scale) / 2), y: 12 })
-  }, [layout.width, layout.height])
+  }, [layout])
 
   // Первый показ — вся сеть в кадре.
   useLayoutEffect(() => {
@@ -190,6 +199,7 @@ export function ReferralGenealogy({ curators, rules, expanded, onToggle, selecte
       <div
         ref={viewportRef}
         className="genealogy__viewport"
+        style={{ height: frameHeight }}
         onWheel={handleWheel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -263,7 +273,7 @@ export function ReferralGenealogy({ curators, rules, expanded, onToggle, selecte
                     </span>
                     <span className="genealogy-card__text">
                       <span className="genealogy-card__name">{curator.person.name}</span>
-                      <span className="genealogy-card__sub">{curator.person.organizationName ?? 'Без компании'}</span>
+                      <span className="genealogy-card__sub">{companyLine(curator.person)}</span>
                     </span>
                   </button>
                   <div className="genealogy-card__footer">

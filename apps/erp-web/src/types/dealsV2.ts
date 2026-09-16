@@ -18,6 +18,11 @@ export const DEAL_STAGES_V2 = [
 
 export type DealStageV2 = (typeof DEAL_STAGES_V2)[number]
 
+/** Источник истины — apps/api/src/modules/crm/deal-type.ts::DEAL_TYPES. Куратору 7% только с первички. */
+export const DEAL_TYPES_V2 = ['primary', 'secondary', 'rental', 'assignment'] as const
+
+export type DealTypeV2 = (typeof DEAL_TYPES_V2)[number]
+
 /** apps/api/packages/contracts/src/money.ts::MoneyAmount. */
 export type CurrencyV2 = 'USD' | 'GEL' | 'RUB'
 
@@ -65,6 +70,8 @@ export interface DealV2 {
   /** Фактическая комиссия, которую отметил менеджер BAZA в админке; до отметки null. */
   commissionReceived: MoneyAmountV2 | null
   commissionReceivedAt: string | null
+  /** Меняется, пока BAZA не отметила комиссию; потом сервер отвечает 409 DEAL_TYPE_LOCKED. */
+  dealType: DealTypeV2
   participants: DealParticipantV2[]
   checklistItems: DealChecklistItemV2[]
   /** Optimistic concurrency — обязателен как expectedVersion в PATCH .../stage, .../reassign, .../checklist, .../participants и PATCH /:id. */
@@ -107,6 +114,7 @@ export interface CreateDealV2Payload {
   title: string
   description?: string
   stage?: DealStageV2
+  dealType?: DealTypeV2
   expectedCommission?: MoneyAmountV2
   participants?: CreateDealParticipantV2Payload[]
   checklistItems?: CreateDealChecklistItemV2Payload[]
@@ -121,6 +129,7 @@ export interface UpdateDealV2Payload {
   title?: string
   description?: string | null
   expectedCommission?: MoneyAmountV2 | null
+  dealType?: DealTypeV2
 }
 
 export interface ChecklistItemInputV2 {

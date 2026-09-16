@@ -105,6 +105,7 @@ export class DealController {
       title: dto.title,
       stage: dto.stage ?? null,
       ownerPositionId: dto.ownerPositionId ?? null,
+      dealType: dto.dealType ?? null,
     };
 
     const replay = await this.idempotencyService.checkReplay({
@@ -135,6 +136,7 @@ export class DealController {
       title: dto.title,
       description: dto.description,
       stage: dto.stage,
+      dealType: dto.dealType,
       expectedCommission: dto.expectedCommission,
       participants: dto.participants?.map((p) => ({
         role: p.role,
@@ -173,6 +175,7 @@ export class DealController {
       title: dto.title,
       description: dto.description,
       expectedCommission: dto.expectedCommission,
+      dealType: dto.dealType,
       expectedVersion: dto.expectedVersion,
       actorPositionId,
       actorIdentityId,

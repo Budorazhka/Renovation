@@ -5,7 +5,7 @@ import { mapDealV2ToLegacy } from '@/lib/deal-v2-legacy-adapter'
 import { useAuth } from '@/context/AuthContext'
 import { useLeads } from '@/context/LeadsContext'
 import type { Deal } from '@/types/deals'
-import type { ChecklistItemInputV2, CreateDealV2Payload, DealV2 } from '@/types/dealsV2'
+import type { ChecklistItemInputV2, CreateDealV2Payload, DealTypeV2, DealV2 } from '@/types/dealsV2'
 
 /**
  * Синхронизация с новым backend сделок (apps/api, /api/v1/deals) — до этого
@@ -28,6 +28,8 @@ interface DealsContextValue {
   refetch: () => Promise<void>
   changeStage: (dealId: string, stage: string, reason?: string) => Promise<boolean>
   updateChecklist: (dealId: string, items: ChecklistItemInputV2[]) => Promise<boolean>
+  /** 'locked' — BAZA уже отметила комиссию, тип зафиксирован (409 DEAL_TYPE_LOCKED). */
+  changeType: (dealId: string, dealType: DealTypeV2) => Promise<'saved' | 'locked' | 'failed'>
   addParticipant: (dealId: string, contactId: string, role: string) => Promise<boolean>
   removeParticipant: (dealId: string, contactId: string) => Promise<boolean>
   reassign: (dealId: string, ownerPositionId: string) => Promise<boolean>
@@ -125,6 +127,25 @@ export function DealsProvider({ children }: { children: ReactNode }) {
     [getVersion, replaceDeal, handleConflict],
   )
 
+  const changeType = useCallback(
+    async (dealId: string, dealType: DealTypeV2) => {
+      try {
+        const updated = await dealsApiV2.update(dealId, { expectedVersion: getVersion(dealId), dealType })
+        replaceDeal(updated)
+        return 'saved' as const
+      } catch (err) {
+        const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code
+        if (code === 'DEAL_TYPE_LOCKED') {
+          void fetchDeals()
+          return 'locked' as const
+        }
+        handleConflict(err, 'Не удалось сохранить тип сделки')
+        return 'failed' as const
+      }
+    },
+    [getVersion, replaceDeal, handleConflict, fetchDeals],
+  )
+
   const addParticipant = useCallback(
     async (dealId: string, contactId: string, role: string) => {
       try {
@@ -190,6 +211,7 @@ export function DealsProvider({ children }: { children: ReactNode }) {
         refetch: fetchDeals,
         changeStage,
         updateChecklist,
+        changeType,
         addParticipant,
         removeParticipant,
         reassign,

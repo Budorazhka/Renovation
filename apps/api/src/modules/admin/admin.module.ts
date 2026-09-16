@@ -26,6 +26,8 @@ import { AdminNewsService } from './admin-news.service';
 import { AdminNewsController } from './admin-news.controller';
 import { AdminReferralService } from './admin-referral.service';
 import { AdminReferralNetworkController } from './admin-referral-network.controller';
+import { AdminPeopleController } from './admin-people.controller';
+import { AdminPeopleService } from './admin-people.service';
 import { AdminCommissionsController } from './admin-commissions.controller';
 import { AdminCuratorPayoutsController } from './admin-curator-payouts.controller';
 import { AuthorizationModule } from '../authorization/authorization.module';
@@ -90,6 +92,7 @@ import { ReferralNetworkModule } from '../referral-network/referral-network.modu
     AdminReferralNetworkController,
     AdminCommissionsController,
     AdminCuratorPayoutsController,
+    AdminPeopleController,
   ],
   providers: [
     AdminAccountRepository,
@@ -103,6 +106,7 @@ import { ReferralNetworkModule } from '../referral-network/referral-network.modu
     AdminOrganizationService,
     AdminNewsService,
     AdminReferralService,
+    AdminPeopleService,
   ],
   exports: [AdminAccountRepository],
 })

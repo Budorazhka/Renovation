@@ -27,6 +27,8 @@ const DICT: Record<string, string> = {
   'auth.register.typeAgency': 'Агентство',
   'auth.register.typeRealtor': 'Частный риелтор',
   'auth.register.typeDeveloper': 'Застройщик',
+  'auth.register.ownerNameLabel': 'Ваше имя',
+  'auth.register.ownerNamePlaceholder': 'Имя и фамилия',
   'auth.register.orgNameLabel': 'Название организации',
   'auth.register.orgNamePlaceholder': 'Например, Союз Недвижимости',
   'auth.register.loginLabel': 'Логин',
@@ -159,6 +161,7 @@ describe('RegisterPage — реальная регистрация органи�
     await renderApp('/register')
 
     fireEvent.click(screen.getByRole('radio', { name: 'Частный риелтор' }))
+    fireEvent.change(screen.getByPlaceholderText('Имя и фамилия'), { target: { value: 'Нино Беридзе' } })
     fireEvent.change(screen.getByPlaceholderText('Например, Союз Недвижимости'), { target: { value: 'Тестовое агентство' } })
     fireEvent.change(screen.getByPlaceholderText('Логин для входа'), { target: { value: 'new-owner' } })
     fireEvent.change(screen.getByPlaceholderText('Пароль', { selector: '#reg-password' }), { target: { value: 'longpass123' } })
@@ -171,12 +174,14 @@ describe('RegisterPage — реальная регистрация органи�
       password: 'longpass123',
       type: 'independent_realtor',
       name: 'Тестовое агентство',
+      ownerName: 'Нино Беридзе',
     })
   })
 
   it('короткий пароль отклоняется на клиенте — registerOrganization не вызывается', async () => {
     await renderApp('/register')
 
+    fireEvent.change(screen.getByPlaceholderText('Имя и фамилия'), { target: { value: 'Нино Беридзе' } })
     fireEvent.change(screen.getByPlaceholderText('Например, Союз Недвижимости'), { target: { value: 'Тестовое агентство' } })
     fireEvent.change(screen.getByPlaceholderText('Логин для входа'), { target: { value: 'new-owner' } })
     fireEvent.change(screen.getByPlaceholderText('Пароль', { selector: '#reg-password' }), { target: { value: 'short' } })
@@ -190,6 +195,7 @@ describe('RegisterPage — реальная регистрация органи�
   it('несовпадающие пароли отклоняются на клиенте — registerOrganization не вызывается', async () => {
     await renderApp('/register')
 
+    fireEvent.change(screen.getByPlaceholderText('Имя и фамилия'), { target: { value: 'Нино Беридзе' } })
     fireEvent.change(screen.getByPlaceholderText('Например, Союз Недвижимости'), { target: { value: 'Тестовое агентство' } })
     fireEvent.change(screen.getByPlaceholderText('Логин для входа'), { target: { value: 'new-owner' } })
     fireEvent.change(screen.getByPlaceholderText('Пароль', { selector: '#reg-password' }), { target: { value: 'longpass123' } })
@@ -204,6 +210,7 @@ describe('RegisterPage — реальная регистрация органи�
     mockRegisterOrganization.mockResolvedValue('login_taken')
     await renderApp('/register')
 
+    fireEvent.change(screen.getByPlaceholderText('Имя и фамилия'), { target: { value: 'Нино Беридзе' } })
     fireEvent.change(screen.getByPlaceholderText('Например, Союз Недвижимости'), { target: { value: 'Тестовое агентство' } })
     fireEvent.change(screen.getByPlaceholderText('Логин для входа'), { target: { value: 'owner' } })
     fireEvent.change(screen.getByPlaceholderText('Пароль', { selector: '#reg-password' }), { target: { value: 'longpass123' } })

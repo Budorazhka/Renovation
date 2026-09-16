@@ -16,6 +16,7 @@ export function RegisterPage() {
   const navigate = useNavigate()
 
   const [type, setType] = useState<OrganizationType>('agency')
+  const [ownerName, setOwnerName] = useState('')
   const [name, setName] = useState('')
   const [loginValue, setLoginValue] = useState('')
   const [password, setPassword] = useState('')
@@ -51,6 +52,7 @@ export function RegisterPage() {
         password,
         type,
         name: name.trim(),
+        ownerName: ownerName.trim(),
       })
       if (result === 'ok') {
         navigate('/dashboard', { replace: true })
@@ -105,6 +107,25 @@ export function RegisterPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="reg-owner-name" className="mb-1.5 block text-[16px] font-medium uppercase tracking-[0.08em] text-[color:var(--app-text-muted)]">
+                {t('auth.register.ownerNameLabel')}
+              </label>
+              <input
+                id="reg-owner-name"
+                type="text"
+                value={ownerName}
+                onChange={(e) => setOwnerName(e.target.value)}
+                autoComplete="name"
+                placeholder={t('auth.register.ownerNamePlaceholder')}
+                required
+                minLength={1}
+                maxLength={200}
+                disabled={submitting}
+                className="w-full border-0 border-b border-[var(--green-border)] bg-[rgba(3,29,22,0.5)] px-3 py-2.5 text-[16px] font-normal text-[color:var(--app-text)] outline-none placeholder:text-[color:var(--app-text-muted)] focus:border-[color:var(--gold)]"
+              />
             </div>
 
             <div>

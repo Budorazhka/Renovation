@@ -11,7 +11,7 @@ import { AppException } from '../../shared/errors/app-exception';
 import { ErrorCode } from '../../shared/errors/error-codes';
 import type { PositionDocument, FixedRole } from './schemas/position.schema';
 import type { TeamUserStatus } from './team-user-status';
-import { OrganizationsService } from './organizations.service';
+import { OWNER_PLACEHOLDER_NAME, OrganizationsService, occupantDisplayName } from './organizations.service';
 
 /**
  * `[technical decision — 25.08.2026, обновлено 26.08.2026]`, НЕ owner
@@ -114,9 +114,26 @@ export class TeamService {
     const profiles = positionIds.length > 0 ? await this.positionProfileRepository.findByPositionIds(positionIds) : [];
     const profileByPositionId = new Map(profiles.map((p) => [p.positionId.toString(), p]));
 
+    const nameByPositionId = await this.resolvePlaceholderNames(positions);
     return positions.map((position) =>
-      this.toView(position, assignmentByPositionId, identityById, avatarUrlByPositionId, profileByPositionId),
+      this.toView(position, assignmentByPositionId, identityById, avatarUrlByPositionId, profileByPositionId, nameByPositionId),
     );
+  }
+
+  /**
+   * Владельцы, зарегистрированные до поля «Ваше имя», сидят в должности с
+   * заглушкой «Owner». Организацию читаем, только если заглушка есть: у
+   * независимого риэлтора её название и есть его имя (occupantDisplayName).
+   */
+  private async resolvePlaceholderNames(positions: PositionDocument[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    const withPlaceholder = positions.filter((p) => p.currentOccupantName?.trim() === OWNER_PLACEHOLDER_NAME);
+    for (const position of withPlaceholder) {
+      const organization = await this.organizationsService.getOrganizationById(position.organizationId);
+      const name = occupantDisplayName(position.currentOccupantName, organization);
+      if (name) names.set(position._id.toString(), name);
+    }
+    return names;
   }
 
   /**
@@ -222,7 +239,8 @@ export class TeamService {
       profileByPositionId.set(positionIdStr, profile);
     }
 
-    return this.toView(position, assignmentByPositionId, identityById, avatarUrlByPositionId, profileByPositionId);
+    const nameByPositionId = await this.resolvePlaceholderNames([position]);
+    return this.toView(position, assignmentByPositionId, identityById, avatarUrlByPositionId, profileByPositionId, nameByPositionId);
   }
 
   /**
@@ -421,6 +439,7 @@ export class TeamService {
     identityById: Map<string, { normalizedLogin: string; status: string }>,
     avatarUrlByPositionId: Map<string, string>,
     profileByPositionId: Map<string, PositionProfileFields>,
+    nameByPositionId: Map<string, string> = new Map(),
   ): TeamUserView {
     const positionIdStr = position._id.toString();
     const assignment = assignmentByPositionId.get(positionIdStr);
@@ -431,7 +450,7 @@ export class TeamService {
       id: positionIdStr,
       platformUserId: assignment?.identityId.toString() ?? '',
       teamId: position.organizationId.toString(),
-      name: position.currentOccupantName ?? '',
+      name: nameByPositionId.get(positionIdStr) ?? position.currentOccupantName ?? '',
       role: position.fixedRole,
       position: position.fixedRole,
       managerId: position.parentPositionId?.toString() ?? null,

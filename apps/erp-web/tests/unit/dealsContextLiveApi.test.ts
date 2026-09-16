@@ -22,6 +22,7 @@ const dealsUpdateChecklistMock = vi.fn()
 const dealsAddParticipantMock = vi.fn()
 const dealsRemoveParticipantMock = vi.fn()
 const dealsReassignMock = vi.fn()
+const dealsUpdateMock = vi.fn()
 
 const leadsListAllMock = vi.fn()
 const teamListMock = vi.fn()
@@ -62,6 +63,7 @@ vi.mock('@/services/dealsApiV2', () => ({
     addParticipant: dealsAddParticipantMock,
     removeParticipant: dealsRemoveParticipantMock,
     reassign: dealsReassignMock,
+    update: dealsUpdateMock,
   },
   newIdempotencyKey: () => 'test-idempotency-key',
 }))
@@ -77,6 +79,9 @@ function makeDealV2(overrides: Record<string, unknown> = {}) {
     description: null,
     stage: 'showing',
     expectedCommission: null,
+    commissionReceived: null,
+    commissionReceivedAt: null,
+    dealType: 'secondary',
     participants: [],
     checklistItems: [],
     version: 0,
@@ -96,6 +101,7 @@ describe('DealsContext — сделки на dealsApiV2', () => {
     dealsAddParticipantMock.mockReset()
     dealsRemoveParticipantMock.mockReset()
     dealsReassignMock.mockReset()
+    dealsUpdateMock.mockReset()
     leadsListAllMock.mockReset().mockResolvedValue({ items: [], complete: true })
     teamListMock.mockReset().mockResolvedValue([
       { id: 'pos-1', positionId: 'pos-1', name: 'Анна Первичкина', email: 'anna@test.com', vacant: false, position: 'Агент' },
@@ -173,6 +179,35 @@ describe('DealsContext — сделки на dealsApiV2', () => {
 
     expect(dealsUpdateChecklistMock).toHaveBeenCalledWith('deal-1', 0, [{ id: 'c1', label: 'Пункт', done: true }])
     expect(result.current.deals[0]?.checklist).toEqual([{ id: 'c1', label: 'Пункт', done: true, required: false }])
+  })
+
+  it('changeType сохраняет тип с CAS-версией: первичка попадает в легаси-сделку', async () => {
+    dealsListAllMock.mockResolvedValueOnce({ items: [makeDealV2({ version: 2 })], complete: true })
+    const { result } = await renderDealsHook()
+    await waitFor(() => expect(result.current.deals).toHaveLength(1))
+    expect(result.current.deals[0]?.type).toBe('secondary')
+
+    dealsUpdateMock.mockResolvedValueOnce(makeDealV2({ dealType: 'primary', version: 3 }))
+    const outcome = await act(async () => result.current.changeType('deal-1', 'primary'))
+
+    expect(outcome).toBe('saved')
+    expect(dealsUpdateMock).toHaveBeenCalledWith('deal-1', { expectedVersion: 2, dealType: 'primary' })
+    expect(result.current.deals[0]?.type).toBe('primary')
+  })
+
+  it('changeType после отметки BAZA: сервер отвечает DEAL_TYPE_LOCKED — без общего тоста о конфликте, сделки перечитываются', async () => {
+    const { result } = await renderDealsHook()
+    await waitFor(() => expect(result.current.deals).toHaveLength(1))
+
+    const locked = Object.assign(new Error('Conflict'), {
+      response: { status: 409, data: { error: { code: 'DEAL_TYPE_LOCKED' } } },
+    })
+    dealsUpdateMock.mockRejectedValueOnce(locked)
+    const outcome = await act(async () => result.current.changeType('deal-1', 'secondary'))
+
+    expect(outcome).toBe('locked')
+    expect(toastErrorMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(dealsListAllMock).toHaveBeenCalledTimes(2))
   })
 
   it('createDeal вызывает dealsApiV2.create с Idempotency-Key и добавляет сделку в состояние', async () => {

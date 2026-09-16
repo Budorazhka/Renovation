@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { DEAL_STAGES, type DealStage } from '../deal-stage';
+import { DEAL_TYPES, type DealType } from '../deal-type';
 import { MoneyAmountDto } from './money-amount.dto';
 
 export class CreateDealParticipantDto {
@@ -68,6 +69,11 @@ export class CreateDealDto {
   @ValidateNested()
   @Type(() => MoneyAmountDto)
   expectedCommission?: MoneyAmountDto;
+
+  /** Первичка, вторичка, аренда, переуступка; по умолчанию вторичка. Куратору 7% идут только с первички. */
+  @IsOptional()
+  @IsIn(DEAL_TYPES)
+  dealType?: DealType;
 
   @IsOptional()
   @IsArray()

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, FilterQuery, Model, Types } from 'mongoose';
 import type { MoneyAmount } from '@baza/contracts';
+import type { DealType } from '../deal-type';
 import { DealChecklistItem, DealDocument, DealParticipant, type DealStage } from '../schemas/deal.schema';
 
 export interface ListDealsFilter {
@@ -22,7 +23,7 @@ export interface CreateDealParams {
   description?: string;
   stage?: DealStage;
   expectedCommission?: MoneyAmount;
-  dealType?: 'primary' | 'secondary' | 'rental' | 'assignment';
+  dealType?: DealType;
   unitId?: Types.ObjectId;
   developmentId?: Types.ObjectId;
   installmentPlanId?: Types.ObjectId;
@@ -35,6 +36,8 @@ export interface UpdateDealParams {
   title?: string;
   description?: string | null;
   expectedCommission?: MoneyAmount | null;
+  /** Тип меняется только пока комиссия не отмечена полученной — условие в самом фильтре. */
+  dealType?: DealType;
 }
 
 /**
@@ -144,15 +147,19 @@ export class DealRepository {
       $set.expectedCommission = params.expectedCommission;
     }
 
+    const filter: Record<string, unknown> = { _id: id, organizationId, version: expectedVersion };
+    if (params.dealType !== undefined) {
+      $set.dealType = params.dealType;
+      filter.commissionReceivedAt = { $exists: false };
+    }
+
     const updateDoc: Record<string, unknown> = {
       $inc: { version: 1 },
     };
     if (Object.keys($set).length > 0) updateDoc.$set = $set;
     if (Object.keys($unset).length > 0) updateDoc.$unset = $unset;
 
-    return this.model
-      .findOneAndUpdate({ _id: id, organizationId, version: expectedVersion }, updateDoc, { new: true, session })
-      .exec();
+    return this.model.findOneAndUpdate(filter, updateDoc, { new: true, session }).exec();
   }
 
   /**

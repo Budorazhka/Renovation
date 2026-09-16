@@ -23,6 +23,8 @@ function daysSinceUpdate(iso: string) {
 const TYPE_LABEL: Record<DealType, string> = {
   primary: 'Первичка',
   secondary: 'Вторичка',
+  rental: 'Аренда',
+  assignment: 'Переуступка',
 }
 
 export function DealsReportPage() {
@@ -99,6 +101,8 @@ export function DealsReportPage() {
             <option value="all">{t('deals.dealsReportPage.тип_все')}</option>
             <option value="primary">{TYPE_LABEL.primary}</option>
             <option value="secondary">{TYPE_LABEL.secondary}</option>
+            <option value="rental">{TYPE_LABEL.rental}</option>
+            <option value="assignment">{TYPE_LABEL.assignment}</option>
           </select>
           <select
             value={agent}

@@ -3673,6 +3673,39 @@ paths:
           description: NOT_FOUND — нечего выплачивать
           $ref: '#/components/responses/Error'
 
+  /admin/people/{identityId}:
+    patch:
+      operationId: adminRenamePerson
+      summary: >
+        Сменить человеку имя в его должности. Имя после регистрации меняет
+        BAZA, не сам человек (решение владельца 16.09.2026); причина
+        обязательна и уходит в аудит вместе со старым и новым именем.
+      tags: [admin]
+      parameters:
+        - name: identityId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminRenamePersonRequest'
+      responses:
+        '200':
+          description: Человек с новым именем
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReferralPersonSummary'
+        '403':
+          description: ADMIN_SCOPE_INSUFFICIENT — нет person.rename
+          $ref: '#/components/responses/Error'
+        '409':
+          description: PERSON_WITHOUT_POSITION — должности нет, человек только с маркетплейса
+          $ref: '#/components/responses/Error'
+
   /me/notifications:
     get:
       operationId: getMyNotificationSettings
@@ -5192,7 +5225,8 @@ paths:
       operationId: updateDeal
       summary: >
         Частичное обновление сделки с optimistic concurrency (заголовок,
-        описание, комиссия). НЕ меняет ownerPositionId — см.
+        описание, комиссия, тип). Тип меняется, пока BAZA не отметила
+        пришедшую комиссию: от него зависит начисление куратору. НЕ меняет ownerPositionId — см.
         PATCH /deals/{dealId}/reassign (client.reassign, отдельный grant
         от deal.edit).
       tags: [erp-crm]
@@ -5227,7 +5261,9 @@ paths:
           description: NOT_FOUND
           $ref: '#/components/responses/Error'
         '409':
-          description: VERSION_CONFLICT — сделка была изменена параллельным запросом
+          description: >
+            VERSION_CONFLICT — сделка была изменена параллельным запросом;
+            DEAL_TYPE_LOCKED — BAZA уже отметила комиссию, тип менять нельзя
           $ref: '#/components/responses/Error'
 
   /deals/{dealId}/reassign:
@@ -10537,6 +10573,13 @@ components:
           type: array
           items: {$ref: '#/components/schemas/CuratorAccrualView'}
 
+    AdminRenamePersonRequest:
+      type: object
+      required: [name, reason]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 3, maxLength: 1000}
+
     AdminMarkCuratorPaidRequest:
       type: object
       required: [accrualIds]
@@ -11788,6 +11831,13 @@ components:
           type: string
           enum: [agency, developer, independent_realtor]
         name: {type: string, minLength: 1, maxLength: 200}
+        ownerName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            Как зовут владельца. Без него в должность пишется заглушка «Owner»;
+            у независимого риэлтора вместо неё показывается название организации.
 
     RegisterOrganizationResponse:
       type: object
@@ -12964,9 +13014,14 @@ components:
         completedAt: {type: string, format: date-time, nullable: true}
         completedByPositionId: {type: string, nullable: true}
 
+    DealType:
+      type: string
+      enum: [primary, secondary, rental, assignment]
+      description: Первичка, вторичка, аренда, переуступка. Куратору реферальной сети 7% начисляется только с первички.
+
     DealView:
       type: object
-      required: [id, organizationId, contactId, ownerPositionId, title, stage, participants, checklistItems, version, createdAt, updatedAt]
+      required: [id, organizationId, contactId, ownerPositionId, title, stage, dealType, participants, checklistItems, version, createdAt, updatedAt]
       properties:
         id: {type: string}
         organizationId: {type: string}
@@ -12985,6 +13040,8 @@ components:
           allOf:
             - $ref: '#/components/schemas/MoneyAmount'
         commissionReceivedAt: {type: string, format: date-time, nullable: true}
+        dealType:
+          $ref: '#/components/schemas/DealType'
         participants:
           type: array
           items:
@@ -13020,6 +13077,10 @@ components:
         description: {type: string, maxLength: 2000}
         stage:
           $ref: '#/components/schemas/DealStage'
+        dealType:
+          description: По умолчанию secondary.
+          allOf:
+            - $ref: '#/components/schemas/DealType'
         expectedCommission:
           $ref: '#/components/schemas/MoneyAmount'
         participants:
@@ -13050,6 +13111,8 @@ components:
         description: {type: string, maxLength: 2000, nullable: true}
         expectedCommission:
           $ref: '#/components/schemas/MoneyAmount'
+        dealType:
+          $ref: '#/components/schemas/DealType'
 
     ReassignDealRequest:
       type: object

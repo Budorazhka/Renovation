@@ -34,6 +34,24 @@ export interface PersonSummary {
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Что регистрация организации пишет в должность владельца: имени человека она не спрашивает. */
+export const OWNER_PLACEHOLDER_NAME = 'Owner';
+
+/**
+ * Как показать человека в должности. Заглушка владельца — не имя. У независимого
+ * риэлтора организация — это он сам («ИП Нино Беридзе»), берём её название; у
+ * остальных без имени — null, вызывающий код решает сам (логин, «не назначен»).
+ */
+export function occupantDisplayName(
+  currentOccupantName: string | null | undefined,
+  organization: { name: string; type: OrganizationType } | null | undefined,
+): string | null {
+  const name = currentOccupantName?.trim();
+  if (name && name !== OWNER_PLACEHOLDER_NAME) return name;
+  if (organization?.type === 'independent_realtor') return organization.name.trim() || null;
+  return null;
+}
+
 /**
  * Транзакционный command-слой Organizations/Positions/Assignments (ADR-003, C-06).
  * Каждая команда, меняющая более одного документа, выполняется в единой
@@ -115,8 +133,8 @@ export class OrganizationsService {
    * куратор и участники состоят в разных организациях. Boundary-метод:
    * репозитории позиций, назначений и Identity наружу не выходят.
    *
-   * Имя — как человека зовут в его должности; у человека без должности
-   * (зарегистрирован только на маркетплейсе) — его логин.
+   * Имя — см. occupantDisplayName; у кого его нет (владелец агентства,
+   * человек только с маркетплейса) — логин.
    */
   async getPeopleSummaries(identityIds: Types.ObjectId[]): Promise<PersonSummary[]> {
     if (identityIds.length === 0) return [];
@@ -138,7 +156,7 @@ export class OrganizationsService {
       return {
         identityId: identity.id,
         login: identity.normalizedLogin,
-        name: position?.currentOccupantName?.trim() || identity.normalizedLogin,
+        name: occupantDisplayName(position?.currentOccupantName, organization) ?? identity.normalizedLogin,
         positionId: assignment?.positionId ?? null,
         organizationId: organization?.id ?? null,
         organizationName: organization?.name ?? null,
@@ -156,16 +174,33 @@ export class OrganizationsService {
   ): Promise<Map<string, { occupantName: string | null; organizationName: string | null }>> {
     const positions = await this.positionRepository.findByIds(positionIds);
     const organizations = await this.organizationRepository.findPublicByIds(positions.map((p) => p.organizationId));
-    const organizationById = new Map(organizations.map((o) => [o.id.toString(), o.name]));
+    const organizationById = new Map(organizations.map((o) => [o.id.toString(), o]));
     return new Map(
       positions.map((p) => [
         p._id.toString(),
         {
-          occupantName: p.currentOccupantName?.trim() || null,
-          organizationName: organizationById.get(p.organizationId.toString()) ?? null,
+          occupantName: occupantDisplayName(p.currentOccupantName, organizationById.get(p.organizationId.toString())),
+          organizationName: organizationById.get(p.organizationId.toString())?.name ?? null,
         },
       ]),
     );
+  }
+
+  /**
+   * Сменить человеку имя в его должности — только из админки BAZA (решение
+   * владельца 16.09.2026). null — действующей должности нет (человек только с
+   * маркетплейса). Аудит пишет вызывающий код в той же транзакции.
+   */
+  async renameOccupantForPlatform(
+    identityId: Types.ObjectId,
+    name: string,
+    session: ClientSession,
+  ): Promise<{ positionId: Types.ObjectId; previousName: string | null } | null> {
+    const assignment = await this.positionAssignmentRepository.findActiveByIdentity(identityId, session);
+    if (!assignment) return null;
+    const previous = await this.positionRepository.renameOccupant(assignment.positionId, assignment.organizationId, name, session);
+    if (!previous) return null;
+    return { positionId: previous._id, previousName: previous.currentOccupantName ?? null };
   }
 
   /** Кто сейчас занимает должность — для сделки, у которой известна только должность владельца. */
@@ -306,6 +341,8 @@ export class OrganizationsService {
     type: OrganizationType;
     name: string;
     ownerIdentityId: Types.ObjectId;
+    /** Имя владельца из регистрации; без него — заглушка OWNER_PLACEHOLDER_NAME. */
+    ownerName?: string;
   }): Promise<{ organizationId: Types.ObjectId; positionId: Types.ObjectId }> {
     const ownerFixedRole: FixedRole = params.type === 'developer' ? 'developer' : 'owner';
 
@@ -329,7 +366,7 @@ export class OrganizationsService {
         session,
       );
 
-      await this.positionRepository.markOccupied(ownerPosition._id, 'Owner', session);
+      await this.positionRepository.markOccupied(ownerPosition._id, params.ownerName?.trim() || OWNER_PLACEHOLDER_NAME, session);
 
       return { organizationId: organization._id, positionId: ownerPosition._id };
     });
@@ -371,6 +408,7 @@ export class OrganizationsService {
     password: string;
     type: OrganizationType;
     name: string;
+    ownerName?: string;
     ipAddress?: string;
     userAgent?: string;
   }): Promise<{
@@ -391,6 +429,7 @@ export class OrganizationsService {
       type: params.type,
       name: params.name,
       ownerIdentityId: identityId,
+      ownerName: params.ownerName,
     });
 
     const session = await this.sessionService.createSession({

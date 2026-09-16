@@ -65,6 +65,13 @@ export default function PartnersMlmAnalyticsPage() {
 
   const rules = mine.status === 'ready' ? mine.data.rules : company.status === 'ready' ? company.data.rules : null
 
+  // Свою команду куратор уже видит выше — в списке компании её не повторяем.
+  // Независимый риэлтор-куратор и есть вся «компания»: тогда раздел не нужен.
+  const myCuratorId = mine.status === 'ready' ? mine.data.curator?.node.person.identityId : undefined
+  const companyCurators =
+    company.status === 'ready' ? company.data.curators.filter((c) => c.person.identityId !== myCuratorId) : []
+  const showCompany = company.status === 'ready' && (companyCurators.length > 0 || !myCuratorId)
+
   return (
     <DashboardShell>
       <div className="flex w-full max-w-[1100px] flex-col gap-6 px-6 pb-12 pt-6 text-[color:var(--app-text)]">
@@ -127,14 +134,14 @@ export default function PartnersMlmAnalyticsPage() {
           <p className={`rounded-md bg-[var(--hub-card-bg)] p-5 text-[17px] ${MUTED}`}>{t('mlm.notInNetwork')}</p>
         ) : null}
 
-        {company.status === 'ready' ? (
+        {showCompany ? (
           <section className="flex flex-col gap-4">
             <h2 className="text-[22px] font-normal text-[color:var(--theme-accent-heading)]">{t('mlm.companyTitle')}</h2>
-            {company.data.curators.length === 0 ? (
+            {companyCurators.length === 0 ? (
               <p className={`text-[17px] ${MUTED}`}>{t('mlm.companyEmpty')}</p>
             ) : (
               <div className="flex flex-col gap-4">
-                {company.data.curators.map((curator) => (
+                {companyCurators.map((curator) => (
                   <article key={curator.person.identityId} className="rounded-md bg-[var(--hub-card-bg)] p-4">
                     <ReferralTeamTree
                       collapsible

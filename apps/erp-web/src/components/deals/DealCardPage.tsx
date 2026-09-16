@@ -24,7 +24,9 @@ import { useDeals } from '@/context/DealsContext'
 import { useRolePermissions } from '@/hooks/useRolePermissions'
 import { FMT_USD, formatUsdMillions, formatUsdThousands } from '@/lib/format-currency'
 import { CLIENTS_MOCK } from '@/data/clients-mock'
-import { STAGE_LABELS, STAGE_ORDER, type DealStage, type PaymentStatus } from '@/types/deals'
+import { STAGE_LABELS, STAGE_ORDER, type DealStage, type DealType, type PaymentStatus } from '@/types/deals'
+import { DEAL_TYPES_V2 } from '@/types/dealsV2'
+import { toast } from 'sonner'
 import { useI18n } from "@/i18n";
 import { referralNetworkApi, type Accrual } from '@/services/referralNetworkApi'
 
@@ -69,7 +71,8 @@ export function DealCardPage() {
   const { currentUser } = useAuth()
   const { isManager } = useRolePermissions()
   const { getLeadWithHistory, state: leadsState, dispatch, leadManagers } = useLeads()
-  const { deals, updateChecklist } = useDeals()
+  const { deals, updateChecklist, changeType } = useDeals()
+  const [savingType, setSavingType] = useState(false)
   const [tab, setTab] = useState<Tab>('checklist')
   const [transferConfirm, setTransferConfirm] = useState<{
     newManagerId: string | null
@@ -138,6 +141,16 @@ export function DealCardPage() {
       done: c.id === itemId ? !c.done : c.done,
     }))
     void updateChecklist(deal.id, items)
+  }
+
+  /** Тип решает, начислять ли куратору 7%. После отметки BAZA сервер его не меняет. */
+  async function saveType(dealType: DealType) {
+    if (!deal || dealType === deal.type) return
+    setSavingType(true)
+    const result = await changeType(deal.id, dealType)
+    setSavingType(false)
+    if (result === 'saved') toast.success(t('mlm.dealTypeSaved'))
+    else if (result === 'locked') toast.error(t('mlm.dealTypeLocked'))
   }
 
   const TABS: { key: Tab; label: string }[] = [
@@ -356,6 +369,37 @@ export function DealCardPage() {
         {tab === 'finances' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 24px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '8px 16px', padding: '4px 0 12px' }}>
+                <label htmlFor="deal-type" style={{ fontSize: 16, color: C.whiteLow }}>
+                  {t('mlm.dealTypeLabel')}
+                </label>
+                <select
+                  id="deal-type"
+                  value={deal.type}
+                  disabled={savingType || Boolean(deal.commissionReceived)}
+                  onChange={(event) => void saveType(event.target.value as DealType)}
+                  style={{
+                    minHeight: 40,
+                    padding: '0 12px',
+                    borderRadius: 4,
+                    border: `1px solid ${C.border}`,
+                    background: '#072821',
+                    color: C.white,
+                    fontFamily: 'inherit',
+                    fontSize: 16,
+                    colorScheme: 'dark',
+                  }}
+                >
+                  {DEAL_TYPES_V2.map((type) => (
+                    <option key={type} value={type}>
+                      {t(`mlm.dealType${type.charAt(0).toUpperCase()}${type.slice(1)}`)}
+                    </option>
+                  ))}
+                </select>
+                <p style={{ flexBasis: '100%', margin: 0, fontSize: 16, color: C.whiteLow }}>
+                  {deal.commissionReceived ? t('mlm.dealTypeLocked') : t('mlm.dealTypeHint')}
+                </p>
+              </div>
               {[
                 { label: 'Стоимость объекта', value: deal.price > 0 ? formatUsdMillions(deal.price, 2) : '—', color: C.white },
                 { label: 'Комиссия агентства', value: FMT_USD.format(deal.commission), color: C.gold },

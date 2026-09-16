@@ -1,4 +1,4 @@
-import { teamStatusLabel } from '../lib/referral-format'
+import { companyLine, teamStatusLabel } from '../lib/referral-format'
 import { curatorKey, memberKey } from '../lib/referral-tree-layout'
 import type { AdminCuratorNode, ReferralRules } from '../types/referral'
 
@@ -39,7 +39,7 @@ export function ReferralNetworkList({ curators, rules, expanded, onToggle, selec
               <button type="button" className="network-list__name" onClick={() => onSelect(curatorKey(id))}>
                 {curator.person.name}
               </button>
-              <span className="network-list__meta">{curator.person.organizationName ?? 'Без компании'}</span>
+              <span className="network-list__meta">{companyLine(curator.person)}</span>
               <span className="network-list__meta">
                 {curator.teamSize} из {rules.teamSizeIdealMax}
               </span>
@@ -59,7 +59,7 @@ export function ReferralNetworkList({ curators, rules, expanded, onToggle, selec
                         <button type="button" className="network-list__name" onClick={() => onSelect(key)}>
                           {member.person.name}
                         </button>
-                        <span className="network-list__meta">{member.person.organizationName ?? 'Без компании'}</span>
+                        <span className="network-list__meta">{companyLine(member.person)}</span>
                         <span className="network-list__meta">{member.joinedVia === 'invite_link' ? 'по ссылке' : 'добавлен BAZA'}</span>
                         {member.status === 'on_review' ? <span className="network-list__warn">под вопросом</span> : null}
                       </div>

@@ -30,6 +30,8 @@ export const organizationsAuthApi = {
     password: string
     type: OrganizationType
     name: string
+    /** Как зовут владельца — без него в должности заглушка «Owner». */
+    ownerName?: string
   }): Promise<RegisterOrganizationResponse> {
     const { data } = await api.post<RegisterOrganizationResponse>('/api/v1/organizations/register', params)
     return data

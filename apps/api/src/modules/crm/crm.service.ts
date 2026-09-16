@@ -10,6 +10,7 @@ import { MediaService } from '../media/media.service';
 import type { MediaVariant } from '@baza/media-storage';
 import { AppException } from '../../shared/errors/app-exception';
 import { ErrorCode } from '../../shared/errors/error-codes';
+import type { DealType } from './deal-type';
 import { runInTransaction } from '../../shared/transactions/run-in-transaction';
 import { PublicRevealIdempotencyService } from '../../shared/idempotency/public-reveal-idempotency.service';
 import { IdempotencyService } from '../../shared/idempotency/idempotency.service';
@@ -135,6 +136,8 @@ export interface CrmDealReadModel {
   /** Фактическая комиссия, которую отметил менеджер BAZA; до отметки null. */
   commissionReceived: MoneyAmount | null;
   commissionReceivedAt: string | null;
+  /** Первичка, вторичка, аренда, переуступка; у старых сделок без поля — вторичка, как в схеме. */
+  dealType: DealType;
   participants: CrmDealParticipantReadModel[];
   checklistItems: CrmDealChecklistItemReadModel[];
   version: number;
@@ -3237,6 +3240,7 @@ export class CrmService {
     title: string;
     description?: string;
     stage?: DealStage;
+    dealType?: DealType;
     expectedCommission?: MoneyAmount;
     participants?: Array<{ role: string; contactId: Types.ObjectId }>;
     checklistItems?: Array<{ id?: string; label: string; done?: boolean }>;
@@ -3319,6 +3323,7 @@ export class CrmService {
           title: params.title,
           description: params.description,
           stage: initialStage,
+          dealType: params.dealType,
           expectedCommission: params.expectedCommission,
           participants: participantList,
           checklistItems: initialChecklist,
@@ -3388,6 +3393,7 @@ export class CrmService {
     title?: string;
     description?: string | null;
     expectedCommission?: MoneyAmount | null;
+    dealType?: DealType;
     expectedVersion: number;
     actorPositionId: Types.ObjectId;
     actorIdentityId: Types.ObjectId;
@@ -3404,6 +3410,12 @@ export class CrmService {
     if ((existing.version ?? 0) !== params.expectedVersion) {
       throw new ConflictException('Deal was modified by another request — refresh and retry');
     }
+    // Тип решает, начислять ли куратору 7%. Когда BAZA уже отметила деньги,
+    // начисление сделано по старому типу — менять его задним числом нельзя.
+    const changesType = params.dealType !== undefined && params.dealType !== (existing.dealType ?? 'secondary');
+    if (changesType && existing.commissionReceivedAt) {
+      throw new AppException(ErrorCode.DEAL_TYPE_LOCKED, 'Deal type cannot change after BAZA marked the commission received');
+    }
 
     return runInTransaction(this.connection, async (session) => {
       const updated = await this.dealRepository.updateDeal(
@@ -3414,6 +3426,7 @@ export class CrmService {
           title: params.title,
           description: params.description,
           expectedCommission: params.expectedCommission,
+          dealType: changesType ? params.dealType : undefined,
         },
         session,
       );
@@ -3425,6 +3438,9 @@ export class CrmService {
         );
         if (!current) {
           throw new NotFoundException('Deal not found');
+        }
+        if (changesType && current.commissionReceivedAt) {
+          throw new AppException(ErrorCode.DEAL_TYPE_LOCKED, 'Deal type cannot change after BAZA marked the commission received');
         }
         throw new ConflictException('Deal was modified by another request — refresh and retry');
       }
@@ -3439,6 +3455,7 @@ export class CrmService {
             title: existing.title,
             description: existing.description ?? null,
             ownerPositionId: existing.ownerPositionId.toString(),
+            dealType: existing.dealType ?? 'secondary',
             expectedCommission: existing.expectedCommission
               ? {
                   amountMinorUnits: existing.expectedCommission.amountMinorUnits,
@@ -3451,6 +3468,7 @@ export class CrmService {
             title: updated.title,
             description: updated.description ?? null,
             ownerPositionId: updated.ownerPositionId.toString(),
+            dealType: updated.dealType ?? 'secondary',
             expectedCommission: updated.expectedCommission
               ? {
                   amountMinorUnits: updated.expectedCommission.amountMinorUnits,
@@ -5218,6 +5236,7 @@ function toDealReadModel(
         }
       : null,
     commissionReceivedAt: deal.commissionReceivedAt ? deal.commissionReceivedAt.toISOString() : null,
+    dealType: deal.dealType ?? 'secondary',
     participants: (deal.participants ?? []).map((p) => {
       const c = contactsById?.get(p.contactId.toString());
       return {

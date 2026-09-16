@@ -38,6 +38,7 @@ import type {
   AccrualOutcome,
   AdminCommissionDeal,
   AdminReferralNetwork,
+  AdminReferralPerson,
   AdminReferralPersonLookup,
   CuratorAccrualsResult,
   CuratorPayout,
@@ -425,6 +426,14 @@ export function createAdminApi({ baseUrl, fetcher = fetch }: { baseUrl: string; 
       return request('/admin/referral-network/members', {
         method: 'POST',
         body: JSON.stringify({ memberIdentityId, curatorIdentityId, reason }),
+      })
+    },
+
+    /** Имя после регистрации меняет BAZA: причина обязательна, уходит в аудит. */
+    async renamePerson(identityId: string, name: string, reason: string): Promise<AdminReferralPerson> {
+      return request(`/admin/people/${encodeURIComponent(identityId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, reason }),
       })
     },
 

@@ -1657,6 +1657,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/people/{identityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Сменить человеку имя в его должности. Имя после регистрации меняет BAZA, не сам человек (решение владельца 16.09.2026); причина обязательна и уходит в аудит вместе со старым и новым именем. */
+        patch: operations["adminRenamePerson"];
+        trace?: never;
+    };
     "/me/notifications": {
         parameters: {
             query?: never;
@@ -2188,7 +2205,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Частичное обновление сделки с optimistic concurrency (заголовок, описание, комиссия). НЕ меняет ownerPositionId — см. PATCH /deals/{dealId}/reassign (client.reassign, отдельный grant от deal.edit). */
+        /** Частичное обновление сделки с optimistic concurrency (заголовок, описание, комиссия, тип). Тип меняется, пока BAZA не отметила пришедшую комиссию: от него зависит начисление куратору. НЕ меняет ownerPositionId — см. PATCH /deals/{dealId}/reassign (client.reassign, отдельный grant от deal.edit). */
         patch: operations["updateDeal"];
         trace?: never;
     };
@@ -4852,6 +4869,10 @@ export interface components {
             totals: components["schemas"]["ReferralMoneyTotals"];
             accruals: components["schemas"]["CuratorAccrualView"][];
         };
+        AdminRenamePersonRequest: {
+            name: string;
+            reason: string;
+        };
         AdminMarkCuratorPaidRequest: {
             accrualIds: string[];
             /** Format: date-time */
@@ -5813,6 +5834,8 @@ export interface components {
             /** @enum {string} */
             type: "agency" | "developer" | "independent_realtor";
             name: string;
+            /** @description Как зовут владельца. Без него в должность пишется заглушка «Owner»; у независимого риэлтора вместо неё показывается название организации. */
+            ownerName?: string;
         };
         RegisterOrganizationResponse: {
             organizationId: string;
@@ -6622,6 +6645,11 @@ export interface components {
             completedAt?: string | null;
             completedByPositionId?: string | null;
         };
+        /**
+         * @description Первичка, вторичка, аренда, переуступка. Куратору реферальной сети 7% начисляется только с первички.
+         * @enum {string}
+         */
+        DealType: "primary" | "secondary" | "rental" | "assignment";
         DealView: {
             id: string;
             organizationId: string;
@@ -6636,6 +6664,7 @@ export interface components {
             commissionReceived?: components["schemas"]["MoneyAmount"] | null;
             /** Format: date-time */
             commissionReceivedAt?: string | null;
+            dealType: components["schemas"]["DealType"];
             participants: components["schemas"]["DealParticipant"][];
             checklistItems: components["schemas"]["DealChecklistItem"][];
             version: number;
@@ -6656,6 +6685,8 @@ export interface components {
             title: string;
             description?: string;
             stage?: components["schemas"]["DealStage"];
+            /** @description По умолчанию secondary. */
+            dealType?: components["schemas"]["DealType"];
             expectedCommission?: components["schemas"]["MoneyAmount"];
             participants?: {
                 role: string;
@@ -6673,6 +6704,7 @@ export interface components {
             title?: string;
             description?: string | null;
             expectedCommission?: components["schemas"]["MoneyAmount"];
+            dealType?: components["schemas"]["DealType"];
         };
         ReassignDealRequest: {
             expectedVersion: number;
@@ -10930,6 +10962,36 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    adminRenamePerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminRenamePersonRequest"];
+            };
+        };
+        responses: {
+            /** @description Человек с новым именем */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReferralPersonSummary"];
+                };
+            };
+            /** @description ADMIN_SCOPE_INSUFFICIENT — нет person.rename */
+            403: components["responses"]["Error"];
+            /** @description PERSON_WITHOUT_POSITION — должности нет, человек только с маркетплейса */
+            409: components["responses"]["Error"];
+        };
+    };
     getMyNotificationSettings: {
         parameters: {
             query?: never;
@@ -12276,7 +12338,7 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description NOT_FOUND */
             404: components["responses"]["Error"];
-            /** @description VERSION_CONFLICT — сделка была изменена параллельным запросом */
+            /** @description VERSION_CONFLICT — сделка была изменена параллельным запросом; DEAL_TYPE_LOCKED — BAZA уже отметила комиссию, тип менять нельзя */
             409: components["responses"]["Error"];
         };
     };

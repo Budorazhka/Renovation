@@ -75,6 +75,11 @@ export class PositionRepository {
     return this.model.find(filter).sort({ _id: 1 }).limit(params.limit).exec();
   }
 
+  /** Сменить имя в занятой должности; вернуть прежний документ, чтобы аудит знал старое имя. */
+  async renameOccupant(positionId: Types.ObjectId, organizationId: Types.ObjectId, name: string, session: ClientSession): Promise<PositionDocument | null> {
+    return this.model.findOneAndUpdate({ _id: positionId, organizationId, status: 'occupied' }, { $set: { currentOccupantName: name } }, { new: false, session }).exec();
+  }
+
   async markOccupied(
     positionId: Types.ObjectId,
     occupantName: string,

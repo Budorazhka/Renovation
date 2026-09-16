@@ -40,6 +40,7 @@ type PendingAction =
   | { type: 'retire'; curator: AdminCuratorNode }
   | { type: 'assign'; person: AdminReferralPerson; curatorIdentityId: string }
   | { type: 'remove'; person: AdminReferralPerson }
+  | { type: 'rename'; person: AdminReferralPerson }
   | { type: 'decide'; request: ReferralRequest; decision: 'approved' | 'rejected' }
 
 const MIN_REASON = 3
@@ -49,6 +50,7 @@ function errorMessage(cause: unknown, fallback: string): string {
   if (cause.code === 'ADMIN_SCOPE_INSUFFICIENT') return 'Недостаточно прав: реферальную сеть правит суперадмин или администратор с правом referral_network.manage.'
   if (cause.code === 'REFERRAL_COMPANY_MISMATCH') return 'Сотрудник агентства не может состоять в команде куратора из другой компании.'
   if (cause.code === 'REFERRAL_ALREADY_IN_TEAM') return 'Человек уже в этой команде.'
+  if (cause.code === 'PERSON_WITHOUT_POSITION') return 'У человека нет должности: он зарегистрирован только на маркетплейсе и виден по почте.'
   return cause.message
 }
 
@@ -334,10 +336,13 @@ function PersonSearch({ onFound }: { onFound: (lookup: AdminReferralPersonLookup
   )
 }
 
-function PersonHeader({ person }: { person: AdminReferralPerson }) {
+function PersonHeader({ person, onRename }: { person: AdminReferralPerson; onRename: () => void }) {
   return (
     <header className="referral-card__header">
       <h2>{person.name}</h2>
+      <button type="button" className="referral-card__rename" onClick={onRename}>
+        Изменить имя
+      </button>
       <p>
         {person.login}
         <br />
@@ -386,7 +391,7 @@ function SelectionPanel({
     const { lookup } = selection
     return (
       <div className="referral-card">
-        <PersonHeader person={lookup.person} />
+        <PersonHeader person={lookup.person} onRename={() => onAction({ type: 'rename', person: lookup.person })} />
         <p className="referral-card__note">В сети пока не состоит.</p>
         <div className="referral-card__actions">
           <button type="button" onClick={() => onAction({ type: 'appoint', person: lookup.person })}>
@@ -412,7 +417,7 @@ function SelectionPanel({
     const { curator } = selection
     return (
       <div className="referral-card">
-        <PersonHeader person={curator.person} />
+        <PersonHeader person={curator.person} onRename={() => onAction({ type: 'rename', person: curator.person })} />
         <dl className="referral-card__facts">
           <div>
             <dt>Код приглашения</dt>
@@ -471,7 +476,7 @@ function SelectionPanel({
   const { member, curator } = selection
   return (
     <div className="referral-card">
-      <PersonHeader person={member.person} />
+      <PersonHeader person={member.person} onRename={() => onAction({ type: 'rename', person: member.person })} />
       <dl className="referral-card__facts">
         <div>
           <dt>Куратор</dt>
@@ -678,13 +683,15 @@ function ActionDialog({
   onDone: (result: { message: string; network: AdminReferralNetwork | null }) => void
 }) {
   const [reason, setReason] = useState('')
+  const [name, setName] = useState(action.type === 'rename' ? action.person.name : '')
   const [curatorIdentityId, setCuratorIdentityId] = useState(action.type === 'assign' ? action.curatorIdentityId : '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const text = describe(action)
   const reasonRequired = action.type !== 'decide'
-  const canSubmit = !submitting && (!reasonRequired || reason.trim().length >= MIN_REASON)
+  const nameReady = action.type !== 'rename' || (name.trim().length > 0 && name.trim() !== action.person.name)
+  const canSubmit = !submitting && nameReady && (!reasonRequired || reason.trim().length >= MIN_REASON)
 
   async function submit() {
     setSubmitting(true)
@@ -706,13 +713,22 @@ function ActionDialog({
         case 'remove':
           onDone({ message: `${action.person.name} убран из команды.`, network: await adminApi.removeReferralMember(action.person.identityId, reason.trim()) })
           break
+        case 'rename': {
+          const renamed = await adminApi.renamePerson(action.person.identityId, name.trim(), reason.trim())
+          onDone({ message: `Имя изменено: ${renamed.name}.`, network: null })
+          break
+        }
         case 'decide':
           await adminApi.decideReferralRequest(action.request.id, action.decision, reason.trim() || undefined)
           onDone({ message: action.decision === 'approved' ? 'Заявка одобрена и применена.' : 'Заявка отклонена.', network: null })
           break
       }
     } catch (cause) {
-      setError(errorMessage(cause, 'Не удалось выполнить действие.'))
+      setError(
+        action.type === 'rename' && cause instanceof AdminApiError && cause.code === 'ADMIN_SCOPE_INSUFFICIENT'
+          ? 'Недостаточно прав: имя меняет суперадмин или администратор с правом person.rename.'
+          : errorMessage(cause, 'Не удалось выполнить действие.'),
+      )
       setSubmitting(false)
     }
   }
@@ -723,6 +739,13 @@ function ActionDialog({
         <h2 id="referral-action-title">{text.title}</h2>
         <p className="dialog-target">{text.target}</p>
         {text.warning ? <p className="dialog-warning">{text.warning}</p> : null}
+
+        {action.type === 'rename' ? (
+          <>
+            <label htmlFor="referral-action-name">Новое имя</label>
+            <input id="referral-action-name" value={name} maxLength={200} onChange={(event) => setName(event.target.value)} disabled={submitting} />
+          </>
+        ) : null}
 
         {action.type === 'assign' ? (
           <>
@@ -793,6 +816,14 @@ function describe(action: PendingAction): { title: string; target: string; warni
         warning: 'С новых сделок этого человека куратору ничего не начислится.',
         confirm: 'Убрать',
         danger: true,
+      }
+    case 'rename':
+      return {
+        title: 'Изменить имя',
+        target: `${action.person.name} · ${action.person.login}`,
+        warning: 'Имя сменится везде: в команде ERP, сделках, рейтинге риэлторов и сети. Старое имя и причина останутся в журнале аудита.',
+        confirm: 'Сохранить имя',
+        danger: false,
       }
     case 'decide':
       return {

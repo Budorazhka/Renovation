@@ -326,6 +326,7 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /admin/commissions/:dealId/received':
     'отметка денег с expectedVersion (CAS) и условием «отметки ещё нет»; второе начисление куратору исключает частичный уникальный индекс по сделке',
   'POST /admin/commissions/:dealId/cancel': 'снятие отметки с expectedVersion (CAS) и условием «отметка есть» — повтор получает 409 или «отметки нет»',
+  'PATCH /admin/people/:identityId': 'установка имени: повтор с тем же именем даёт тот же результат, ничего не создаёт',
   'POST /admin/curator-payouts/:identityId/pay':
     'выплата по списку начислений: переводит только accrued этого куратора, повтор находит их уже paid и отвечает 404, второй выплаты не пишет',
 

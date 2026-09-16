@@ -48,6 +48,7 @@ export class OrganizationOnboardingController {
       password: dto.password,
       type: dto.type,
       name: dto.name,
+      ownerName: dto.ownerName,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });

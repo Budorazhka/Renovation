@@ -92,6 +92,15 @@ export function membershipEndReasonLabel(reason: string | null): string {
   }
 }
 
+/**
+ * Вторая строка про человека: компания. У независимого риэлтора организация —
+ * это он сам, её название совпадает с именем, поэтому пишем тип, а не повтор.
+ */
+export function companyLine(person: { organizationName: string | null; organizationType: string | null }): string {
+  if (person.organizationType === 'independent_realtor') return 'Независимый риэлтор'
+  return person.organizationName ?? 'Без компании'
+}
+
 export function organizationTypeShort(type: string | null): string {
   if (type === 'agency') return 'агентство'
   if (type === 'independent_realtor') return 'независимый риэлтор'

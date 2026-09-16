@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { OrganizationsService } from '../organizations/organizations.service';
+import { OrganizationsService, occupantDisplayName } from '../organizations/organizations.service';
 import { RealtorReviewsService } from '../realtor-reviews/realtor-reviews.service';
 import { MediaService } from '../media/media.service';
 import type { FixedRole, PositionDocument } from '../organizations/schemas/position.schema';
@@ -112,7 +112,7 @@ export class PublicRealtorsService {
       const rating = stats.get(idStr);
       return {
         id: idStr,
-        name: position.currentOccupantName ?? '',
+        name: occupantDisplayName(position.currentOccupantName, organization) ?? position.currentOccupantName ?? '',
         fixedRole: position.fixedRole,
         organizationName: organization?.name ?? '',
         organizationType: organization?.type ?? 'agency',

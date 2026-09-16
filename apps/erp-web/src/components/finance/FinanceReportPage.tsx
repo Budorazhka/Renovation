@@ -10,6 +10,8 @@ const money = new Intl.NumberFormat('ru-RU')
 const TYPE_LABEL: Record<DealType, string> = {
   primary: 'Первичка',
   secondary: 'Вторичка',
+  rental: 'Аренда',
+  assignment: 'Переуступка',
 }
 
 function isInsidePeriod(deal: Deal, period: '30d' | '90d' | 'all') {
