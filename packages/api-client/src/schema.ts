@@ -500,6 +500,42 @@ export interface paths {
         patch: operations["updateInstallmentPlan"];
         trace?: never;
     };
+    "/developments/{developmentId}/commission-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Список правил комиссии ЖК */
+        get: operations["listCommissionRules"];
+        put?: never;
+        /** Создать правило комиссии партнёра для ЖК */
+        post: operations["createCommissionRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/developments/{developmentId}/commission-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Удалить правило комиссии */
+        delete: operations["deleteCommissionRule"];
+        options?: never;
+        head?: never;
+        /** Обновить правило комиссии */
+        patch: operations["updateCommissionRule"];
+        trace?: never;
+    };
     "/developments/{developmentId}/buildings": {
         parameters: {
             query?: never;
@@ -841,7 +877,7 @@ export interface paths {
         /** Список подборок (own-scope у manager сужается до созданных им) */
         get: operations["listSelections"];
         put?: never;
-        /** Создать подборку лотов для клиента (dev selections). `dev_selection.create` — own-scope у manager, organization-scope у owner/director/rop/developer. Юнит-существование/принадлежность организации и leadId (если передан) проверяются server-side. */
+        /** Создать подборку лотов для клиента (dev selections): юнитов новостройки и/или объявлений вторички (N-27). `dev_selection.create` — own-scope у manager, organization-scope у owner/director/rop/developer. Существование/принадлежность организации каждого лота и leadId (если передан) проверяются server-side. */
         post: operations["createSelection"];
         delete?: never;
         options?: never;
@@ -902,7 +938,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/selections/{id}/items/{unitId}": {
+    "/selections/{id}/items/{itemId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -916,7 +952,10 @@ export interface paths {
         delete: operations["removeSelectionItem"];
         options?: never;
         head?: never;
-        /** Заметка агента и/или реакция клиента на конкретный лот подборки */
+        /**
+         * Заметка агента и/или реакция клиента на конкретный лот подборки
+         * @description itemId — id юнита либо объявления (N-27); сервер сам понимает, какое из двух, по совпадению поля.
+         */
         patch: operations["updateSelectionItem"];
         trace?: never;
     };
@@ -1988,10 +2027,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Список контактов текущей организации, newest-first, cursor-paginated. organization-scope (owner/director/rop/administrator) видит весь tenant; own-scope (manager) видит только контакты, связанные хотя бы с одним ЕГО лидом (Contact сам по себе не хранит ownerPositionId — own-scope резолвится транзитивно через Lead ДО чтения contacts, не постфильтрацией уже прочитанной страницы). `q` — единый поиск по name/phone (partial, регистронезависимый), не два отдельных query-параметра. */
+        /** Список контактов текущей организации, newest-first, cursor-paginated. organization-scope (owner/director/rop/administrator) видит весь tenant; own-scope (manager) видит только контакты, связанные хотя бы с одним ЕГО лидом (Contact сам по себе не хранит ownerPositionId — own-scope резолвится транзитивно через Lead ДО чтения contacts, не постфильтрацией уже прочитанной страницы). `q` — единый поиск по name/phone (partial, регистронезависимый), не два отдельных query-параметра. `segment` — вкладка списка клиентов ERP (N-20), сужает contactIds ДО чтения страницы. */
         get: operations["listContacts"];
         put?: never;
-        post?: never;
+        /** «Добавить клиента» в ERP независимо от лида (N-20) — до этого контакт создавался только побочно через createLead/reveal-contact. Тот же tenant-local dedupe по телефону — совпадение отвечает CONTACT_PHONE_TAKEN (409), не тихим слиянием карточек: это прямое намерение завести НОВОГО клиента. */
+        post: operations["createContact"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2012,7 +2052,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Правка контакта по его собственному id (N-20) — до этого правка была возможна только через PATCH /leads/{leadId}. Own-scope — тот же принцип, что GET: чужой/вне своего множества contactId даёт 404, не 403. Партиал: непереданное поле не трогается. */
+        patch: operations["updateContact"];
         trace?: never;
     };
     "/contacts/{contactId}/timeline": {
@@ -5043,13 +5084,58 @@ export interface components {
             description?: string;
             sortOrder?: number;
         };
+        CommissionRule: {
+            id: string;
+            developmentId: string;
+            organizationId: string;
+            partnerType: string;
+            commissionPercent: number;
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CreateCommissionRuleRequest: {
+            partnerType: string;
+            commissionPercent: number;
+        };
+        UpdateCommissionRuleRequest: {
+            expectedVersion: number;
+            partnerType?: string;
+            commissionPercent?: number;
+        };
+        /** @description Лот подборки (N-27): либо юнит новостройки, либо объявление вторички — targetType решает, какое из unitId/listingId заполнено. `unit`/ `listing` — денормализация объекта, есть только в публичном ответе (PublicSelection); приватный (Selection) отдаёт голые id, ERP резолвит их сам из уже загруженного реестра объектов. */
         SelectionItem: {
-            unitId: string;
+            /** @enum {string} */
+            targetType: "unit" | "listing";
+            unitId?: string;
+            listingId?: string;
             agentNote?: string | null;
             /** @enum {string|null} */
             reaction?: "liked" | "disliked" | "question" | null;
             /** Format: date-time */
             viewedAt?: string | null;
+            unit?: {
+                number: string;
+                kind: string;
+                rooms?: number;
+                area: number;
+                price?: components["schemas"]["MoneyAmount"];
+                status: string;
+            };
+            listing?: {
+                propertyType: string;
+                city: string;
+                address: string;
+                area: number;
+                rooms?: number;
+                floor?: number;
+                /** @enum {string} */
+                dealType: "sale" | "rent_long" | "rent_short";
+                price: components["schemas"]["MoneyAmount"];
+                status: string;
+            };
         };
         Selection: {
             id: string;
@@ -5078,9 +5164,11 @@ export interface components {
             } | null;
             version: number;
         };
+        /** @description N-27: хотя бы один из unitIds/listingIds непуст (SelectionsService.createSelection, 400 VALIDATION_FAILED иначе). */
         CreateSelectionRequest: {
             title: string;
-            unitIds: string[];
+            unitIds?: string[];
+            listingIds?: string[];
             leadId?: string;
             clientName?: string;
             clientPhone?: string;
@@ -5585,19 +5673,42 @@ export interface components {
         PositionsReportResponse: {
             positions: components["schemas"]["PositionReport"][];
         };
-        /** @description GET /contacts, GET /contacts/{contactId} item shape (CrmService.CrmContactReadModel) — явная whitelist-проекция (ContactDocument.roles, служебные поля НЕ включены), никогда session/password/internal-поля. */
+        /**
+         * @description Вкладка списка клиентов ERP (N-20). Не хранится — считается сервером из стадий сделок и лидов контакта (CrmService.computeContactSegment): golden — дошёл до золотого фонда (сделка golden/check_in/referral); active — сделка/лид ещё в работе, либо контакт совсем свежий (ни одной сделки/лида); archived — то, что было, сорвалось (closed_lost сделка или lost лид, без активных); deferred — переходный случай без явного сигнала.
+         * @enum {string}
+         */
+        ContactSegment: "golden" | "active" | "archived" | "deferred";
+        /** @description GET /contacts, GET /contacts/{contactId} item shape (CrmService.CrmContactReadModel) — явная whitelist-проекция, никогда session/password/internal-поля. */
         ContactView: {
-            id?: string;
-            organizationId?: string;
-            name?: string;
-            phone?: string;
-            email?: string | null;
+            id: string;
+            organizationId: string;
+            name: string;
+            phone: string;
+            email: string | null;
+            roles: ("buyer" | "investor" | "owner" | "referral" | "broker")[];
+            /** @description Число сделок контакта — сам список отдаёт GET /deals?contactId= */
+            dealsCount: number;
+            segment: components["schemas"]["ContactSegment"];
             /** Format: date-time */
-            createdAt?: string;
+            createdAt: string;
         };
         ContactListResponse: {
             items: components["schemas"]["ContactView"][];
             nextCursor: string | null;
+        };
+        /** @description POST /contacts — «Добавить клиента» в ERP независимо от лида (N-20). */
+        CreateContactRequest: {
+            name: string;
+            phone: string;
+            email?: string;
+            roles?: ("buyer" | "investor" | "owner" | "referral" | "broker")[];
+        };
+        /** @description PATCH /contacts/{contactId} — партиал, поле, которое не передано, не трогается. `email: null` (в отличие от отсутствия поля) снимает адрес. */
+        UpdateContactRequest: {
+            name?: string;
+            phone?: string;
+            email?: string | null;
+            roles?: ("buyer" | "investor" | "owner" | "referral" | "broker")[];
         };
         PublicListingList: {
             items: components["schemas"]["PublicListingCard"][];
@@ -8454,6 +8565,132 @@ export interface operations {
             409: components["responses"]["Error"];
         };
     };
+    listCommissionRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                developmentId: components["parameters"]["DevelopmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список правил комиссии */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionRule"][];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    createCommissionRule: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path: {
+                developmentId: components["parameters"]["DevelopmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCommissionRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Правило комиссии создано */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionRule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteCommissionRule: {
+        parameters: {
+            query?: {
+                expectedVersion?: number;
+            };
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path: {
+                developmentId: components["parameters"]["DevelopmentId"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Правило комиссии удалено */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
+    updateCommissionRule: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path: {
+                developmentId: components["parameters"]["DevelopmentId"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCommissionRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Правило комиссии обновлено */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionRule"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT */
+            409: components["responses"]["Error"];
+        };
+    };
     listBuildings: {
         parameters: {
             query?: never;
@@ -9261,10 +9498,11 @@ export interface operations {
                     "application/json": components["schemas"]["Selection"];
                 };
             };
+            /** @description VALIDATION_FAILED — ни unitIds, ни listingIds не переданы */
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            /** @description NOT_FOUND — один из unitId или leadId не существует/чужой */
+            /** @description NOT_FOUND — один из unitId, listingId или leadId не существует/чужой */
             404: components["responses"]["Error"];
         };
     };
@@ -9415,7 +9653,8 @@ export interface operations {
             content: {
                 "application/json": {
                     expectedVersion: number;
-                    unitIds: string[];
+                    unitIds?: string[];
+                    listingIds?: string[];
                 };
             };
         };
@@ -9432,7 +9671,7 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            /** @description NOT_FOUND — подборка или один из unitId не существует/чужой */
+            /** @description NOT_FOUND — подборка, один из unitId или один из listingId не существует/чужой */
             404: components["responses"]["Error"];
             /** @description VERSION_CONFLICT */
             409: components["responses"]["Error"];
@@ -9449,7 +9688,7 @@ export interface operations {
             };
             path: {
                 id: components["parameters"]["SelectionId"];
-                unitId: string;
+                itemId: string;
             };
             cookie?: never;
         };
@@ -9481,7 +9720,7 @@ export interface operations {
             };
             path: {
                 id: components["parameters"]["SelectionId"];
-                unitId: string;
+                itemId: string;
             };
             cookie?: never;
         };
@@ -9508,7 +9747,7 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            /** @description NOT_FOUND — подборка не найдена/чужая, либо unitId не в этой подборке */
+            /** @description NOT_FOUND — подборка не найдена/чужая, либо itemId не в этой подборке */
             404: components["responses"]["Error"];
             /** @description VERSION_CONFLICT */
             409: components["responses"]["Error"];
@@ -11688,6 +11927,7 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                segment?: components["schemas"]["ContactSegment"];
                 /** @description Непрозрачный cursor из предыдущего ответа; для newest принимается legacy ObjectId. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
@@ -11707,12 +11947,46 @@ export interface operations {
                     "application/json": components["schemas"]["ContactListResponse"];
                 };
             };
-            /** @description VALIDATION_FAILED — невалидный q/cursor/limit */
+            /** @description VALIDATION_FAILED — невалидный q/segment/cursor/limit */
             400: components["responses"]["Error"];
             /** @description AUTH_NO_SESSION — нет baza_session cookie */
             401: components["responses"]["Error"];
             /** @description FORBIDDEN — нет contact.read */
             403: components["responses"]["Error"];
+        };
+    };
+    createContact: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Обязателен на всех создающих и критических командах. ADR-006 называет publish/book/cancel/manual-ledger как примеры; фактический перечень шире и закреплён тестом apps/api/test/architecture/idempotency-coverage.test.ts — см. docs/api/conventions.md §8. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKeyHeader"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateContactRequest"];
+            };
+        };
+        responses: {
+            /** @description Контакт создан */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет contact.create */
+            403: components["responses"]["Error"];
+            /** @description CONTACT_PHONE_TAKEN — телефон уже занят другим контактом этой организации */
+            409: components["responses"]["Error"];
         };
     };
     getContact: {
@@ -11743,6 +12017,41 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description NOT_FOUND — контакт не существует или вне permission scope (non-disclosure, тот же код для обоих случаев) */
             404: components["responses"]["Error"];
+        };
+    };
+    updateContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contactId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateContactRequest"];
+            };
+        };
+        responses: {
+            /** @description Контакт обновлён */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactView"];
+                };
+            };
+            /** @description VALIDATION_FAILED */
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            /** @description FORBIDDEN — нет contact.update */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — контакт не существует или вне permission scope */
+            404: components["responses"]["Error"];
+            /** @description CONTACT_PHONE_TAKEN — новый телефон уже занят другим контактом этой организации */
+            409: components["responses"]["Error"];
         };
     };
     getContactTimeline: {

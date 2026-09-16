@@ -1,7 +1,21 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type ContactRole = 'buyer' | 'investor' | 'owner' | 'referral' | 'broker';
+export const CONTACT_ROLES = ['buyer', 'investor', 'owner', 'referral', 'broker'] as const;
+export type ContactRole = (typeof CONTACT_ROLES)[number];
+
+/**
+ * Куда контакт сейчас относится — не хранится, считается сервером из
+ * стадий его сделок и лидов (CrmService.buildContactSegmentIndex, N-20):
+ * `golden` — дошёл до золотого фонда (сделка в стадии golden/check_in/
+ * referral); `active` — сделка или лид ещё в работе, либо контакт совсем
+ * свежий (ни одной сделки/лида); `archived` — всё, что было, сорвалось
+ * (closed_lost сделка или lost лид, без активных); `deferred` — переходный
+ * случай без явного сигнала (например, лид конвертирован, а сделки ещё
+ * нет).
+ */
+export const CONTACT_SEGMENTS = ['golden', 'active', 'archived', 'deferred'] as const;
+export type ContactSegment = (typeof CONTACT_SEGMENTS)[number];
 
 /**
  * docs/architecture/domain-model.md Модуль 7 / mongodb-schema.md `contacts`.

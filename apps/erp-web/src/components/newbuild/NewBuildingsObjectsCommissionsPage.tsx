@@ -1,35 +1,28 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  AlertCircle,
   AlertTriangle,
   CircleDollarSign,
   Filter,
   Home,
+  Loader2,
   Pencil,
   Percent,
   Plus,
   Trash2,
 } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import {
-  NEW_BUILD_APARTMENTS_MOCK,
-  NEW_BUILD_COMPLEXES_MOCK,
-  type NewBuildUnitStatus,
-} from '@/data/bookings-catalog-mock'
+import { developmentsApiV2, type DevelopmentV2, type UnitStatusV2, type UnitV2 } from '@/services/developmentsApiV2'
+import { commissionRulesApiV2, type CommissionRuleV2 } from '@/services/commissionRulesApiV2'
+import { extractErrorMessage } from '@/features/developments-v2'
 import { useI18n } from "@/i18n";
 
-type CommissionRule = {
-  id: string
-  complexId: string
-  partnerType: string
-  commissionPercent: number
-}
-
-const UNIT_STATUS_LABEL: Record<NewBuildUnitStatus, string> = {
-  free: 'Свободен',
+const UNIT_STATUS_LABEL: Record<UnitStatusV2, string> = {
+  available: 'Свободен',
   reserved: 'Бронь',
   sold: 'Продан',
-  hold: 'Стоп-лист',
+  hidden: 'Скрыт',
 }
 
 const FORM_SELECT_CLASS =
@@ -37,108 +30,196 @@ const FORM_SELECT_CLASS =
 const FORM_INPUT_CLASS =
   "rounded-md border border-[var(--workspace-row-border)] bg-[color-mix(in_srgb,var(--rail-bg)_82%,transparent)] px-2 py-2 text-sm text-[color:var(--workspace-text)]"
 
-const COMMISSIONS_SEED: CommissionRule[] = [
-  { id: 'cr-1', complexId: 'rc-olymp', partnerType: 'Агентство-партнёр', commissionPercent: 2.5 },
-  { id: 'cr-2', complexId: 'rc-olymp', partnerType: 'Внутренняя команда', commissionPercent: 3.1 },
-  { id: 'cr-3', complexId: 'rc-samolet', partnerType: 'Агентство-партнёр', commissionPercent: 2.2 },
-  { id: 'cr-4', complexId: 'rc-bunin', partnerType: 'Агентство-партнёр', commissionPercent: 2.8 },
-]
-
-function nextRuleId() {
-  return `cr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+interface DevelopmentRow {
+  development: DevelopmentV2
+  units: UnitV2[]
+  unitCount: number
+  byStatus: Record<UnitStatusV2, number>
+  rules: CommissionRuleV2[]
+  avgPct: number
 }
 
 export default function NewBuildingsObjectsCommissionsPage() {
-    const { t } = useI18n();
-  const [commissions, setCommissions] = useState<CommissionRule[]>(() => [...COMMISSIONS_SEED])
-  const [developer, setDeveloper] = useState<string>('all')
+  const { t } = useI18n();
+  const [developments, setDevelopments] = useState<DevelopmentV2[]>([])
+  const [unitsByDev, setUnitsByDev] = useState<Map<string, UnitV2[]>>(new Map())
+  const [rulesByDev, setRulesByDev] = useState<Map<string, CommissionRuleV2[]>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadTrigger, setReloadTrigger] = useState(0)
+
+  const [city, setCity] = useState<string>('all')
   const [noRulesOnly, setNoRulesOnly] = useState(false)
-  const [selectedComplexId, setSelectedComplexId] = useState<string | null>(NEW_BUILD_COMPLEXES_MOCK[0]?.id ?? null)
+  const [selectedDevId, setSelectedDevId] = useState<string | null>(null)
 
   const [newPartnerType, setNewPartnerType] = useState('Агентство-партнёр')
   const [newPercent, setNewPercent] = useState('2.5')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editPartnerType, setEditPartnerType] = useState('')
   const [editPercent, setEditPercent] = useState('')
+  const [mutating, setMutating] = useState(false)
+  const [mutationError, setMutationError] = useState<string | null>(null)
 
-  const rows = useMemo(() => {
-    return NEW_BUILD_COMPLEXES_MOCK.map((complex) => {
-      const units = NEW_BUILD_APARTMENTS_MOCK.filter((u) => u.rcId === complex.id)
+  const load = useCallback(() => {
+    setLoading(true)
+    setError(null)
+    let cancelled = false
+    void (async () => {
+      try {
+        const { items: devItems } = await developmentsApiV2.list({ limit: 100 })
+        if (cancelled) return
+        setDevelopments(devItems)
+        if (devItems.length > 0) {
+          setSelectedDevId((prev) => (prev && devItems.some((d) => d._id === prev) ? prev : devItems[0]!._id))
+        }
+
+        const [unitsEntries, rulesEntries] = await Promise.all([
+          Promise.all(
+            devItems.map(async (dev) => {
+              const buildings = await developmentsApiV2.listBuildings(dev._id)
+              const unitsPerBuilding = await Promise.all(
+                buildings.map((b) => developmentsApiV2.listUnits(b._id, { limit: 500 })),
+              )
+              return [dev._id, unitsPerBuilding.flat()] as const
+            }),
+          ),
+          Promise.all(
+            devItems.map(async (dev) => [dev._id, await commissionRulesApiV2.list(dev._id)] as const),
+          ),
+        ])
+        if (cancelled) return
+        setUnitsByDev(new Map(unitsEntries))
+        setRulesByDev(new Map(rulesEntries))
+        setLoading(false)
+      } catch (err) {
+        if (cancelled) return
+        setError(extractErrorMessage(err, 'Не удалось загрузить проекты и комиссии').message)
+        setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => load(), [load, reloadTrigger])
+
+  const rows = useMemo<DevelopmentRow[]>(() => {
+    return developments.map((development) => {
+      const units = unitsByDev.get(development._id) ?? []
       const byStatus = units.reduce(
         (acc, u) => {
-          acc[u.salesStatus] = (acc[u.salesStatus] ?? 0) + 1
+          acc[u.status] = (acc[u.status] ?? 0) + 1
           return acc
         },
-        {} as Record<NewBuildUnitStatus, number>,
+        {} as Record<UnitStatusV2, number>,
       )
-      const rules = commissions.filter((c) => c.complexId === complex.id)
+      const rules = rulesByDev.get(development._id) ?? []
       const avgPct =
         rules.length > 0 ? Math.round((rules.reduce((s, r) => s + r.commissionPercent, 0) / rules.length) * 10) / 10 : 0
-      return { complex, units, unitCount: units.length, byStatus, rules, avgPct }
+      return { development, units, unitCount: units.length, byStatus, rules, avgPct }
     })
-  }, [commissions])
+  }, [developments, unitsByDev, rulesByDev])
 
-  const developerOptions = useMemo(() => Array.from(new Set(NEW_BUILD_COMPLEXES_MOCK.map((c) => c.developerName))).sort(), [])
+  const cityOptions = useMemo(
+    () => Array.from(new Set(developments.map((d) => d.location.city))).sort(),
+    [developments],
+  )
 
   const filtered = useMemo(() => {
     let list = [...rows]
-    if (developer !== 'all') list = list.filter((r) => r.complex.developerName === developer)
+    if (city !== 'all') list = list.filter((r) => r.development.location.city === city)
     if (noRulesOnly) list = list.filter((r) => r.rules.length === 0)
     return list
-  }, [developer, noRulesOnly, rows])
+  }, [city, noRulesOnly, rows])
 
   const selectedRow = useMemo(() => {
-    if (!selectedComplexId) return null
-    return rows.find((r) => r.complex.id === selectedComplexId) ?? null
-  }, [rows, selectedComplexId])
+    if (!selectedDevId) return null
+    return rows.find((r) => r.development._id === selectedDevId) ?? null
+  }, [rows, selectedDevId])
 
   const kpi = useMemo(() => {
     const totalUnits = filtered.reduce((s, r) => s + r.unitCount, 0)
     const withRules = filtered.filter((r) => r.rules.length > 0).length
+    const withRulesRows = filtered.filter((r) => r.rules.length > 0)
     const avgAcross =
-      filtered.length > 0
-        ? Math.round(
-            (filtered.reduce((s, r) => s + (r.rules.length ? r.avgPct : 0), 0) / Math.max(1, filtered.filter((r) => r.rules.length).length)) * 10,
-          ) / 10
+      withRulesRows.length > 0
+        ? Math.round((withRulesRows.reduce((s, r) => s + r.avgPct, 0) / withRulesRows.length) * 10) / 10
         : 0
     return { totalUnits, withRules, avgAcross, projects: filtered.length }
   }, [filtered])
 
   const missingRules = useMemo(() => rows.filter((r) => r.rules.length === 0), [rows])
 
-  const addRule = useCallback(() => {
+  const refreshRulesFor = useCallback((developmentId: string) => {
+    return commissionRulesApiV2.list(developmentId).then((rules) => {
+      setRulesByDev((prev) => new Map(prev).set(developmentId, rules))
+    })
+  }, [])
+
+  const addRule = useCallback(async () => {
     if (!selectedRow) return
     const pct = Number.parseFloat(newPercent.replace(',', '.'))
     if (!newPartnerType.trim() || Number.isNaN(pct) || pct < 0 || pct > 100) return
-    setCommissions((prev) => [
-      ...prev,
-      { id: nextRuleId(), complexId: selectedRow.complex.id, partnerType: newPartnerType.trim(), commissionPercent: pct },
-    ])
-    setNewPercent('2.5')
-  }, [newPartnerType, newPercent, selectedRow])
+    setMutating(true)
+    setMutationError(null)
+    try {
+      await commissionRulesApiV2.create(selectedRow.development._id, {
+        partnerType: newPartnerType.trim(),
+        commissionPercent: pct,
+      })
+      await refreshRulesFor(selectedRow.development._id)
+      setNewPercent('2.5')
+    } catch (err) {
+      setMutationError(extractErrorMessage(err, 'Не удалось добавить правило').message)
+    } finally {
+      setMutating(false)
+    }
+  }, [newPartnerType, newPercent, selectedRow, refreshRulesFor])
 
-  const startEdit = useCallback((r: CommissionRule) => {
-    setEditingId(r.id)
+  const startEdit = useCallback((r: CommissionRuleV2) => {
+    setEditingId(r._id)
     setEditPartnerType(r.partnerType)
     setEditPercent(String(r.commissionPercent))
   }, [])
 
-  const saveEdit = useCallback(() => {
-    if (!editingId) return
+  const saveEdit = useCallback(async () => {
+    if (!editingId || !selectedRow) return
+    const rule = selectedRow.rules.find((r) => r._id === editingId)
+    if (!rule) return
     const pct = Number.parseFloat(editPercent.replace(',', '.'))
     if (!editPartnerType.trim() || Number.isNaN(pct) || pct < 0 || pct > 100) return
-    setCommissions((prev) =>
-      prev.map((c) =>
-        c.id === editingId ? { ...c, partnerType: editPartnerType.trim(), commissionPercent: pct } : c,
-      ),
-    )
-    setEditingId(null)
-  }, [editPartnerType, editPercent, editingId])
+    setMutating(true)
+    setMutationError(null)
+    try {
+      await commissionRulesApiV2.update(selectedRow.development._id, editingId, {
+        expectedVersion: rule.version,
+        partnerType: editPartnerType.trim(),
+        commissionPercent: pct,
+      })
+      await refreshRulesFor(selectedRow.development._id)
+      setEditingId(null)
+    } catch (err) {
+      setMutationError(extractErrorMessage(err, 'Не удалось изменить правило').message)
+    } finally {
+      setMutating(false)
+    }
+  }, [editingId, editPartnerType, editPercent, selectedRow, refreshRulesFor])
 
-  const removeRule = useCallback((id: string) => {
-    setCommissions((prev) => prev.filter((c) => c.id !== id))
-    if (editingId === id) setEditingId(null)
-  }, [editingId])
+  const removeRule = useCallback(async (rule: CommissionRuleV2) => {
+    if (!selectedRow) return
+    setMutating(true)
+    setMutationError(null)
+    try {
+      await commissionRulesApiV2.remove(selectedRow.development._id, rule._id, rule.version)
+      await refreshRulesFor(selectedRow.development._id)
+      if (editingId === rule._id) setEditingId(null)
+    } catch (err) {
+      setMutationError(extractErrorMessage(err, 'Не удалось удалить правило').message)
+    } finally {
+      setMutating(false)
+    }
+  }, [selectedRow, editingId, refreshRulesFor])
 
   return (
     <DashboardShell>
@@ -157,17 +238,25 @@ export default function NewBuildingsObjectsCommissionsPage() {
               {t('newbuild.newBuildingsObjectsCommissionsPage.отч_т_по_партн_рам_п')}</Link>
           </div>
 
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg border border-[rgba(255,180,171,0.3)] bg-[rgba(255,180,171,0.08)] px-3 py-2 text-sm text-[#ffb4ab]">
+              <AlertCircle className="size-4 shrink-0" />
+              {error}
+              <button type="button" onClick={() => setReloadTrigger((v) => v + 1)} className="ml-auto text-[color:var(--gold)]">Повторить</button>
+            </div>
+          )}
+
           <section className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
             <div className="mb-3 flex items-center gap-2">
               <Filter className="size-4 text-[color:var(--gold)]" />
               <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.newBuildingsObjectsCommissionsPage.фильтры')}</h2>
             </div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <select value={developer} onChange={(e) => setDeveloper(e.target.value)} className={FORM_SELECT_CLASS}>
-                <option value="all">{t('newbuild.newBuildingsObjectsCommissionsPage.девелопер_все')}</option>
-                {developerOptions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
+              <select value={city} onChange={(e) => setCity(e.target.value)} className={FORM_SELECT_CLASS}>
+                <option value="all">Город: все</option>
+                {cityOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
                   </option>
                 ))}
               </select>
@@ -201,6 +290,11 @@ export default function NewBuildingsObjectsCommissionsPage() {
             </div>
           </section>
 
+          {loading ? (
+            <div className="flex items-center gap-2 p-6 text-sm text-[color:var(--app-text-muted)]">
+              <Loader2 className="size-4 animate-spin" /> Загрузка…
+            </div>
+          ) : (
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_minmax(300px,380px)] xl:items-start">
             <section className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
               <div className="mb-3 flex items-center gap-2">
@@ -213,7 +307,7 @@ export default function NewBuildingsObjectsCommissionsPage() {
                   <thead>
                     <tr className="border-b border-[color:var(--workspace-row-border)] text-left text-[11px] uppercase tracking-wide text-[color:var(--app-text-subtle)]">
                       <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.проект')}</th>
-                      <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.девелопер')}</th>
+                      <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.город')}</th>
                       <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.юниты')}</th>
                       <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.своб_бронь')}</th>
                       <th className="px-2 py-2">{t('newbuild.newBuildingsObjectsCommissionsPage.ср')}</th>
@@ -222,19 +316,19 @@ export default function NewBuildingsObjectsCommissionsPage() {
                   </thead>
                   <tbody>
                     {filtered.map((row) => {
-                      const sel = row.complex.id === selectedComplexId
-                      const free = row.byStatus.free ?? 0
+                      const sel = row.development._id === selectedDevId
+                      const free = row.byStatus.available ?? 0
                       const reserved = row.byStatus.reserved ?? 0
                       return (
                         <tr
-                          key={row.complex.id}
+                          key={row.development._id}
                           role="button"
                           tabIndex={0}
-                          onClick={() => setSelectedComplexId(row.complex.id)}
+                          onClick={() => setSelectedDevId(row.development._id)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
-                              setSelectedComplexId(row.complex.id)
+                              setSelectedDevId(row.development._id)
                             }
                           }}
                           className={
@@ -243,8 +337,8 @@ export default function NewBuildingsObjectsCommissionsPage() {
                               : 'cursor-pointer border-b border-[color:var(--workspace-row-border)] hover:bg-[var(--workspace-row-bg)]'
                           }
                         >
-                          <td className="px-2 py-2 font-medium text-[color:var(--workspace-text)]">{row.complex.name}</td>
-                          <td className="px-2 py-2 text-[color:var(--workspace-text-muted)]">{row.complex.developerName}</td>
+                          <td className="px-2 py-2 font-medium text-[color:var(--workspace-text)]">{row.development.name}</td>
+                          <td className="px-2 py-2 text-[color:var(--workspace-text-muted)]">{row.development.location.city}</td>
                           <td className="px-2 py-2">
                             <span className="inline-flex items-center gap-1 text-[color:var(--workspace-text)]">
                               <CircleDollarSign className="size-3.5 text-emerald-400" />
@@ -270,11 +364,11 @@ export default function NewBuildingsObjectsCommissionsPage() {
                 <>
                   <section className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
                     <h2 className="mb-2 text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.newBuildingsObjectsCommissionsPage.карточка_объекта')}</h2>
-                    <p className="text-base font-normal text-[color:var(--workspace-text)]">{selectedRow.complex.name}</p>
-                    <p className="mt-1 text-sm text-[color:var(--workspace-text-muted)]">{selectedRow.complex.developerName}</p>
-                    <p className="mt-2 text-xs text-[color:var(--app-text-subtle)]">ID: {selectedRow.complex.id}</p>
+                    <p className="text-base font-normal text-[color:var(--workspace-text)]">{selectedRow.development.name}</p>
+                    <p className="mt-1 text-sm text-[color:var(--workspace-text-muted)]">{selectedRow.development.location.city}</p>
+                    <p className="mt-2 text-xs text-[color:var(--app-text-subtle)]">ID: {selectedRow.development._id}</p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      {(Object.keys(UNIT_STATUS_LABEL) as NewBuildUnitStatus[]).map((st) => (
+                      {(Object.keys(UNIT_STATUS_LABEL) as UnitStatusV2[]).map((st) => (
                         <div
                           key={st}
                           className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] px-2 py-1.5 text-center"
@@ -291,15 +385,16 @@ export default function NewBuildingsObjectsCommissionsPage() {
                       <Percent className="size-4 text-[color:var(--gold)]" />
                       <h2 className="text-sm font-normal text-[color:var(--theme-accent-heading)]">{t('newbuild.newBuildingsObjectsCommissionsPage.комиссионные_условия')}</h2>
                     </div>
-                    <p className="mb-3 text-xs text-[color:var(--app-text-muted)]">
-                      {t('newbuild.newBuildingsObjectsCommissionsPage.локальная_матрица_ст')}</p>
+                    {mutationError && (
+                      <p className="mb-3 text-xs text-[#ffb4ab]">{mutationError}</p>
+                    )}
                     <ul className="mb-3 space-y-2">
                       {selectedRow.rules.map((rule) => (
                         <li
-                          key={rule.id}
+                          key={rule._id}
                           className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] p-2"
                         >
-                          {editingId === rule.id ? (
+                          {editingId === rule._id ? (
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                               <input
                                 value={editPartnerType}
@@ -316,8 +411,9 @@ export default function NewBuildingsObjectsCommissionsPage() {
                               <div className="flex gap-1">
                                 <button
                                   type="button"
-                                  onClick={saveEdit}
-                                  className="rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-2 py-1.5 text-xs font-normal text-[color:var(--workspace-text)]"
+                                  disabled={mutating}
+                                  onClick={() => void saveEdit()}
+                                  className="rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-2 py-1.5 text-xs font-normal text-[color:var(--workspace-text)] disabled:opacity-50"
                                 >
                                   OK
                                 </button>
@@ -345,8 +441,9 @@ export default function NewBuildingsObjectsCommissionsPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => removeRule(rule.id)}
-                                  className="rounded p-1 text-red-400 hover:bg-red-500/10"
+                                  disabled={mutating}
+                                  onClick={() => void removeRule(rule)}
+                                  className="rounded p-1 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                                   aria-label={t('newbuild.newBuildingsObjectsCommissionsPage.удалить')}
                                 >
                                   <Trash2 className="size-4" />
@@ -375,10 +472,11 @@ export default function NewBuildingsObjectsCommissionsPage() {
                       />
                       <button
                         type="button"
-                        onClick={addRule}
-                        className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-3 py-2 text-sm font-normal text-[color:var(--theme-accent-heading)]"
+                        disabled={mutating}
+                        onClick={() => void addRule()}
+                        className="inline-flex items-center justify-center gap-1 rounded-md border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] px-3 py-2 text-sm font-normal text-[color:var(--theme-accent-heading)] disabled:opacity-50"
                       >
-                        <Plus className="size-4" />
+                        {mutating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                         {t('newbuild.newBuildingsObjectsCommissionsPage.добавить')}</button>
                     </div>
                   </section>
@@ -389,8 +487,9 @@ export default function NewBuildingsObjectsCommissionsPage() {
               )}
             </div>
           </div>
+          )}
 
-          {missingRules.length > 0 && (
+          {!loading && missingRules.length > 0 && (
             <section className="rounded-lg border border-[var(--hub-card-border)] bg-[var(--hub-card-bg)] p-3">
               <div className="mb-2 flex items-center gap-2">
                 <AlertTriangle className="size-4 text-amber-400" />
@@ -400,10 +499,10 @@ export default function NewBuildingsObjectsCommissionsPage() {
               <ul className="space-y-2">
                 {missingRules.map((r) => (
                   <li
-                    key={r.complex.id}
+                    key={r.development._id}
                     className="rounded-md border border-[color:var(--workspace-row-border)] bg-[var(--workspace-row-bg)] px-3 py-2 text-sm text-[color:var(--workspace-text)]"
                   >
-                    {r.complex.name} · {r.complex.developerName}
+                    {r.development.name} · {r.development.location.city}
                   </li>
                 ))}
               </ul>

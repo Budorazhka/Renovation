@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
+import type { ListingRepository, PropertyAssetRepository } from '@baza/property-assets';
 import { SelectionsService, toPublicDevSelection } from './selections.service';
 import type { DevSelectionRepository } from './repository/dev-selection.repository';
 import type { IdempotencyService } from '../../shared/idempotency/idempotency.service';
@@ -21,6 +22,8 @@ function makeService(overrides: {
   idempotencyService?: Partial<IdempotencyService>;
   developmentsService?: Partial<DevelopmentsService>;
   crmService?: Partial<CrmService>;
+  listingRepository?: Partial<ListingRepository>;
+  propertyAssetRepository?: Partial<PropertyAssetRepository>;
 } = {}) {
   return new SelectionsService(
     makeMockConnection() as never,
@@ -29,6 +32,8 @@ function makeService(overrides: {
       { record: jest.fn().mockResolvedValue(undefined), checkReplay: jest.fn().mockResolvedValue(null) }) as IdempotencyService,
     (overrides.developmentsService ?? { getUnitForOrganization: jest.fn().mockResolvedValue({}) }) as DevelopmentsService,
     (overrides.crmService ?? { getLeadForOrganization: jest.fn().mockResolvedValue({}) }) as CrmService,
+    (overrides.listingRepository ?? { findByIdForOrganization: jest.fn().mockResolvedValue({}) }) as ListingRepository,
+    (overrides.propertyAssetRepository ?? { findByIdForOrganization: jest.fn().mockResolvedValue({}) }) as PropertyAssetRepository,
   );
 }
 
@@ -44,7 +49,7 @@ function makeDoc(overrides: Partial<DevSelectionDocument> = {}): DevSelectionDoc
     publicToken: 'x'.repeat(64),
     title: 'Подборка',
     status: 'sent',
-    items: [{ unitId: new Types.ObjectId(), agentNote: 'note', reaction: 'liked', viewedAt: new Date() }],
+    items: [{ targetType: 'unit', unitId: new Types.ObjectId(), agentNote: 'note', reaction: 'liked', viewedAt: new Date() }],
     viewCount: 3,
     version: 0,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -72,12 +77,17 @@ describe('SelectionsService', () => {
         createdByPositionId: new Types.ObjectId(),
         title: 'Для клиента',
         unitIds,
+        listingIds: [],
         idempotency: idem('createSelection'),
       });
 
       expect(getUnitSpy).toHaveBeenCalledTimes(2);
       expect(createSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ organizationId, title: 'Для клиента', unitIds }),
+        expect.objectContaining({
+          organizationId,
+          title: 'Для клиента',
+          items: unitIds.map((id) => ({ targetType: 'unit', id })),
+        }),
         expect.anything(),
       );
     });
@@ -93,6 +103,7 @@ describe('SelectionsService', () => {
           createdByPositionId: new Types.ObjectId(),
           title: 'Попытка',
           unitIds: [new Types.ObjectId()],
+          listingIds: [],
           idempotency: idem(),
         }),
       ).rejects.toThrow(NotFoundException);
@@ -111,6 +122,7 @@ describe('SelectionsService', () => {
         createdByPositionId: new Types.ObjectId(),
         title: 'Для клиента',
         unitIds: [new Types.ObjectId()],
+        listingIds: [],
         leadId,
         idempotency: idem(),
       });
@@ -209,7 +221,7 @@ describe('SelectionsService', () => {
       });
       expect(projection.items).toHaveLength(1);
       expect(projection.items[0]).toMatchObject({
-        unitId: doc.items[0]!.unitId.toString(),
+        unitId: doc.items[0]!.unitId!.toString(),
         agentNote: doc.items[0]!.agentNote,
         reaction: doc.items[0]!.reaction,
       });
@@ -235,7 +247,7 @@ describe('SelectionsService', () => {
 
     it('подставляет данные объектов: без них клиенту нечего смотреть', async () => {
       const doc = makeDoc();
-      const unitId = doc.items[0]!.unitId;
+      const unitId = doc.items[0]!.unitId!;
       const service = makeService({
         repository: { markViewedByPublicToken: jest.fn().mockResolvedValue(doc) },
         developmentsService: {
@@ -297,6 +309,151 @@ describe('SelectionsService', () => {
 
       const [, organizationId] = getUnitForOrganization.mock.calls[0];
       expect(organizationId).toEqual(doc.organizationId);
+    });
+  });
+
+  describe('N-27: листинги вторички наравне с юнитами', () => {
+    it('createSelection проверяет существование каждого listingId (cross-module через ListingRepository)', async () => {
+      const organizationId = new Types.ObjectId();
+      const listingIds = [new Types.ObjectId(), new Types.ObjectId()];
+      const findListingSpy = jest.fn().mockResolvedValue({ _id: listingIds[0] });
+      const createSpy = jest.fn().mockResolvedValue(makeDoc());
+
+      const service = makeService({
+        listingRepository: { findByIdForOrganization: findListingSpy },
+        repository: { create: createSpy },
+      });
+
+      await service.createSelection({
+        organizationId,
+        createdByPositionId: new Types.ObjectId(),
+        title: 'Вторичка для клиента',
+        unitIds: [],
+        listingIds,
+        idempotency: idem('createSelection'),
+      });
+
+      expect(findListingSpy).toHaveBeenCalledTimes(2);
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            { targetType: 'listing', id: listingIds[0] },
+            { targetType: 'listing', id: listingIds[1] },
+          ],
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('отклоняет создание, если объявление не существует/чужое', async () => {
+      const service = makeService({
+        listingRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      });
+
+      await expect(
+        service.createSelection({
+          organizationId: new Types.ObjectId(),
+          createdByPositionId: new Types.ObjectId(),
+          title: 'Попытка',
+          unitIds: [],
+          listingIds: [new Types.ObjectId()],
+          idempotency: idem(),
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('ни unitIds, ни listingIds — VALIDATION_FAILED, подборка не создаётся', async () => {
+      const createSpy = jest.fn();
+      const service = makeService({ repository: { create: createSpy } });
+
+      await expect(
+        service.createSelection({
+          organizationId: new Types.ObjectId(),
+          createdByPositionId: new Types.ObjectId(),
+          title: 'Пустая',
+          unitIds: [],
+          listingIds: [],
+          idempotency: idem(),
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect(createSpy).not.toHaveBeenCalled();
+    });
+
+    it('removeItem/updateItem передают itemId дальше в репозиторий без изменений', async () => {
+      const doc = makeDoc();
+      const itemId = new Types.ObjectId();
+      const removeSpy = jest.fn().mockResolvedValue(makeDoc());
+      const updateSpy = jest.fn().mockResolvedValue(makeDoc());
+      const service = makeService({
+        repository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue(doc),
+          removeItemWithVersionCheck: removeSpy,
+          updateItemWithVersionCheck: updateSpy,
+        },
+      });
+
+      await service.removeItem({ id: doc._id, organizationId: doc.organizationId, expectedVersion: 0, itemId, idempotency: idem() });
+      expect(removeSpy).toHaveBeenCalledWith(doc._id, doc.organizationId, 0, itemId, expect.anything());
+
+      await service.updateItem({
+        id: doc._id,
+        organizationId: doc.organizationId,
+        expectedVersion: 0,
+        itemId,
+        patch: { agentNote: 'заметка' },
+        idempotency: idem(),
+      });
+      expect(updateSpy).toHaveBeenCalledWith(doc._id, doc.organizationId, 0, itemId, { agentNote: 'заметка' }, expect.anything());
+    });
+
+    it('публичная проекция денормализует объявление вторички так же честно, как юнит: пропавшее — без данных, не падение', async () => {
+      const listingId = new Types.ObjectId();
+      const doc = makeDoc({
+        items: [{ targetType: 'listing', listingId, agentNote: undefined, reaction: undefined, viewedAt: undefined }],
+      } as Partial<DevSelectionDocument>);
+
+      const withListing = makeService({
+        repository: { markViewedByPublicToken: jest.fn().mockResolvedValue(doc) },
+        listingRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue({
+            propertyAssetId: new Types.ObjectId(),
+            dealType: 'sale',
+            price: { amountMinorUnits: 12_000_000, currency: 'USD' },
+            status: 'active',
+          }),
+        },
+        propertyAssetRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue({
+            propertyType: 'apartment',
+            location: { city: 'Батуми', address: 'ул. Руставели, 7' },
+            characteristics: { area: 65, rooms: 2, floor: 7 },
+          }),
+        },
+      });
+      const result = await withListing.getPublicSelectionAndMarkViewed(doc.publicToken);
+      expect(result.items[0]).toMatchObject({
+        targetType: 'listing',
+        listingId: listingId.toString(),
+        listing: {
+          propertyType: 'apartment',
+          city: 'Батуми',
+          address: 'ул. Руставели, 7',
+          area: 65,
+          rooms: 2,
+          floor: 7,
+          dealType: 'sale',
+          price: { amountMinorUnits: 12_000_000, currency: 'USD' },
+          status: 'active',
+        },
+      });
+
+      const withoutListing = makeService({
+        repository: { markViewedByPublicToken: jest.fn().mockResolvedValue(doc) },
+        listingRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      });
+      const resultMissing = await withoutListing.getPublicSelectionAndMarkViewed(doc.publicToken);
+      expect(resultMissing.items[0]!.listing).toBeUndefined();
+      expect(resultMissing.title).toBe(doc.title);
     });
   });
 });

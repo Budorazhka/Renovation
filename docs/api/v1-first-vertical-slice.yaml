@@ -1078,6 +1078,127 @@ paths:
           description: VERSION_CONFLICT
           $ref: '#/components/responses/Error'
 
+  /developments/{developmentId}/commission-rules:
+    post:
+      operationId: createCommissionRule
+      summary: Создать правило комиссии партнёра для ЖК
+      tags: [erp-development]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/DevelopmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommissionRuleRequest'
+      responses:
+        '201':
+          description: Правило комиссии создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionRule'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listCommissionRules
+      summary: Список правил комиссии ЖК
+      tags: [erp-development]
+      parameters:
+        - $ref: '#/components/parameters/DevelopmentId'
+      responses:
+        '200':
+          description: Список правил комиссии
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommissionRule'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /developments/{developmentId}/commission-rules/{id}:
+    patch:
+      operationId: updateCommissionRule
+      summary: Обновить правило комиссии
+      tags: [erp-development]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/DevelopmentId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCommissionRuleRequest'
+      responses:
+        '200':
+          description: Правило комиссии обновлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionRule'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteCommissionRule
+      summary: Удалить правило комиссии
+      tags: [erp-development]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/DevelopmentId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: expectedVersion
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '204':
+          description: Правило комиссии удалено
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT
+          $ref: '#/components/responses/Error'
+
   /developments/{developmentId}/buildings:
     post:
       operationId: createBuilding
@@ -1833,10 +1954,11 @@ paths:
     post:
       operationId: createSelection
       summary: >
-        Создать подборку лотов для клиента (dev selections). `dev_selection.create`
+        Создать подборку лотов для клиента (dev selections): юнитов
+        новостройки и/или объявлений вторички (N-27). `dev_selection.create`
         — own-scope у manager, organization-scope у owner/director/rop/developer.
-        Юнит-существование/принадлежность организации и leadId (если передан)
-        проверяются server-side.
+        Существование/принадлежность организации каждого лота и leadId (если
+        передан) проверяются server-side.
       tags: [erp-selections]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -1854,13 +1976,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/Selection'
         '400':
+          description: VALIDATION_FAILED — ни unitIds, ни listingIds не переданы
           $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          description: NOT_FOUND — один из unitId или leadId не существует/чужой
+          description: NOT_FOUND — один из unitId, listingId или leadId не существует/чужой
           $ref: '#/components/responses/Error'
     get:
       operationId: listSelections
@@ -2018,10 +2141,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [expectedVersion, unitIds]
+              description: 'N-27: хотя бы один из unitIds/listingIds непуст.'
+              required: [expectedVersion]
               properties:
                 expectedVersion: {type: integer, minimum: 0}
-                unitIds: {type: array, items: {type: string}, minItems: 1}
+                unitIds: {type: array, items: {type: string}}
+                listingIds: {type: array, items: {type: string}}
       responses:
         '200':
           description: Лоты добавлены
@@ -2036,21 +2161,22 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          description: NOT_FOUND — подборка или один из unitId не существует/чужой
+          description: NOT_FOUND — подборка, один из unitId или один из listingId не существует/чужой
           $ref: '#/components/responses/Error'
         '409':
           description: VERSION_CONFLICT
           $ref: '#/components/responses/Error'
 
-  /selections/{id}/items/{unitId}:
+  /selections/{id}/items/{itemId}:
     patch:
       operationId: updateSelectionItem
       summary: Заметка агента и/или реакция клиента на конкретный лот подборки
+      description: 'itemId — id юнита либо объявления (N-27); сервер сам понимает, какое из двух, по совпадению поля.'
       tags: [erp-selections]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SelectionId'
-        - name: unitId
+        - name: itemId
           in: path
           required: true
           schema: {type: string}
@@ -2079,7 +2205,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
-          description: NOT_FOUND — подборка не найдена/чужая, либо unitId не в этой подборке
+          description: NOT_FOUND — подборка не найдена/чужая, либо itemId не в этой подборке
           $ref: '#/components/responses/Error'
         '409':
           description: VERSION_CONFLICT
@@ -2091,7 +2217,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SelectionId'
-        - name: unitId
+        - name: itemId
           in: path
           required: true
           schema: {type: string}
@@ -4534,12 +4660,16 @@ paths:
         own-scope резолвится транзитивно через Lead ДО чтения contacts, не
         постфильтрацией уже прочитанной страницы). `q` — единый поиск по
         name/phone (partial, регистронезависимый), не два отдельных
-        query-параметра.
+        query-параметра. `segment` — вкладка списка клиентов ERP (N-20),
+        сужает contactIds ДО чтения страницы.
       tags: [erp-crm]
       parameters:
         - name: q
           in: query
           schema: {type: string, maxLength: 200}
+        - name: segment
+          in: query
+          schema: {$ref: '#/components/schemas/ContactSegment'}
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -4550,13 +4680,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContactListResponse'
         '400':
-          description: VALIDATION_FAILED — невалидный q/cursor/limit
+          description: VALIDATION_FAILED — невалидный q/segment/cursor/limit
           $ref: '#/components/responses/Error'
         '401':
           description: AUTH_NO_SESSION — нет baza_session cookie
           $ref: '#/components/responses/Error'
         '403':
           description: FORBIDDEN — нет contact.read
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createContact
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      summary: >
+        «Добавить клиента» в ERP независимо от лида (N-20) — до этого
+        контакт создавался только побочно через createLead/reveal-contact.
+        Тот же tenant-local dedupe по телефону — совпадение отвечает
+        CONTACT_PHONE_TAKEN (409), не тихим слиянием карточек: это прямое
+        намерение завести НОВОГО клиента.
+      tags: [erp-crm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContactRequest'
+      responses:
+        '201':
+          description: Контакт создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет contact.create
+          $ref: '#/components/responses/Error'
+        '409':
+          description: CONTACT_PHONE_TAKEN — телефон уже занят другим контактом этой организации
           $ref: '#/components/responses/Error'
 
   /contacts/{contactId}:
@@ -4592,6 +4757,46 @@ paths:
           $ref: '#/components/responses/Error'
         '404':
           description: NOT_FOUND — контакт не существует или вне permission scope (non-disclosure, тот же код для обоих случаев)
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateContact
+      summary: >
+        Правка контакта по его собственному id (N-20) — до этого правка была
+        возможна только через PATCH /leads/{leadId}. Own-scope — тот же
+        принцип, что GET: чужой/вне своего множества contactId даёт 404, не
+        403. Партиал: непереданное поле не трогается.
+      tags: [erp-crm]
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContactRequest'
+      responses:
+        '200':
+          description: Контакт обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactView'
+        '400':
+          description: VALIDATION_FAILED
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          description: FORBIDDEN — нет contact.update
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — контакт не существует или вне permission scope
+          $ref: '#/components/responses/Error'
+        '409':
+          description: CONTACT_PHONE_TAKEN — новый телефон уже занят другим контактом этой организации
           $ref: '#/components/responses/Error'
 
   /contacts/{contactId}/timeline:
@@ -10787,14 +10992,84 @@ components:
         description: {type: string}
         sortOrder: {type: integer}
 
+    CommissionRule:
+      type: object
+      required:
+        - id
+        - developmentId
+        - organizationId
+        - partnerType
+        - commissionPercent
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id: {type: string}
+        developmentId: {type: string}
+        organizationId: {type: string}
+        partnerType: {type: string}
+        commissionPercent: {type: number}
+        version: {type: integer}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+
+    CreateCommissionRuleRequest:
+      type: object
+      required:
+        - partnerType
+        - commissionPercent
+      properties:
+        partnerType: {type: string}
+        commissionPercent: {type: number}
+
+    UpdateCommissionRuleRequest:
+      type: object
+      required:
+        - expectedVersion
+      properties:
+        expectedVersion: {type: integer, minimum: 0}
+        partnerType: {type: string}
+        commissionPercent: {type: number}
+
     SelectionItem:
       type: object
-      required: [unitId]
+      description: >
+        Лот подборки (N-27): либо юнит новостройки, либо объявление вторички
+        — targetType решает, какое из unitId/listingId заполнено. `unit`/
+        `listing` — денормализация объекта, есть только в публичном ответе
+        (PublicSelection); приватный (Selection) отдаёт голые id, ERP
+        резолвит их сам из уже загруженного реестра объектов.
+      required: [targetType]
       properties:
+        targetType: {type: string, enum: [unit, listing]}
         unitId: {type: string}
+        listingId: {type: string}
         agentNote: {type: string, nullable: true}
         reaction: {type: string, enum: [liked, disliked, question], nullable: true}
         viewedAt: {type: string, format: date-time, nullable: true}
+        unit:
+          type: object
+          required: [number, kind, area, status]
+          properties:
+            number: {type: string}
+            kind: {type: string}
+            rooms: {type: integer}
+            area: {type: number}
+            price: {$ref: '#/components/schemas/MoneyAmount'}
+            status: {type: string}
+        listing:
+          type: object
+          required: [propertyType, city, address, area, dealType, price, status]
+          properties:
+            propertyType: {type: string}
+            city: {type: string}
+            address: {type: string}
+            area: {type: number}
+            rooms: {type: integer}
+            floor: {type: integer}
+            dealType: {type: string, enum: [sale, rent_long, rent_short]}
+            price: {$ref: '#/components/schemas/MoneyAmount'}
+            status: {type: string}
 
     Selection:
       type: object
@@ -10838,10 +11113,12 @@ components:
 
     CreateSelectionRequest:
       type: object
-      required: [title, unitIds]
+      description: 'N-27: хотя бы один из unitIds/listingIds непуст (SelectionsService.createSelection, 400 VALIDATION_FAILED иначе).'
+      required: [title]
       properties:
         title: {type: string}
-        unitIds: {type: array, items: {type: string}, minItems: 1}
+        unitIds: {type: array, items: {type: string}}
+        listingIds: {type: array, items: {type: string}}
         leadId: {type: string}
         clientName: {type: string}
         clientPhone: {type: string}
@@ -11514,19 +11791,36 @@ components:
           type: array
           items: {$ref: '#/components/schemas/PositionReport'}
 
+    ContactSegment:
+      type: string
+      enum: [golden, active, archived, deferred]
+      description: >
+        Вкладка списка клиентов ERP (N-20). Не хранится — считается сервером
+        из стадий сделок и лидов контакта (CrmService.computeContactSegment):
+        golden — дошёл до золотого фонда (сделка golden/check_in/referral);
+        active — сделка/лид ещё в работе, либо контакт совсем свежий (ни
+        одной сделки/лида); archived — то, что было, сорвалось (closed_lost
+        сделка или lost лид, без активных); deferred — переходный случай без
+        явного сигнала.
+
     ContactView:
       type: object
       description: >
         GET /contacts, GET /contacts/{contactId} item shape
-        (CrmService.CrmContactReadModel) — явная whitelist-проекция
-        (ContactDocument.roles, служебные поля НЕ включены), никогда
-        session/password/internal-поля.
+        (CrmService.CrmContactReadModel) — явная whitelist-проекция,
+        никогда session/password/internal-поля.
+      required: [id, organizationId, name, phone, email, roles, dealsCount, segment, createdAt]
       properties:
         id: {type: string}
         organizationId: {type: string}
         name: {type: string}
         phone: {type: string}
         email: {type: string, nullable: true}
+        roles:
+          type: array
+          items: {type: string, enum: [buyer, investor, owner, referral, broker]}
+        dealsCount: {type: integer, description: 'Число сделок контакта — сам список отдаёт GET /deals?contactId='}
+        segment: {$ref: '#/components/schemas/ContactSegment'}
         createdAt: {type: string, format: date-time}
 
     ContactListResponse:
@@ -11538,6 +11832,31 @@ components:
           items:
             $ref: '#/components/schemas/ContactView'
         nextCursor: {type: string, nullable: true}
+
+    CreateContactRequest:
+      type: object
+      description: 'POST /contacts — «Добавить клиента» в ERP независимо от лида (N-20).'
+      required: [name, phone]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        phone: {type: string, minLength: 1, maxLength: 30}
+        email: {type: string}
+        roles:
+          type: array
+          items: {type: string, enum: [buyer, investor, owner, referral, broker]}
+
+    UpdateContactRequest:
+      type: object
+      description: >
+        PATCH /contacts/{contactId} — партиал, поле, которое не передано, не
+        трогается. `email: null` (в отличие от отсутствия поля) снимает адрес.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        phone: {type: string, minLength: 1, maxLength: 30}
+        email: {type: string, nullable: true}
+        roles:
+          type: array
+          items: {type: string, enum: [buyer, investor, owner, referral, broker]}
 
     PublicListingList:
       type: object

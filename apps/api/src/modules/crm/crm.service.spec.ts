@@ -8,6 +8,7 @@ import type { MarketplacePublicationRepository } from '@baza/publication';
 import type { DevelopmentRepository } from '@baza/development';
 import type { ListingRepository, PropertyAssetRepository } from '@baza/property-assets';
 import type { ContactRepository } from './repository/contact.repository';
+import type { ContactSegment } from './schemas/contact.schema';
 import type { LeadRepository } from './repository/lead.repository';
 import type { LeadEventRepository } from './repository/lead-event.repository';
 import type { AuditService } from '../audit/audit.service';
@@ -2555,14 +2556,31 @@ describe('CrmService.listLeadEvents', () => {
   });
 });
 
+/** Дефолт для DealRepository/LeadRepository stage-методов N-20 — пустая организация, ни одной сделки/лида. */
+function emptyStagesRepo() {
+  return {
+    listContactStagesForOrganization: jest.fn().mockResolvedValue([]),
+    listStagesForContact: jest.fn().mockResolvedValue([]),
+  };
+}
+
 describe('CrmService.listContacts', () => {
-  function makeReadContactsService(overrides: { leadRepository?: unknown; contactRepository?: unknown }) {
-    const service = createTestCrmService(overrides);
+  function makeReadContactsService(overrides: {
+    leadRepository?: unknown;
+    contactRepository?: unknown;
+    dealRepository?: unknown;
+  }) {
+    const service = createTestCrmService({
+      dealRepository: overrides.dealRepository ?? emptyStagesRepo(),
+      leadRepository: { ...emptyStagesRepo(), ...(overrides.leadRepository as object) },
+      contactRepository: overrides.contactRepository,
+    });
     return service as unknown as {
       listContacts(params: {
         organizationId: Types.ObjectId;
         ownerPositionId?: Types.ObjectId;
         q?: string;
+        segment?: ContactSegment;
         cursor?: Types.ObjectId;
         limit: number;
       }): Promise<{ items: unknown[]; nextCursor: string | null }>;
@@ -2646,7 +2664,7 @@ describe('CrmService.listContacts', () => {
     expect(result.nextCursor).toBe(contactIds[0]!.toString());
   });
 
-  it('маппит ContactDocument в CrmContactReadModel — email:null, если отсутствует', async () => {
+  it('маппит ContactDocument в CrmContactReadModel — email:null и сегмент "active", если у контакта нет ни сделки, ни лида', async () => {
     const organizationId = new Types.ObjectId();
     const contactId = new Types.ObjectId();
     const service = makeReadContactsService({
@@ -2672,15 +2690,145 @@ describe('CrmService.listContacts', () => {
         name: 'Иван',
         phone: '+79990000000',
         email: null,
+        roles: [],
+        dealsCount: 0,
+        segment: 'active',
         createdAt: '2026-08-30T10:00:00.000Z',
       },
     ]);
   });
+
+  it('roles контакта пробрасываются как есть', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const service = makeReadContactsService({
+      contactRepository: {
+        listForOrganization: jest.fn().mockResolvedValue([
+          {
+            _id: contactId,
+            organizationId,
+            name: 'Иван',
+            phone: '+79990000000',
+            roles: ['buyer', 'investor'],
+            createdAt: new Date('2026-08-30T10:00:00Z'),
+          },
+        ]),
+      },
+    });
+
+    const result = await service.listContacts({ organizationId, limit: 20 });
+
+    expect((result.items[0] as { roles: string[] }).roles).toEqual(['buyer', 'investor']);
+  });
+
+  it('сегмент "golden": сделка контакта в стадии golden — dealsCount считает все его сделки', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const service = makeReadContactsService({
+      dealRepository: {
+        listContactStagesForOrganization: jest.fn().mockResolvedValue([
+          { contactId, stage: 'showing' },
+          { contactId, stage: 'golden' },
+        ]),
+        listStagesForContact: jest.fn(),
+      },
+      contactRepository: {
+        listForOrganization: jest.fn().mockResolvedValue([
+          { _id: contactId, organizationId, name: 'Иван', phone: '+79990000000', createdAt: new Date() },
+        ]),
+      },
+    });
+
+    const result = await service.listContacts({ organizationId, limit: 20 });
+
+    expect(result.items[0]).toMatchObject({ segment: 'golden', dealsCount: 2 });
+  });
+
+  it('сегмент "archived": сделка сорвалась, открытых лидов нет', async () => {
+    const organizationId = new Types.ObjectId();
+    const contactId = new Types.ObjectId();
+    const service = makeReadContactsService({
+      dealRepository: {
+        listContactStagesForOrganization: jest.fn().mockResolvedValue([{ contactId, stage: 'closed_lost' }]),
+        listStagesForContact: jest.fn(),
+      },
+      contactRepository: {
+        listForOrganization: jest.fn().mockResolvedValue([
+          { _id: contactId, organizationId, name: 'Иван', phone: '+79990000000', createdAt: new Date() },
+        ]),
+      },
+    });
+
+    const result = await service.listContacts({ organizationId, limit: 20 });
+
+    expect(result.items[0]).toMatchObject({ segment: 'archived', dealsCount: 1 });
+  });
+
+  it('фильтр по вкладке segment: сужает contactIds ДО чтения страницы, own-scope пересекается с сегментом', async () => {
+    const organizationId = new Types.ObjectId();
+    const ownerPositionId = new Types.ObjectId();
+    const goldenContact = new Types.ObjectId();
+    const activeContact = new Types.ObjectId();
+    const listForOrganization = jest.fn().mockResolvedValue([]);
+    const service = makeReadContactsService({
+      leadRepository: { distinctContactIdsForOwner: jest.fn().mockResolvedValue([goldenContact, activeContact]) },
+      dealRepository: {
+        listContactStagesForOrganization: jest.fn().mockResolvedValue([
+          { contactId: goldenContact, stage: 'golden' },
+          { contactId: activeContact, stage: 'showing' },
+        ]),
+        listStagesForContact: jest.fn(),
+      },
+      contactRepository: { listForOrganization },
+    });
+
+    await service.listContacts({ organizationId, ownerPositionId, segment: 'golden', limit: 20 });
+
+    expect(listForOrganization).toHaveBeenCalledWith(organizationId, {
+      contactIds: [goldenContact],
+      q: undefined,
+      cursor: undefined,
+      limit: 21,
+    });
+  });
+
+  it('фильтр по вкладке "active" без own-scope: подтягивает все id организации (listAllIds), включая контакты без единой сделки/лида', async () => {
+    const organizationId = new Types.ObjectId();
+    const freshContact = new Types.ObjectId();
+    const goldenContact = new Types.ObjectId();
+    const listAllIds = jest.fn().mockResolvedValue([freshContact, goldenContact]);
+    const listForOrganization = jest.fn().mockResolvedValue([]);
+    const service = makeReadContactsService({
+      dealRepository: {
+        listContactStagesForOrganization: jest.fn().mockResolvedValue([{ contactId: goldenContact, stage: 'golden' }]),
+        listStagesForContact: jest.fn(),
+      },
+      contactRepository: { listForOrganization, listAllIds },
+    });
+
+    await service.listContacts({ organizationId, segment: 'active', limit: 20 });
+
+    expect(listAllIds).toHaveBeenCalledWith(organizationId);
+    expect(listForOrganization).toHaveBeenCalledWith(organizationId, {
+      contactIds: [freshContact],
+      q: undefined,
+      cursor: undefined,
+      limit: 21,
+    });
+  });
 });
 
 describe('CrmService.getContact', () => {
-  function makeReadContactService(overrides: { leadRepository?: unknown; contactRepository?: unknown }) {
-    const service = createTestCrmService(overrides);
+  function makeReadContactService(overrides: {
+    leadRepository?: unknown;
+    contactRepository?: unknown;
+    dealRepository?: unknown;
+  }) {
+    const service = createTestCrmService({
+      dealRepository: overrides.dealRepository ?? emptyStagesRepo(),
+      leadRepository: { ...emptyStagesRepo(), ...(overrides.leadRepository as object) },
+      contactRepository: overrides.contactRepository,
+    });
     return service as unknown as {
       getContact(params: {
         contactId: Types.ObjectId;
@@ -2768,6 +2916,250 @@ describe('CrmService.getContact', () => {
     await expect(
       service.getContact({ contactId, organizationId, ownerPositionId }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('сегмент и dealsCount считаются по стадиям сделок/лидов ИМЕННО этого контакта', async () => {
+    const contactId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const service = makeReadContactService({
+      dealRepository: {
+        listContactStagesForOrganization: jest.fn(),
+        listStagesForContact: jest.fn().mockResolvedValue(['showing', 'deposit']),
+      },
+      contactRepository: {
+        findByIdForOrganizationScoped: jest.fn().mockResolvedValue({
+          _id: contactId,
+          organizationId,
+          name: 'Иван',
+          phone: '+79990000000',
+          createdAt: new Date('2026-08-30T10:00:00Z'),
+        }),
+      },
+    });
+
+    const result = await service.getContact({ contactId, organizationId });
+
+    expect(result).toMatchObject({ segment: 'active', dealsCount: 2 });
+  });
+});
+
+describe('CrmService.createContact', () => {
+  function makeCreateContactService(overrides: { contactRepository?: unknown; auditService?: unknown; idempotencyService?: unknown }) {
+    const service = createTestCrmService(overrides);
+    return service as unknown as {
+      createContact(params: {
+        organizationId: Types.ObjectId;
+        name: string;
+        phone: string;
+        email?: string;
+        roles?: string[];
+        actorIdentityId: Types.ObjectId;
+        correlationId: string;
+        idempotencyKey: string;
+        idempotencyRequestBody: Record<string, unknown>;
+      }): Promise<unknown>;
+    };
+  }
+
+  it('телефон занят другим контактом организации — CONTACT_PHONE_TAKEN, контакт не создаётся', async () => {
+    const organizationId = new Types.ObjectId();
+    const create = jest.fn();
+    const service = makeCreateContactService({
+      contactRepository: {
+        findByPhone: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+        create,
+      },
+    });
+
+    await expect(
+      service.createContact({
+        organizationId,
+        name: 'Иван',
+        phone: '+79990000000',
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'corr-1',
+        idempotencyKey: 'key-1',
+        idempotencyRequestBody: {},
+      }),
+    ).rejects.toMatchObject({ code: 'CONTACT_PHONE_TAKEN' });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('свободный телефон — создаёт контакт, пишет аудит и запись идемпотентности в той же транзакции', async () => {
+    const organizationId = new Types.ObjectId();
+    const actorIdentityId = new Types.ObjectId();
+    const createdId = new Types.ObjectId();
+    const auditAppend = jest.fn();
+    const idempotencyRecord = jest.fn();
+    const create = jest.fn().mockResolvedValue({
+      _id: createdId,
+      organizationId,
+      name: 'Иван',
+      phone: '+79990000000',
+      roles: ['buyer'],
+      createdAt: new Date('2026-08-30T10:00:00Z'),
+    });
+    const service = makeCreateContactService({
+      contactRepository: { findByPhone: jest.fn().mockResolvedValue(null), create },
+      auditService: { append: auditAppend },
+      idempotencyService: { checkReplay: jest.fn(), record: idempotencyRecord },
+    });
+
+    const result = await service.createContact({
+      organizationId,
+      name: 'Иван',
+      phone: '+79990000000',
+      roles: ['buyer'],
+      actorIdentityId,
+      correlationId: 'corr-1',
+      idempotencyKey: 'key-1',
+      idempotencyRequestBody: { name: 'Иван' },
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      { organizationId, name: 'Иван', phone: '+79990000000', email: undefined, roles: ['buyer'] },
+      expect.anything(),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'contact.create', resource: 'contact', resourceId: createdId }),
+      expect.anything(),
+    );
+    expect(idempotencyRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'createContact', key: 'key-1', responseStatus: 201 }),
+      expect.anything(),
+    );
+    expect(result).toMatchObject({ id: createdId.toString(), segment: 'active', dealsCount: 0 });
+  });
+});
+
+describe('CrmService.updateContact', () => {
+  function makeUpdateContactService(overrides: {
+    contactRepository?: unknown;
+    leadRepository?: unknown;
+    dealRepository?: unknown;
+    auditService?: unknown;
+  }) {
+    const service = createTestCrmService({
+      dealRepository: overrides.dealRepository ?? emptyStagesRepo(),
+      leadRepository: { ...emptyStagesRepo(), ...(overrides.leadRepository as object) },
+      contactRepository: overrides.contactRepository,
+      auditService: overrides.auditService ?? { append: jest.fn() },
+    });
+    return service as unknown as {
+      updateContact(params: {
+        contactId: Types.ObjectId;
+        organizationId: Types.ObjectId;
+        ownerPositionId?: Types.ObjectId;
+        name?: string;
+        phone?: string;
+        email?: string | null;
+        roles?: string[];
+        actorIdentityId: Types.ObjectId;
+        correlationId: string;
+      }): Promise<unknown>;
+    };
+  }
+
+  it('чужой/не найденный контакт — NotFoundException, репозиторий не пишет', async () => {
+    const updateFields = jest.fn();
+    const service = makeUpdateContactService({
+      contactRepository: { findByIdForOrganizationScoped: jest.fn().mockResolvedValue(null), updateFields },
+    });
+
+    await expect(
+      service.updateContact({
+        contactId: new Types.ObjectId(),
+        organizationId: new Types.ObjectId(),
+        name: 'Новое имя',
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'corr-1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(updateFields).not.toHaveBeenCalled();
+  });
+
+  it('новый телефон занят ДРУГИМ контактом — CONTACT_PHONE_TAKEN', async () => {
+    const contactId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const otherContactId = new Types.ObjectId();
+    const updateFields = jest.fn();
+    const service = makeUpdateContactService({
+      contactRepository: {
+        findByIdForOrganizationScoped: jest.fn().mockResolvedValue({
+          _id: contactId,
+          organizationId,
+          name: 'Иван',
+          phone: '+79990000000',
+          createdAt: new Date(),
+        }),
+        findByPhone: jest.fn().mockResolvedValue({ _id: otherContactId }),
+        updateFields,
+      },
+    });
+
+    await expect(
+      service.updateContact({
+        contactId,
+        organizationId,
+        phone: '+79991110000',
+        actorIdentityId: new Types.ObjectId(),
+        correlationId: 'corr-1',
+      }),
+    ).rejects.toMatchObject({ code: 'CONTACT_PHONE_TAKEN' });
+    expect(updateFields).not.toHaveBeenCalled();
+  });
+
+  it('телефон меняется на СВОЙ ЖЕ (тот, что уже есть у контакта) — не конфликт', async () => {
+    const contactId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const contact = { _id: contactId, organizationId, name: 'Иван', phone: '+79990000000', createdAt: new Date() };
+    const updateFields = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const findByPhone = jest.fn();
+    const service = makeUpdateContactService({
+      contactRepository: {
+        findByIdForOrganizationScoped: jest.fn().mockResolvedValue(contact),
+        findByPhone,
+        updateFields,
+        findByIdForOrganization: jest.fn().mockResolvedValue(contact),
+      },
+    });
+
+    await service.updateContact({
+      contactId,
+      organizationId,
+      phone: '+79990000000',
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'corr-1',
+    });
+
+    expect(findByPhone).not.toHaveBeenCalled();
+    expect(updateFields).toHaveBeenCalled();
+  });
+
+  it('roles меняются отдельным вызовом updateRoles', async () => {
+    const contactId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const contact = { _id: contactId, organizationId, name: 'Иван', phone: '+79990000000', createdAt: new Date() };
+    const updateRoles = jest.fn().mockResolvedValue(undefined);
+    const service = makeUpdateContactService({
+      contactRepository: {
+        findByIdForOrganizationScoped: jest.fn().mockResolvedValue(contact),
+        updateFields: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+        updateRoles,
+        findByIdForOrganization: jest.fn().mockResolvedValue({ ...contact, roles: ['investor'] }),
+      },
+    });
+
+    const result = await service.updateContact({
+      contactId,
+      organizationId,
+      roles: ['investor'],
+      actorIdentityId: new Types.ObjectId(),
+      correlationId: 'corr-1',
+    });
+
+    expect(updateRoles).toHaveBeenCalledWith(contactId, organizationId, ['investor'], expect.anything());
+    expect(result).toMatchObject({ roles: ['investor'] });
   });
 });
 

@@ -161,8 +161,6 @@ export interface ConvertBookingToDealPayload {
 }
 
 export interface ConvertBookingToDealResult {
+  booking: BookingV2
   dealId: string
-  bookingId: string
-  unitId: string
-  status: string
 }

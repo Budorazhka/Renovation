@@ -432,4 +432,28 @@ export class DealRepository {
       ])
       .exec();
   }
+
+  /**
+   * Стадия каждой сделки организации с её contactId — единственный вход
+   * для CrmService.buildContactSegmentIndex (N-20): по нему считаются
+   * dealsCount и сегмент контакта (golden/active/archived/deferred).
+   * Полный скан организации, не постраничный — тот же MVP-масштаб, что
+   * DealRepository.aggregateByOwnerPosition ниже; сделок в организации на
+   * этом этапе продукта немного, пересматривать при росте.
+   */
+  async listContactStagesForOrganization(
+    organizationId: Types.ObjectId,
+  ): Promise<Array<{ contactId: Types.ObjectId; stage: DealStage }>> {
+    const rows = await this.model
+      .find({ organizationId }, { contactId: 1, stage: 1 })
+      .lean()
+      .exec();
+    return rows.map((row) => ({ contactId: row.contactId, stage: row.stage as DealStage }));
+  }
+
+  /** То же, что listContactStagesForOrganization, но для одного контакта — GET /contacts/:id. */
+  async listStagesForContact(organizationId: Types.ObjectId, contactId: Types.ObjectId): Promise<DealStage[]> {
+    const rows = await this.model.find({ organizationId, contactId }, { stage: 1 }).lean().exec();
+    return rows.map((row) => row.stage as DealStage);
+  }
 }

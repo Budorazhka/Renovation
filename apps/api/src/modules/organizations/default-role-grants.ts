@@ -235,6 +235,12 @@ export interface DefaultGrant {
  * при той же построчной сверке совпали с owner-уровнем корректно, включая
  * намеренное отсутствие `manual_ledger.read` (разд.1.5: owner-only по
  * дизайну, не пробел).
+ *
+ * `commission_rule.*` (17.09.2026, N-21, модуль `developments` — правила
+ * комиссии партнёров по ЖК) — тот же круг ролей и тот же scope
+ * `organization`, что `installment_plan.*`: комиссии партнёров это
+ * финансовая настройка уровня руководства (owner/director/rop/developer),
+ * не рядового агента — manager/administrator/marketer не получают.
  */
 export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
   owner: [
@@ -247,6 +253,8 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'lead', action: 'update', scope: 'organization' },
     { resource: 'lead', action: 'delete', scope: 'organization' },
     { resource: 'contact', action: 'read', scope: 'organization' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
+    { resource: 'contact', action: 'update', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'edit', scope: 'organization' },
@@ -291,6 +299,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'installment_plan', action: 'create', scope: 'organization' },
     { resource: 'installment_plan', action: 'update', scope: 'organization' },
     { resource: 'installment_plan', action: 'delete', scope: 'organization' },
+    { resource: 'commission_rule', action: 'read', scope: 'organization' },
+    { resource: 'commission_rule', action: 'create', scope: 'organization' },
+    { resource: 'commission_rule', action: 'update', scope: 'organization' },
+    { resource: 'commission_rule', action: 'delete', scope: 'organization' },
     { resource: 'dev_selection', action: 'read', scope: 'organization' },
     { resource: 'dev_selection', action: 'create', scope: 'organization' },
     { resource: 'dev_selection', action: 'update', scope: 'organization' },
@@ -345,6 +357,8 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'lead', action: 'delete', scope: 'organization' },
     { resource: 'lead', action: 'reassign', scope: 'organization' },
     { resource: 'contact', action: 'read', scope: 'organization' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
+    { resource: 'contact', action: 'update', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'edit', scope: 'organization' },
@@ -388,6 +402,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'installment_plan', action: 'create', scope: 'organization' },
     { resource: 'installment_plan', action: 'update', scope: 'organization' },
     { resource: 'installment_plan', action: 'delete', scope: 'organization' },
+    { resource: 'commission_rule', action: 'read', scope: 'organization' },
+    { resource: 'commission_rule', action: 'create', scope: 'organization' },
+    { resource: 'commission_rule', action: 'update', scope: 'organization' },
+    { resource: 'commission_rule', action: 'delete', scope: 'organization' },
     { resource: 'dev_selection', action: 'read', scope: 'organization' },
     { resource: 'dev_selection', action: 'create', scope: 'organization' },
     { resource: 'dev_selection', action: 'update', scope: 'organization' },
@@ -442,6 +460,8 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'lead', action: 'delete', scope: 'organization' },
     { resource: 'lead', action: 'reassign', scope: 'team' },
     { resource: 'contact', action: 'read', scope: 'organization' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
+    { resource: 'contact', action: 'update', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'edit', scope: 'organization' },
@@ -486,6 +506,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'installment_plan', action: 'create', scope: 'organization' },
     { resource: 'installment_plan', action: 'update', scope: 'organization' },
     { resource: 'installment_plan', action: 'delete', scope: 'organization' },
+    { resource: 'commission_rule', action: 'read', scope: 'organization' },
+    { resource: 'commission_rule', action: 'create', scope: 'organization' },
+    { resource: 'commission_rule', action: 'update', scope: 'organization' },
+    { resource: 'commission_rule', action: 'delete', scope: 'organization' },
     { resource: 'dev_selection', action: 'read', scope: 'organization' },
     { resource: 'dev_selection', action: 'create', scope: 'organization' },
     { resource: 'dev_selection', action: 'update', scope: 'organization' },
@@ -547,6 +571,8 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     // НЕ получает lead.delete — удаление остаётся организационным правом.
     { resource: 'lead', action: 'update', scope: 'own' },
     { resource: 'contact', action: 'read', scope: 'own' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
+    { resource: 'contact', action: 'update', scope: 'own' },
     { resource: 'task', action: 'read', scope: 'own' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'edit', scope: 'own' },
@@ -612,6 +638,7 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'lead', action: 'create', scope: 'organization' },
     { resource: 'buyer_request', action: 'respond', scope: 'organization' },
     { resource: 'contact', action: 'read', scope: 'organization' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'complete', scope: 'organization' },
@@ -686,6 +713,8 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'lead', action: 'update', scope: 'organization' },
     { resource: 'lead', action: 'delete', scope: 'organization' },
     { resource: 'contact', action: 'read', scope: 'organization' },
+    { resource: 'contact', action: 'create', scope: 'organization' },
+    { resource: 'contact', action: 'update', scope: 'organization' },
     { resource: 'task', action: 'read', scope: 'organization' },
     { resource: 'task', action: 'create', scope: 'organization' },
     { resource: 'task', action: 'edit', scope: 'organization' },
@@ -729,6 +758,10 @@ export const DEFAULT_ROLE_GRANTS: Record<FixedRole, DefaultGrant[]> = {
     { resource: 'installment_plan', action: 'create', scope: 'organization' },
     { resource: 'installment_plan', action: 'update', scope: 'organization' },
     { resource: 'installment_plan', action: 'delete', scope: 'organization' },
+    { resource: 'commission_rule', action: 'read', scope: 'organization' },
+    { resource: 'commission_rule', action: 'create', scope: 'organization' },
+    { resource: 'commission_rule', action: 'update', scope: 'organization' },
+    { resource: 'commission_rule', action: 'delete', scope: 'organization' },
     { resource: 'dev_selection', action: 'read', scope: 'organization' },
     { resource: 'dev_selection', action: 'create', scope: 'organization' },
     { resource: 'dev_selection', action: 'update', scope: 'organization' },

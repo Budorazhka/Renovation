@@ -18,7 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { ContactRepository } from './repository/contact.repository';
-import type { ContactDocument } from './schemas/contact.schema';
+import type { ContactDocument, ContactRole, ContactSegment } from './schemas/contact.schema';
 import { LeadRepository } from './repository/lead.repository';
 import { LeadEventRepository } from './repository/lead-event.repository';
 import { TaskRepository } from './repository/task.repository';
@@ -221,6 +221,11 @@ export interface CrmContactReadModel {
   name: string;
   phone: string;
   email: string | null;
+  roles: ContactRole[];
+  /** Число сделок этого контакта, 0 если их нет — GET /deals?contactId= отдаёт сам список. */
+  dealsCount: number;
+  /** golden/active/archived/deferred — см. ContactSegment докстринг; считается из сделок и лидов, не хранится. */
+  segment: ContactSegment;
   createdAt: string;
 }
 
@@ -408,6 +413,25 @@ export interface CrmTeamPerformanceReadModel {
  * выше), ни тот ни другой не нуждается в "следующем действии".
  */
 const ACTIVE_LEAD_STAGES: readonly GenericLeadStage[] = ['new', 'contacted', 'qualified'];
+
+/**
+ * N-20: сегмент контакта в ERP («Активный», «Золотой фонд», «Отложенный
+ * спрос», «Архив») считается из стадий его сделок и лидов, не хранится —
+ * см. ContactSegment докстринг в schemas/contact.schema.ts. Золотой фонд —
+ * ровно стадия сделки 'golden' и всё, что после неё: тот же смысл, что
+ * подпись STAGE_LABELS.golden в ERP ("Золотой фонд" — сделка состоялась).
+ */
+const GOLDEN_DEAL_STAGES: readonly DealStage[] = ['golden', 'check_in', 'referral'];
+const OPEN_DEAL_STAGES: readonly DealStage[] = ['showing', 'deposit', 'deal'];
+
+function computeContactSegment(dealStages: DealStage[], leadStages: LeadStage[]): ContactSegment {
+  if (dealStages.some((stage) => (GOLDEN_DEAL_STAGES as readonly string[]).includes(stage))) return 'golden';
+  if (dealStages.some((stage) => (OPEN_DEAL_STAGES as readonly string[]).includes(stage))) return 'active';
+  if (leadStages.some((stage) => (ACTIVE_LEAD_STAGES as readonly string[]).includes(stage))) return 'active';
+  if (dealStages.length === 0 && leadStages.length === 0) return 'active';
+  if (dealStages.includes('closed_lost') || leadStages.includes('lost')) return 'archived';
+  return 'deferred';
+}
 
 /**
  * D-05B: технически решение (не owner decision — тот же статус, что сам
@@ -975,6 +999,7 @@ export class CrmService {
     organizationId: Types.ObjectId;
     ownerPositionId?: Types.ObjectId;
     q?: string;
+    segment?: ContactSegment;
     cursor?: Types.ObjectId;
     limit: number;
   }): Promise<{ items: CrmContactReadModel[]; nextCursor: string | null }> {
@@ -982,8 +1007,21 @@ export class CrmService {
       ? await this.leadRepository.distinctContactIdsForOwner(params.organizationId, params.ownerPositionId)
       : undefined;
 
+    // Индекс сегментов организации нужен и для отображения (каждый
+    // возвращённый контакт показывает свой сегмент/dealsCount), и для
+    // фильтра по вкладке — считаем его один раз, а не дважды.
+    const segmentIndex = await this.buildContactSegmentIndex(params.organizationId);
+
+    let scopedContactIds = contactIds;
+    if (params.segment) {
+      const universeIds = contactIds ?? (await this.contactRepository.listAllIds(params.organizationId));
+      scopedContactIds = universeIds.filter(
+        (id) => (segmentIndex.get(id.toString())?.segment ?? 'active') === params.segment,
+      );
+    }
+
     const rows = await this.contactRepository.listForOrganization(params.organizationId, {
-      contactIds,
+      contactIds: scopedContactIds,
       q: params.q ? new RegExp(escapeRegex(params.q), 'i') : undefined,
       cursor: params.cursor,
       limit: params.limit + 1,
@@ -992,7 +1030,51 @@ export class CrmService {
     const contacts = hasMore ? rows.slice(0, params.limit) : rows;
     const nextCursor = hasMore ? contacts[contacts.length - 1]!._id.toString() : null;
 
-    return { items: contacts.map(toContactReadModel), nextCursor };
+    return {
+      items: contacts.map((contact) =>
+        toContactReadModel(contact, segmentIndex.get(contact._id.toString()) ?? FRESH_CONTACT_STATS),
+      ),
+      nextCursor,
+    };
+  }
+
+  /**
+   * Сегмент и dealsCount каждого контакта организации, вычисленные из
+   * стадий его сделок и лидов (computeContactSegment). Два скана
+   * organization-wide (сделки + лиды), не N+1 по контактам — тот же
+   * batch-принцип, что leadIdsWithOpenTask в listLeads ниже.
+   */
+  private async buildContactSegmentIndex(
+    organizationId: Types.ObjectId,
+  ): Promise<Map<string, { segment: ContactSegment; dealsCount: number }>> {
+    const [dealRows, leadRows] = await Promise.all([
+      this.dealRepository.listContactStagesForOrganization(organizationId),
+      this.leadRepository.listContactStagesForOrganization(organizationId),
+    ]);
+
+    const dealStagesByContact = new Map<string, DealStage[]>();
+    for (const row of dealRows) {
+      const key = row.contactId.toString();
+      const list = dealStagesByContact.get(key);
+      if (list) list.push(row.stage);
+      else dealStagesByContact.set(key, [row.stage]);
+    }
+    const leadStagesByContact = new Map<string, LeadStage[]>();
+    for (const row of leadRows) {
+      const key = row.contactId.toString();
+      const list = leadStagesByContact.get(key);
+      if (list) list.push(row.stage);
+      else leadStagesByContact.set(key, [row.stage]);
+    }
+
+    const index = new Map<string, { segment: ContactSegment; dealsCount: number }>();
+    const allContactKeys = new Set([...dealStagesByContact.keys(), ...leadStagesByContact.keys()]);
+    for (const key of allContactKeys) {
+      const dealStages = dealStagesByContact.get(key) ?? [];
+      const leadStages = leadStagesByContact.get(key) ?? [];
+      index.set(key, { segment: computeContactSegment(dealStages, leadStages), dealsCount: dealStages.length });
+    }
+    return index;
   }
 
   /**
@@ -1022,7 +1104,167 @@ export class CrmService {
     if (!contact) {
       throw new NotFoundException('Contact not found');
     }
-    return toContactReadModel(contact);
+    const [dealStages, leadStages] = await Promise.all([
+      this.dealRepository.listStagesForContact(params.organizationId, contact._id),
+      this.leadRepository.listStagesForContact(params.organizationId, contact._id),
+    ]);
+    return toContactReadModel(contact, {
+      segment: computeContactSegment(dealStages, leadStages),
+      dealsCount: dealStages.length,
+    });
+  }
+
+  /**
+   * POST /contacts — «Добавить клиента» в ERP независимо от лида (до этого
+   * контакт создавался только побочно через createLead/reveal-contact).
+   * Тот же tenant-local dedupe по телефону, что resolveContact —
+   * CONTACT_PHONE_TAKEN, не тихий возврат существующего контакта: здесь
+   * это прямое намерение пользователя завести НОВОГО клиента, совпадение
+   * телефона — повод остановиться, а не молча слить карточки.
+   */
+  async createContact(params: {
+    organizationId: Types.ObjectId;
+    name: string;
+    phone: string;
+    email?: string;
+    roles?: ContactRole[];
+    actorIdentityId: Types.ObjectId;
+    correlationId: string;
+    idempotencyKey: string;
+    idempotencyRequestBody: Record<string, unknown>;
+  }): Promise<CrmContactReadModel> {
+    const existing = await this.contactRepository.findByPhone(params.organizationId, params.phone);
+    if (existing) {
+      throw new AppException(
+        ErrorCode.CONTACT_PHONE_TAKEN,
+        `Phone "${params.phone}" is already used by another contact in this organization`,
+        { field: 'phone' },
+      );
+    }
+
+    return runInTransaction(this.connection, async (session) => {
+      const created = await this.contactRepository.create(
+        {
+          organizationId: params.organizationId,
+          name: params.name,
+          phone: params.phone,
+          email: params.email,
+          roles: params.roles ?? [],
+        },
+        session,
+      );
+
+      await this.auditService.append(
+        {
+          actor: { type: 'identity', id: params.actorIdentityId },
+          action: 'contact.create',
+          resource: 'contact',
+          resourceId: created._id,
+          after: { name: created.name, phone: created.phone, email: created.email ?? null, roles: created.roles },
+          correlationId: params.correlationId,
+        },
+        session,
+      );
+
+      const readModel = toContactReadModel(created, FRESH_CONTACT_STATS);
+
+      // ADR-006: запись идемпотентности в той же транзакции, что сам контакт.
+      await this.idempotencyService.record(
+        {
+          identityId: params.actorIdentityId,
+          operation: 'createContact',
+          key: params.idempotencyKey,
+          requestBody: params.idempotencyRequestBody,
+          responseStatus: 201,
+          responseBody: readModel as unknown as Record<string, unknown>,
+        },
+        session,
+      );
+
+      return readModel;
+    });
+  }
+
+  /**
+   * PATCH /contacts/:contactId — правка контакта по его собственному id
+   * (до этого правка была возможна только через PATCH /leads/:leadId, см.
+   * ContactRepository.updateFields докстринг). Own-scope — тот же принцип,
+   * что getContact: чужой/вне своего множества contactId даёт 404, не 403,
+   * телефон занятый другим контактом — CONTACT_PHONE_TAKEN (409).
+   */
+  async updateContact(params: {
+    contactId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    ownerPositionId?: Types.ObjectId;
+    name?: string;
+    phone?: string;
+    email?: string | null;
+    roles?: ContactRole[];
+    actorIdentityId: Types.ObjectId;
+    correlationId: string;
+  }): Promise<CrmContactReadModel> {
+    const contactIds = params.ownerPositionId
+      ? await this.leadRepository.distinctContactIdsForOwner(params.organizationId, params.ownerPositionId)
+      : undefined;
+
+    const contact = await this.contactRepository.findByIdForOrganizationScoped(
+      params.contactId,
+      params.organizationId,
+      contactIds,
+    );
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+
+    if (params.phone !== undefined && params.phone !== contact.phone) {
+      const takenBy = await this.contactRepository.findByPhone(params.organizationId, params.phone);
+      if (takenBy && !takenBy._id.equals(contact._id)) {
+        throw new AppException(
+          ErrorCode.CONTACT_PHONE_TAKEN,
+          `Phone "${params.phone}" is already used by another contact in this organization`,
+          { field: 'phone' },
+        );
+      }
+    }
+
+    return runInTransaction(this.connection, async (session) => {
+      const before = { name: contact.name, phone: contact.phone, email: contact.email ?? null, roles: contact.roles };
+
+      await this.contactRepository.updateFields(
+        contact._id,
+        params.organizationId,
+        { name: params.name, phone: params.phone, email: params.email },
+        session,
+      );
+      if (params.roles !== undefined) {
+        await this.contactRepository.updateRoles(contact._id, params.organizationId, params.roles, session);
+      }
+
+      const updated = await this.contactRepository.findByIdForOrganization(contact._id, params.organizationId, session);
+      const after = { name: updated!.name, phone: updated!.phone, email: updated!.email ?? null, roles: updated!.roles };
+
+      await this.auditService.append(
+        {
+          actor: { type: 'identity', id: params.actorIdentityId },
+          action: 'contact.update',
+          resource: 'contact',
+          resourceId: contact._id,
+          before,
+          after,
+          correlationId: params.correlationId,
+        },
+        session,
+      );
+
+      const [dealStages, leadStages] = await Promise.all([
+        this.dealRepository.listStagesForContact(params.organizationId, contact._id),
+        this.leadRepository.listStagesForContact(params.organizationId, contact._id),
+      ]);
+      return toContactReadModel(updated!, {
+        segment: computeContactSegment(dealStages, leadStages),
+        dealsCount: dealStages.length,
+      });
+    });
   }
 
   /**
@@ -5030,23 +5272,33 @@ function toLeadEventReadModel(event: {
   };
 }
 
-function toContactReadModel(contact: {
-  _id: Types.ObjectId;
-  organizationId: Types.ObjectId;
-  name: string;
-  phone: string;
-  email?: string;
-  createdAt: Date;
-}): CrmContactReadModel {
+function toContactReadModel(
+  contact: {
+    _id: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    name: string;
+    phone: string;
+    email?: string;
+    roles?: ContactRole[];
+    createdAt: Date;
+  },
+  stats: { segment: ContactSegment; dealsCount: number },
+): CrmContactReadModel {
   return {
     id: contact._id.toString(),
     organizationId: contact.organizationId.toString(),
     name: contact.name,
     phone: contact.phone,
     email: contact.email ?? null,
+    roles: contact.roles ?? [],
+    dealsCount: stats.dealsCount,
+    segment: stats.segment,
     createdAt: contact.createdAt.toISOString(),
   };
 }
+
+/** Свежий контакт без единой сделки/лида — default для toContactReadModel там, где считать индекс не нужно (сразу после создания). */
+const FRESH_CONTACT_STATS = { segment: 'active' as ContactSegment, dealsCount: 0 };
 
 /**
  * См. CrmLeadFileReadModel докстринг — fileName выводится из originalPath

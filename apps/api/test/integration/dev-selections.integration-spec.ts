@@ -96,6 +96,8 @@ describe('Selections (dev selections) — HTTP integration (полный AppModu
     for (const collection of [
       'dev_selections',
       'units',
+      'property_assets',
+      'listings',
       'positions',
       'position_assignments',
       'organizations',
@@ -170,6 +172,43 @@ describe('Selections (dev selections) — HTTP integration (полный AppModu
       price: { amountMinorUnits: 100_000, currency: 'USD' },
     });
     return unit._id;
+  }
+
+  /** N-27: объявление вторички своей организации — прямая вставка (пакет property-assets не даёт HTTP-независимого сидера). */
+  async function seedListing(
+    organizationId: Types.ObjectId,
+    overrides?: { city?: string; address?: string },
+  ): Promise<{ propertyAssetId: Types.ObjectId; listingId: Types.ObjectId }> {
+    const propertyAssetId = new Types.ObjectId();
+    await connection.collection('property_assets').insertOne({
+      _id: propertyAssetId,
+      publisherScope: { type: 'organization', organizationId },
+      propertyType: 'apartment',
+      location: {
+        country: 'GE',
+        city: overrides?.city ?? 'Батуми',
+        address: overrides?.address ?? 'ул. Руставели, 7',
+        geo: { type: 'Point', coordinates: [41.64, 41.64] },
+      },
+      characteristics: { area: 65, rooms: 2, floor: 7 },
+      representativePhone: '+995555000000',
+      media: [],
+      version: 0,
+      createdAt: new Date(),
+    });
+    const listingId = new Types.ObjectId();
+    await connection.collection('listings').insertOne({
+      _id: listingId,
+      propertyAssetId,
+      publisherScope: { type: 'organization', organizationId },
+      dealType: 'sale',
+      price: { amountMinorUnits: 12_000_000, currency: 'USD' },
+      status: 'active',
+      version: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return { propertyAssetId, listingId };
   }
 
   describe('аутентификация/авторизация', () => {
@@ -409,6 +448,152 @@ describe('Selections (dev selections) — HTTP integration (полный AppModu
     it('404 для несуществующего токена', async () => {
       const response = await app.inject({ method: 'GET', url: '/api/v1/public/selections/nonexistent-token' });
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('N-27: объявления вторички в подборке наравне с юнитами', () => {
+    it('создаёт подборку из listingIds, приватный GET отдаёт targetType/listingId без денормализации', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const { listingId } = await seedListing(organizationId);
+
+      const createResponse = await app.inject({
+        method: 'POST',
+        url: '/api/v1/selections',
+        headers: { cookie, 'idempotency-key': 'listing-create-1' },
+        payload: { title: 'Вторичка для Бориса', listingIds: [listingId.toString()] },
+      });
+      expect(createResponse.statusCode).toBe(201);
+      const created = JSON.parse(createResponse.body);
+      expect(created.items).toEqual([{ targetType: 'listing', listingId: listingId.toString() }]);
+    });
+
+    it('отклоняет создание с несуществующим listingId — 404', async () => {
+      const { cookie } = await seedOwnerSession();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/selections',
+        headers: { cookie, 'idempotency-key': 'listing-create-missing' },
+        payload: { title: 'Попытка', listingIds: [new Types.ObjectId().toString()] },
+      });
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('ни unitIds, ни listingIds — 400 VALIDATION_FAILED', async () => {
+      const { cookie } = await seedOwnerSession();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/selections',
+        headers: { cookie, 'idempotency-key': 'listing-create-empty' },
+        payload: { title: 'Пустая подборка' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error.code).toBe('VALIDATION_FAILED');
+    });
+
+    it('POST /items со listingIds добавляет объявление в уже созданную подборку юнитов', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const unitId = await seedUnit(organizationId);
+      const { listingId } = await seedListing(organizationId);
+
+      const created = JSON.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/selections',
+            headers: { cookie, 'idempotency-key': 'mixed-create' },
+            payload: { title: 'Смешанная подборка', unitIds: [unitId.toString()] },
+          })
+        ).body,
+      );
+
+      const addResponse = await app.inject({
+        method: 'POST',
+        url: `/api/v1/selections/${created.id}/items`,
+        headers: { cookie, 'idempotency-key': 'mixed-add-listing' },
+        payload: { expectedVersion: 0, listingIds: [listingId.toString()] },
+      });
+      expect(addResponse.statusCode).toBe(201);
+      const updated = JSON.parse(addResponse.body);
+      expect(updated.items).toHaveLength(2);
+      expect(updated.items.some((item: { targetType: string; listingId?: string }) => item.targetType === 'listing' && item.listingId === listingId.toString())).toBe(true);
+    });
+
+    it('DELETE и PATCH /items/:itemId работают по id объявления так же, как по id юнита', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const { listingId } = await seedListing(organizationId);
+
+      const created = JSON.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/selections',
+            headers: { cookie, 'idempotency-key': 'itemid-create' },
+            payload: { title: 'Для правки', listingIds: [listingId.toString()] },
+          })
+        ).body,
+      );
+
+      const patchResponse = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/selections/${created.id}/items/${listingId.toString()}`,
+        headers: { cookie, 'idempotency-key': 'itemid-patch' },
+        payload: { expectedVersion: 0, agentNote: 'Хороший вид на море' },
+      });
+      expect(patchResponse.statusCode).toBe(200);
+      const patched = JSON.parse(patchResponse.body);
+      expect(patched.items[0]).toMatchObject({ listingId: listingId.toString(), agentNote: 'Хороший вид на море' });
+
+      const deleteResponse = await app.inject({
+        method: 'DELETE',
+        url: `/api/v1/selections/${created.id}/items/${listingId.toString()}?expectedVersion=1`,
+        headers: { cookie, 'idempotency-key': 'itemid-delete' },
+      });
+      expect(deleteResponse.statusCode).toBe(200);
+      expect(JSON.parse(deleteResponse.body).items).toHaveLength(0);
+    });
+
+    it('публичная сторона денормализует объявление: адрес, площадь, цена, без приватного телефона', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const { listingId } = await seedListing(organizationId, { city: 'Тбилиси', address: 'пр. Руставели, 12' });
+
+      const created = JSON.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/selections',
+            headers: { cookie, 'idempotency-key': 'public-listing-create' },
+            payload: { title: 'Публичная вторичка', listingIds: [listingId.toString()], clientPhone: '+995500000001' },
+          })
+        ).body,
+      );
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/selections/${created.id}/status`,
+        headers: { cookie, 'idempotency-key': 'public-listing-status' },
+        payload: { expectedVersion: 0, status: 'sent' },
+      });
+
+      const response = await app.inject({ method: 'GET', url: `/api/v1/public/selections/${created.publicToken}` });
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items[0]).toMatchObject({
+        targetType: 'listing',
+        listingId: listingId.toString(),
+        listing: {
+          propertyType: 'apartment',
+          city: 'Тбилиси',
+          address: 'пр. Руставели, 12',
+          area: 65,
+          rooms: 2,
+          floor: 7,
+          dealType: 'sale',
+          price: { amountMinorUnits: 12_000_000, currency: 'USD' },
+          status: 'active',
+        },
+      });
+      expect(response.body).not.toMatch(/\+995500000001/);
     });
   });
 });

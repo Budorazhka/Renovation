@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Clock, CheckCircle, XCircle, Building2, Layers, Minus, Plus } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle, Clock, Loader2, XCircle } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -20,19 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useAuth } from '@/context/AuthContext'
+import { Input } from '@/components/ui/input'
 import { useModulePermissions } from '@/hooks/useModulePermissions'
+import { useRolePermissions } from '@/hooks/useRolePermissions'
 import { useLeads } from '@/context/LeadsContext'
-import {
-  AGENCY_SECONDARY_LOTS_MOCK,
-  NEW_BUILD_APARTMENTS_MOCK,
-  NEW_BUILD_COMPLEXES_MOCK,
-} from '@/data/bookings-catalog-mock'
-import { BOOKINGS_MOCK } from '@/data/bookings-mock'
-import {
-  BOOKING_STATUS_LABELS, BOOKING_STATUS_COLORS,
-  type Booking, type BookingPropertyMarket, type BookingStatus,
-} from '@/types/bookings'
+import { bookingsApiV2, type BookingStatusV2, type BookingV2 } from '@/services/bookingsApiV2'
+import { developmentsApiV2, type DevelopmentV2 } from '@/services/developmentsApiV2'
+import { extractErrorMessage } from '@/features/developments-v2'
 import type { Lead, LeadSource } from '@/types/leads'
 import { LEAD_STAGES } from '@/data/leads-mock'
 import { useI18n } from "@/i18n";
@@ -45,6 +38,22 @@ const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
 }
 
 const NO_LEAD_VALUE = '__no_lead__'
+
+const STATUS_LABEL: Record<BookingStatusV2, string> = {
+  pending: 'В процессе',
+  booked: 'Бронь',
+  rejected: 'Отказ',
+  expired: 'Истекла',
+  paid: 'Оплачена',
+}
+
+const STATUS_COLOR: Record<BookingStatusV2, string> = {
+  pending: '#fb923c',
+  booked: '#c9a84c',
+  rejected: '#f87171',
+  expired: '#f87171',
+  paid: '#a78bfa',
+}
 
 function stageName(stageId: string): string {
   return LEAD_STAGES.find(s => s.id === stageId)?.name ?? stageId
@@ -59,7 +68,7 @@ function LeadBookingSelect({
   onChange: (id: string) => void
   leads: Lead[]
 }) {
-    const { t } = useI18n();
+  const { t } = useI18n();
   return (
     <Select
       value={value ? value : NO_LEAD_VALUE}
@@ -96,24 +105,13 @@ function BookingHoursField({
   onChange: (v: string) => void
   id: string
 }) {
-    const { t } = useI18n();
+  const { t } = useI18n();
   const parsed = parseInt(value, 10)
   const safe = Number.isFinite(parsed) && parsed >= 1 ? Math.min(720, parsed) : 72
-  const bump = (delta: number) => onChange(String(Math.max(1, Math.min(720, safe + delta))))
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-10 w-10 shrink-0 border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)] hover:bg-[var(--dropdown-hover)]"
-          onClick={() => bump(-24)}
-          aria-label={t('bookings.bookingsPage.уменьшить_срок_на_24')}
-        >
-          <Minus className="h-4 w-4" />
-        </Button>
         <Input
           id={id}
           type="text"
@@ -132,16 +130,6 @@ function BookingHoursField({
           className="border-[var(--green-border)] bg-[var(--green-deep)] text-center text-[color:var(--app-text)] tabular-nums max-w-[5rem]"
         />
         <span className="text-sm text-[color:var(--app-text-muted)] shrink-0">{t('bookings.bookingsPage.ч')}</span>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-10 w-10 shrink-0 border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)] hover:bg-[var(--dropdown-hover)]"
-          onClick={() => bump(24)}
-          aria-label={t('bookings.bookingsPage.увеличить_срок_на_24')}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
       </div>
       <div className="flex flex-wrap gap-2">
         {[24, 48, 72, 120, 168].map(h => (
@@ -169,10 +157,6 @@ const C = {
   whiteLow: 'var(--app-text-subtle)',
   border: 'var(--green-border)',
   card: 'var(--green-card)',
-  green: '#4ade80',
-  red: '#f87171',
-  orange: '#fb923c',
-  blue: '#60a5fa',
 }
 
 function useCountdown(expiresAt: string) {
@@ -194,10 +178,10 @@ function useCountdown(expiresAt: string) {
   return { totalHours, minutes, seconds, isExpired: remaining === 0 }
 }
 
-function CountdownTimer({ expiresAt, status }: { expiresAt: string; status: BookingStatus }) {
+function CountdownTimer({ expiresAt, status }: { expiresAt: string; status: BookingStatusV2 }) {
   const { totalHours, minutes, seconds, isExpired } = useCountdown(expiresAt)
 
-  if (status !== 'active') return null
+  if (status !== 'pending' && status !== 'booked') return null
 
   const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -209,55 +193,60 @@ function CountdownTimer({ expiresAt, status }: { expiresAt: string; status: Book
         color: 'rgba(255,255,255,0.72)',
         fontVariantNumeric: 'tabular-nums',
       }}>
-        {isExpired ? 'Истекла' : `${totalHours}ч ${pad(minutes)}мин ${pad(seconds)}сек`}
+        {isExpired ? 'Истекает' : `${totalHours}ч ${pad(minutes)}мин ${pad(seconds)}сек`}
       </span>
     </div>
   )
 }
 
-type FilterTab = 'all' | 'client' | 'apartment' | 'active' | 'expired'
+type FilterTab = 'all' | 'active' | 'closed'
 
-/** client — только фиксация клиента в ЖК; buyer — бронь квартиры (первичка/вторичка); all — полный список (история). */
-type BookingsFlowVariant = 'client' | 'buyer' | 'all'
-
-function bookingsVariantFromPath(pathname: string): BookingsFlowVariant {
-  if (pathname.includes('/bookings/history')) return 'all'
-  if (pathname.includes('/register-buyer') || pathname.includes('/bookings/apartment')) return 'buyer'
-  return 'client'
+interface UnitOption {
+  id: string
+  label: string
 }
 
-function apartmentMarket(b: Booking): BookingPropertyMarket {
-  if (b.type !== 'apartment') return 'primary'
-  return b.propertyMarket ?? 'primary'
-}
-
+/**
+ * BOOK-002/N-21: реальный флоу — только бронь юнита новостройки. "Фиксация
+ * клиента" (без юнита) редиректит на client-registrations (main.tsx), у
+ * реальной Booking-модели такого понятия нет. "Вторичка" убрана из демо по
+ * решению владельца — у брони на сервере нет listingId, только unitId
+ * (Booking завязана на Development/Building/Unit, не на @baza/property-assets).
+ */
 export function BookingsPage() {
-    const { t } = useI18n();
+  const { t } = useI18n();
   const location = useLocation()
-  const variant = bookingsVariantFromPath(location.pathname)
-  const { currentUser } = useAuth()
+  const isHistoryRoute = location.pathname.includes('/bookings/history')
   const { canEdit: canEditModule } = useModulePermissions()
-  const canEditBookings = canEditModule('bookings')
+  const canCreate = canEditModule('bookings')
+  const { role } = useRolePermissions()
+  const canConfirm = role !== 'administrator' && role !== 'marketer'
+  const canCancel = canConfirm && role !== 'manager'
   const { state: leadsState } = useLeads()
-  const [bookings, setBookings] = useState<Booking[]>(() => [...BOOKINGS_MOCK])
-  const [tab, setTab] = useState<FilterTab>('all')
-  const [apartmentSubTab, setApartmentSubTab] = useState<BookingPropertyMarket>('primary')
 
-  const [primaryOpen, setPrimaryOpen] = useState(false)
-  const [primKind, setPrimKind] = useState<'client' | 'apartment'>('client')
-  const [primRcId, setPrimRcId] = useState('')
-  const [primAptId, setPrimAptId] = useState('')
-  const [primClient, setPrimClient] = useState('')
-  const [primHours, setPrimHours] = useState('72')
-  const [primNotes, setPrimNotes] = useState('')
-  const [primLeadId, setPrimLeadId] = useState('')
+  const [bookings, setBookings] = useState<BookingV2[]>([])
+  const [unitLabels, setUnitLabels] = useState<Map<string, string>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadTrigger, setReloadTrigger] = useState(0)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null)
+  const [tab, setTab] = useState<FilterTab>(isHistoryRoute ? 'closed' : 'all')
 
-  const [secondaryOpen, setSecondaryOpen] = useState(false)
-  const [secLotId, setSecLotId] = useState('')
-  const [secClient, setSecClient] = useState('')
-  const [secHours, setSecHours] = useState('72')
-  const [secNotes, setSecNotes] = useState('')
-  const [secLeadId, setSecLeadId] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [developments, setDevelopments] = useState<DevelopmentV2[]>([])
+  const [unitOptions, setUnitOptions] = useState<UnitOption[]>([])
+  const [devId, setDevId] = useState('')
+  const [unitId, setUnitId] = useState('')
+  const [leadId, setLeadId] = useState('')
+  const [hours, setHours] = useState('72')
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setTab(isHistoryRoute ? 'closed' : 'all')
+  }, [isHistoryRoute])
 
   const leadsSorted = useMemo(() => {
     return [...leadsState.leadPool].sort((a, b) => {
@@ -267,197 +256,163 @@ export function BookingsPage() {
     })
   }, [leadsState.leadPool])
 
-  const apartmentsForRc = useMemo(
-    () => NEW_BUILD_APARTMENTS_MOCK.filter(a => a.rcId === primRcId),
-    [primRcId],
+  const leadsById = useMemo(() => new Map(leadsState.leadPool.map(l => [l.id, l])), [leadsState.leadPool])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setLoadError(null)
+    void (async () => {
+      try {
+        const [{ items: devItems }, { items: bookingItems }] = await Promise.all([
+          developmentsApiV2.list({ limit: 100 }),
+          bookingsApiV2.list({ limit: 200 }),
+        ])
+        if (cancelled) return
+        setDevelopments(devItems)
+
+        const buildingsPerDev = await Promise.all(
+          devItems.map((dev) => developmentsApiV2.listBuildings(dev._id)),
+        )
+        const unitsPerBuilding = await Promise.all(
+          buildingsPerDev.flat().map((building) =>
+            developmentsApiV2.listUnits(building._id, { limit: 500 }).then((units) => ({ building, units })),
+          ),
+        )
+        if (cancelled) return
+
+        const labels = new Map<string, string>()
+        for (const { building, units } of unitsPerBuilding) {
+          for (const unit of units) {
+            labels.set(unit._id, `${building.name} · №${unit.number}`)
+          }
+        }
+        setUnitLabels(labels)
+        setBookings(bookingItems)
+        setLoading(false)
+      } catch (err) {
+        if (cancelled) return
+        setLoadError(extractErrorMessage(err, 'Не удалось загрузить брони').message)
+        setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [reloadTrigger])
+
+  useEffect(() => {
+    if (!devId) {
+      setUnitOptions([])
+      return
+    }
+    let cancelled = false
+    setUnitsLoading(true)
+    void (async () => {
+      try {
+        const buildings = await developmentsApiV2.listBuildings(devId)
+        const unitsPerBuilding = await Promise.all(
+          buildings.map((building) =>
+            developmentsApiV2.listUnits(building._id, { status: 'available', limit: 500 }).then((units) =>
+              units.map((unit) => ({ id: unit._id, label: `${building.name} · №${unit.number}` })),
+            ),
+          ),
+        )
+        if (cancelled) return
+        setUnitOptions(unitsPerBuilding.flat())
+        setUnitsLoading(false)
+      } catch (err) {
+        if (cancelled) return
+        setSubmitError(extractErrorMessage(err, 'Не удалось загрузить юниты').message)
+        setUnitsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [devId])
+
+  function openCreateModal() {
+    setDevId('')
+    setUnitId('')
+    setLeadId('')
+    setHours('72')
+    setSubmitError(null)
+    setCreateOpen(true)
+  }
+
+  const submitBooking = useCallback(async () => {
+    if (!devId || !unitId) return
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const hoursNum = Math.max(1, Number.parseInt(hours, 10) || 72)
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + hoursNum * 60 * 60 * 1000).toISOString()
+      const created = await bookingsApiV2.create({
+        unitId,
+        leadId: leadId || undefined,
+        startsAt: now.toISOString(),
+        expiresAt,
+      })
+      setBookings((prev) => [created, ...prev])
+      setCreateOpen(false)
+    } catch (err) {
+      setSubmitError(extractErrorMessage(err, 'Не удалось создать бронь').message)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [devId, unitId, leadId, hours])
+
+  const handleConfirm = useCallback(async (bookingId: string) => {
+    setPendingActionId(bookingId)
+    setActionError(null)
+    try {
+      const updated = await bookingsApiV2.confirm(bookingId)
+      setBookings((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+    } catch (err) {
+      setActionError(extractErrorMessage(err, 'Не удалось подтвердить бронь').message)
+    } finally {
+      setPendingActionId(null)
+    }
+  }, [])
+
+  const handleCancel = useCallback(async (bookingId: string) => {
+    setPendingActionId(bookingId)
+    setActionError(null)
+    try {
+      const updated = await bookingsApiV2.cancel(bookingId)
+      setBookings((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
+    } catch (err) {
+      setActionError(extractErrorMessage(err, 'Не удалось отменить бронь').message)
+    } finally {
+      setPendingActionId(null)
+    }
+  }, [])
+
+  const sortedBookings = useMemo(
+    () => [...bookings].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    [bookings],
   )
 
-  function openPrimaryModal() {
-    if (variant === 'buyer') setPrimKind('apartment')
-    else if (variant === 'client') setPrimKind('client')
-    else {
-      if (tab === 'client') setPrimKind('client')
-      else if (tab === 'apartment' && apartmentSubTab === 'primary') setPrimKind('apartment')
-      else setPrimKind('client')
-    }
-    setPrimRcId('')
-    setPrimAptId('')
-    setPrimClient('')
-    setPrimHours('72')
-    setPrimNotes('')
-    setPrimLeadId('')
-    setPrimaryOpen(true)
-  }
-
-  function openSecondaryModal() {
-    setSecLotId('')
-    setSecClient('')
-    setSecHours('72')
-    setSecNotes('')
-    setSecLeadId('')
-    setSecondaryOpen(true)
-  }
-
-  function submitPrimaryBooking() {
-    const rc = NEW_BUILD_COMPLEXES_MOCK.find(r => r.id === primRcId)
-    const name = primClient.trim()
-    if (!rc || !name) return
-    if (primKind === 'apartment') {
-      const apt = NEW_BUILD_APARTMENTS_MOCK.find(a => a.id === primAptId && a.rcId === primRcId)
-      if (!apt) return
-    }
-
-    const hours = Math.max(1, Number.parseInt(primHours, 10) || 72)
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + hours * 60 * 60 * 1000).toISOString()
-
-    let propertyAddress = rc.name
-    let propertyType = primKind === 'client' ? 'Фиксация в ЖК' : '—'
-    let newBuildApartmentId: string | undefined
-
-    if (primKind === 'apartment') {
-      const apt = NEW_BUILD_APARTMENTS_MOCK.find(a => a.id === primAptId && a.rcId === primRcId)!
-      propertyAddress = `${rc.name}, ${apt.label}`
-      propertyType = apt.typology
-      newBuildApartmentId = apt.id
-    }
-
-    const row: Booking = {
-      id: `book-${Date.now()}`,
-      type: primKind,
-      status: 'active',
-      clientId: `tmp-${Date.now()}`,
-      clientName: name,
-      propertyAddress,
-      propertyType,
-      bookedAt: now.toISOString(),
-      durationHours: hours,
-      expiresAt,
-      agentId: currentUser?.id ?? 'lm-1',
-      agentName: currentUser?.name ?? 'Агент',
-      developerName: rc.developerName,
-      newBuildComplexId: rc.id,
-      newBuildApartmentId,
-      notes: primNotes.trim() || undefined,
-      sourceLeadId: primLeadId.trim() || undefined,
-    }
-    if (primKind === 'apartment') row.propertyMarket = 'primary'
-
-    setBookings(prev => [row, ...prev])
-    setPrimaryOpen(false)
-  }
-
-  function submitSecondaryBooking() {
-    const lot = AGENCY_SECONDARY_LOTS_MOCK.find(l => l.id === secLotId)
-    const name = secClient.trim()
-    if (!lot || !name) return
-
-    const hours = Math.max(1, Number.parseInt(secHours, 10) || 72)
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + hours * 60 * 60 * 1000).toISOString()
-
-    const row: Booking = {
-      id: `book-${Date.now()}`,
-      type: 'apartment',
-      status: 'active',
-      propertyMarket: 'secondary',
-      clientId: `tmp-${Date.now()}`,
-      clientName: name,
-      propertyAddress: lot.address,
-      propertyType: lot.propertyType,
-      bookedAt: now.toISOString(),
-      durationHours: hours,
-      expiresAt,
-      agentId: currentUser?.id ?? 'lm-1',
-      agentName: currentUser?.name ?? 'Агент',
-      agencyLotId: lot.id,
-      sourceLeadId: secLeadId.trim() || undefined,
-      notes: secNotes.trim() || undefined,
-    }
-
-    setBookings(prev => [row, ...prev])
-    setSecondaryOpen(false)
-  }
-
-  useEffect(() => {
-    const p = location.pathname
-    if (p.includes('/bookings/history')) setTab('expired')
-    else if (p.includes('/bookings/apartment')) {
-      setTab('apartment')
-      setApartmentSubTab('primary')
-    } else if (p.includes('/bookings/client')) setTab('client')
-    else if (p.includes('/register-buyer') || p.includes('/register-client')) setTab('all')
-  }, [location.pathname])
-
-  useEffect(() => {
-    if (variant === 'buyer') setPrimKind('apartment')
-    if (variant === 'client') setPrimKind('client')
-  }, [variant])
-
-  useEffect(() => {
-    if (variant === 'buyer' && tab === 'client') setTab('all')
-    if (variant === 'client' && tab === 'apartment') setTab('all')
-  }, [variant, tab])
-
-  const isHistoryRoute = location.pathname.includes('/bookings/history')
-
   const filtered = useMemo(() => {
-    return bookings.filter(b => {
-      if (variant === 'client' && b.type !== 'client') return false
-      if (variant === 'buyer' && b.type !== 'apartment') return false
-
-      if (tab === 'active') {
-        if (b.status !== 'active') return false
-      } else if (tab === 'expired') {
-        if (isHistoryRoute) {
-          if (!['expired', 'rejected', 'completed'].includes(b.status)) return false
-        } else if (b.status !== 'expired' && b.status !== 'rejected') {
-          return false
-        }
-      } else if (tab === 'client') {
-        if (b.type !== 'client') return false
-      } else if (tab === 'apartment') {
-        if (b.type !== 'apartment') return false
-        if (apartmentMarket(b) !== apartmentSubTab) return false
-      }
+    return sortedBookings.filter(b => {
+      if (tab === 'active') return b.status === 'pending' || b.status === 'booked'
+      if (tab === 'closed') return b.status === 'rejected' || b.status === 'expired' || b.status === 'paid'
       return true
     })
-  }, [bookings, tab, apartmentSubTab, isHistoryRoute, variant])
+  }, [sortedBookings, tab])
 
-  const TABS: { key: FilterTab; label: string }[] = useMemo(() => {
-    if (variant === 'client') {
-      return [
-        { key: 'all' as const, label: 'Все' },
-        { key: 'active' as const, label: 'Активные' },
-        { key: 'client' as const, label: 'Брони клиента' },
-        { key: 'expired' as const, label: 'Истекшие' },
-      ]
-    }
-    if (variant === 'buyer') {
-      return [
-        { key: 'all' as const, label: 'Все' },
-        { key: 'active' as const, label: 'Активные' },
-        { key: 'apartment' as const, label: 'Брони квартиры' },
-        { key: 'expired' as const, label: 'Истекшие' },
-      ]
-    }
-    return [
-      { key: 'all' as const, label: 'Все' },
-      { key: 'active' as const, label: 'Активные' },
-      { key: 'client' as const, label: 'Брони клиента' },
-      { key: 'apartment' as const, label: 'Брони квартиры' },
-      { key: 'expired' as const, label: 'Истекшие' },
-    ]
-  }, [variant])
+  const activeCount = useMemo(
+    () => bookings.filter(b => b.status === 'pending' || b.status === 'booked').length,
+    [bookings],
+  )
 
-  const activeCount = useMemo(() => {
-    return bookings.filter(b => {
-      if (b.status !== 'active') return false
-      if (variant === 'client' && b.type !== 'client') return false
-      if (variant === 'buyer' && b.type !== 'apartment') return false
-      return true
-    }).length
-  }, [bookings, variant])
+  const TABS: { key: FilterTab; label: string }[] = [
+    { key: 'all', label: 'Все' },
+    { key: 'active', label: 'Активные' },
+    { key: 'closed', label: 'Завершённые' },
+  ]
 
   return (
     <DashboardShell>
@@ -473,14 +428,7 @@ export function BookingsPage() {
           minHeight: 0,
         }}
       >
-        <div
-          style={{
-            width: '100%',
-            maxWidth: 920,
-            margin: '0 auto',
-            boxSizing: 'border-box',
-          }}
-        >
+        <div style={{ width: '100%', maxWidth: 920, margin: '0 auto', boxSizing: 'border-box' }}>
           {/* Header */}
           <div
             style={{
@@ -494,157 +442,82 @@ export function BookingsPage() {
           >
             <div style={{ textAlign: 'left' as const, flex: '1 1 240px' }}>
               <div style={{ fontSize: 26, fontWeight: 400, color: C.white, letterSpacing: '-0.01em' }}>
-                {variant === 'client'
-                  ? 'Фиксация клиента'
-                  : variant === 'buyer'
-                    ? 'Регистрация покупателя'
-                    : 'Брони / Регистрации'}
+                {isHistoryRoute ? 'История броней' : 'Брони квартир · новостройки'}
               </div>
               <div style={{ fontSize: 13, color: C.whiteLow, marginTop: 4, maxWidth: 560, lineHeight: 1.45 }}>
-                {variant === 'client' && (
-                  <>
-                    {t('bookings.bookingsPage.фиксация_привед_нног')}{' '}
-                  </>
-                )}
-                {variant === 'buyer' && (
-                  <>
-                    {t('bookings.bookingsPage.бронь_квартиры_новос')}{' '}
-                  </>
-                )}
-                {variant === 'all' && (
-                  <>
-                    {t('bookings.bookingsPage.бронь_клиента_только')}{' '}
-                  </>
-                )}
-                <span style={{ color: C.gold, fontWeight: 400 }}>{activeCount}</span> {t('bookings.bookingsPage.активных')}</div>
+                <span style={{ color: C.gold, fontWeight: 400 }}>{activeCount}</span> {t('bookings.bookingsPage.активных')}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-              {canEditBookings ? (
-                <button type="button" onClick={openPrimaryModal} className="alphabase-section-primary">
-                  <Building2 size={18} strokeWidth={2.25} />
-                  {t('bookings.bookingsPage.новостройка')}</button>
-              ) : null}
-              {canEditBookings && (variant === 'buyer' || variant === 'all') && (
-                <button
-                  type="button"
-                  onClick={openSecondaryModal}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '9px 16px',
-                    background: 'transparent',
-                    border: '1px solid var(--hub-card-border-hover)',
-                    borderRadius: 'var(--section-cta-radius)',
-                    color: 'var(--theme-accent-heading)',
-                    fontSize: 12,
-                    fontWeight: 400,
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <Layers size={18} strokeWidth={2.25} />
-                  {t('bookings.bookingsPage.вторичка')}</button>
-              )}
-            </div>
+            {canCreate && (
+              <button type="button" onClick={openCreateModal} className="alphabase-section-primary">
+                <Building2 size={18} strokeWidth={2.25} />
+                {t('bookings.bookingsPage.новостройка')}
+              </button>
+            )}
           </div>
 
           {/* Tabs */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'flex-start',
-              gap: 8,
-              marginBottom: 24,
-              padding: '4px 0',
-            }}
-          >
-            {TABS.map(t => (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24, padding: '4px 0' }}>
+            {TABS.map(tabDef => (
               <button
-                key={t.key}
+                key={tabDef.key}
                 type="button"
-                onClick={() => {
-                  setTab(t.key)
-                  if (t.key === 'apartment') setApartmentSubTab('primary')
-                }}
+                onClick={() => setTab(tabDef.key)}
                 style={{
                   padding: '8px 14px',
                   borderRadius: 'var(--section-cta-radius)',
-                  border: `1px solid ${tab === t.key ? 'var(--hub-card-border-hover)' : 'var(--hub-card-border)'}`,
-                  background: tab === t.key ? 'var(--nav-item-bg-active)' : 'var(--hub-card-bg)',
-                  color: tab === t.key ? C.gold : C.whiteLow,
+                  border: `1px solid ${tab === tabDef.key ? 'var(--hub-card-border-hover)' : 'var(--hub-card-border)'}`,
+                  background: tab === tabDef.key ? 'var(--nav-item-bg-active)' : 'var(--hub-card-bg)',
+                  color: tab === tabDef.key ? C.gold : C.whiteLow,
                   fontSize: 12,
-                  fontWeight: tab === t.key ? 700 : 500,
+                  fontWeight: tab === tabDef.key ? 700 : 500,
                   cursor: 'pointer',
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
               >
-                {t.label}
+                {tabDef.label}
               </button>
             ))}
           </div>
 
-          {tab === 'client' && (
-            <p style={{ fontSize: 12, color: C.whiteLow, marginTop: -12, marginBottom: 20, lineHeight: 1.5 }}>
-              {t('bookings.bookingsPage.раздел_только_для')}<strong style={{ color: C.gold }}>{t('bookings.bookingsPage.новостроек')}</strong>{t('bookings.bookingsPage.закрепление_привед')}</p>
+          {loadError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', marginBottom: 16, borderRadius: 8, border: '1px solid rgba(255,180,171,0.3)', background: 'rgba(255,180,171,0.08)', color: '#ffb4ab', fontSize: 13 }}>
+              <AlertCircle size={16} />
+              {loadError}
+              <button type="button" onClick={() => setReloadTrigger(v => v + 1)} style={{ marginLeft: 'auto', color: C.gold, fontSize: 12, cursor: 'pointer' }}>
+                Повторить
+              </button>
+            </div>
           )}
 
-          {isHistoryRoute && tab === 'expired' && (
-            <p style={{ fontSize: 12, color: C.whiteLow, marginTop: -12, marginBottom: 16 }}>
-              {t('bookings.bookingsPage.история_заверш_нные')}</p>
-          )}
-
-          {tab === 'apartment' && (
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 10,
-                marginTop: -8,
-                marginBottom: 22,
-                padding: '12px 14px',
-                borderRadius: 10,
-                border: `1px solid ${C.border}`,
-                background: 'var(--hub-card-bg)',
-              }}
-            >
-              <span style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.12em', color: C.whiteLow, alignSelf: 'center', textTransform: 'uppercase' as const }}>
-                {t('bookings.bookingsPage.брони_квартиры')}</span>
-              {(['primary', 'secondary'] as const).map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setApartmentSubTab(m)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 'var(--section-cta-radius)',
-                    border: `1px solid ${apartmentSubTab === m ? 'var(--hub-card-border-hover)' : 'var(--hub-card-border)'}`,
-                    background: apartmentSubTab === m ? 'var(--nav-item-bg-active)' : 'transparent',
-                    color: apartmentSubTab === m ? C.gold : C.whiteMid,
-                    fontSize: 12,
-                    fontWeight: apartmentSubTab === m ? 700 : 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {m === 'primary' ? 'Первичка' : 'Вторичка'}
-                </button>
-              ))}
-              <span style={{ fontSize: 11, color: C.whiteLow, flex: '1 1 200px', lineHeight: 1.4 }}>
-                {apartmentSubTab === 'primary'
-                  ? 'Шахматка ЖК, конкретный лот в новостройке.'
-                  : 'Объект из внутреннего списка агентства, связь с лидом.'}
-              </span>
+          {actionError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', marginBottom: 16, borderRadius: 8, border: '1px solid rgba(255,180,171,0.3)', background: 'rgba(255,180,171,0.08)', color: '#ffb4ab', fontSize: 13 }}>
+              {actionError}
+              <button type="button" onClick={() => setActionError(null)} style={{ marginLeft: 'auto', textDecoration: 'underline', cursor: 'pointer' }}>
+                Скрыть
+              </button>
             </div>
           )}
 
           {/* Bookings cards */}
           <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
-            {filtered.map(booking => (
-              <BookingCard key={booking.id} booking={booking} />
+            {loading && (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: C.whiteLow }}>Загрузка…</div>
+            )}
+            {!loading && filtered.map(booking => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                unitLabel={unitLabels.get(booking.unitId) ?? booking.unitId}
+                leadName={booking.leadId ? (leadsById.get(booking.leadId)?.name ?? booking.leadId) : undefined}
+                canConfirm={canConfirm}
+                canCancel={canCancel}
+                busy={pendingActionId === booking.id}
+                onConfirm={() => void handleConfirm(booking.id)}
+                onCancel={() => void handleCancel(booking.id)}
+              />
             ))}
-            {filtered.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <div
                 style={{
                   padding: '48px 24px',
@@ -655,193 +528,81 @@ export function BookingsPage() {
                   background: 'var(--workspace-row-bg)',
                 }}
               >
-                {t('bookings.bookingsPage.бронирований_не_найд')}</div>
+                {t('bookings.bookingsPage.бронирований_не_найд')}
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      <Dialog open={primaryOpen} onOpenChange={setPrimaryOpen}>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--green-border)] bg-[var(--green-card)] text-[color:var(--app-text)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-[#f5f5f5]">
-              {variant === 'client'
-                ? 'Фиксация клиента в ЖК'
-                : variant === 'buyer'
-                  ? 'Бронь квартиры · новостройка'
-                  : 'Бронь · новостройка'}
-            </DialogTitle>
+            <DialogTitle className="text-[#f5f5f5]">Бронь квартиры · новостройка</DialogTitle>
             <DialogDescription className="text-[color:var(--app-text-muted)]">
-              {variant === 'client' && 'Выберите жилой комплекс и укажите клиента. Список ЖК позже подгрузится с сервера.'}
-              {variant === 'buyer' &&
-                'Сначала ЖК, затем лот (шахматка / каталог). Список позже подгрузится с сервера.'}
-              {variant === 'all' &&
-                'Два шага: сначала ЖК, затем при брони квартиры — лот (шахматка / каталог). Список позже подгрузится с сервера.'}
+              Сначала ЖК, затем свободная квартира. Срок брони — до 720 часов.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 py-1">
-            {variant === 'all' && (
-              <div className="flex flex-wrap gap-2">
-                <span className="w-full text-[10px] font-normal uppercase tracking-wider text-[color:var(--app-text-subtle)]">{t('bookings.bookingsPage.что_бронируем')}</span>
-                {(['client', 'apartment'] as const).map(k => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => {
-                      setPrimKind(k)
-                      setPrimAptId('')
-                    }}
-                    className={`rounded-[var(--section-cta-radius)] border px-3 py-1.5 text-xs font-normal transition-colors ${
-                      primKind === k
-                        ? 'border-[var(--gold)] bg-[var(--nav-item-bg-active)] text-[color:var(--theme-accent-heading)]'
-                        : 'border-[var(--green-border)] bg-transparent text-[color:var(--app-text-muted)] hover:bg-[var(--dropdown-hover)]'
-                    }`}
-                  >
-                    {k === 'client' ? 'Клиента в ЖК' : 'Квартиру'}
-                  </button>
-                ))}
-              </div>
-            )}
-
             <div className="space-y-1.5">
               <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.1_жилой_комплекс')}</Label>
               <Select
-                value={primRcId || undefined}
-                onValueChange={v => {
-                  setPrimRcId(v)
-                  setPrimAptId('')
-                }}
+                value={devId || undefined}
+                onValueChange={v => { setDevId(v); setUnitId('') }}
               >
                 <SelectTrigger className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]">
                   <SelectValue placeholder={t('bookings.bookingsPage.выберите_жк')} />
                 </SelectTrigger>
                 <SelectContent className="border-[var(--green-border)] bg-[var(--green-card)] text-[color:var(--app-text)]">
-                  {NEW_BUILD_COMPLEXES_MOCK.map(rc => (
-                    <SelectItem key={rc.id} value={rc.id} className="focus:bg-[var(--dropdown-hover)]">
-                      {rc.name} · {rc.developerName}
+                  {developments.map(dev => (
+                    <SelectItem key={dev._id} value={dev._id} className="focus:bg-[var(--dropdown-hover)]">
+                      {dev.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {(variant === 'buyer' || primKind === 'apartment') && (
-              <div className="space-y-1.5">
-                <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.2_квартира_лот')}</Label>
-                <Select
-                  value={primAptId || undefined}
-                  onValueChange={setPrimAptId}
-                  disabled={!primRcId || apartmentsForRc.length === 0}
-                >
-                  <SelectTrigger className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)] disabled:opacity-50">
-                    <SelectValue placeholder={primRcId ? 'Выберите квартиру' : 'Сначала выберите ЖК'} />
-                  </SelectTrigger>
-                  <SelectContent className="border-[var(--green-border)] bg-[var(--green-card)] text-[color:var(--app-text)]">
-                    {apartmentsForRc.map(apt => (
-                      <SelectItem key={apt.id} value={apt.id} className="focus:bg-[var(--dropdown-hover)]">
-                        {apt.label} · {apt.typology}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             <div className="space-y-1.5">
-              <Label htmlFor="prim-client" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.клиент_фио')}</Label>
-              <Input
-                id="prim-client"
-                value={primClient}
-                onChange={e => setPrimClient(e.target.value)}
-                placeholder={t('bookings.bookingsPage.иванов_и_и')}
-                className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.лид_из_вашей_базы_не')}</Label>
-              <LeadBookingSelect value={primLeadId} onChange={setPrimLeadId} leads={leadsSorted} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prim-hours" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.срок_брони')}</Label>
-              <BookingHoursField id="prim-hours" value={primHours} onChange={setPrimHours} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prim-notes" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.комментарий')}</Label>
-              <Input
-                id="prim-notes"
-                value={primNotes}
-                onChange={e => setPrimNotes(e.target.value)}
-                className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]"
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setPrimaryOpen(false)} className="border-[var(--green-border)] bg-transparent text-[color:var(--app-text)]">
-              {t('bookings.bookingsPage.отмена')}</Button>
-            <Button type="button" onClick={submitPrimaryBooking} variant="sectionPrimary">
-              {t('bookings.bookingsPage.создать')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={secondaryOpen} onOpenChange={setSecondaryOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--green-border)] bg-[var(--green-card)] text-[color:var(--app-text)] sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[#f5f5f5]">{t('bookings.bookingsPage.бронь_вторичка')}</DialogTitle>
-            <DialogDescription className="text-[color:var(--app-text-muted)]">
-              {t('bookings.bookingsPage.выбор_объекта_из_вну')}</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-1">
-            <div className="space-y-1.5">
-              <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.объект_из_своей_базы')}</Label>
-              <Select value={secLotId || undefined} onValueChange={setSecLotId}>
-                <SelectTrigger className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]">
-                  <SelectValue placeholder={t('bookings.bookingsPage.выберите_лот')} />
+              <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.2_квартира_лот')}</Label>
+              <Select
+                value={unitId || undefined}
+                onValueChange={setUnitId}
+                disabled={!devId || unitsLoading || unitOptions.length === 0}
+              >
+                <SelectTrigger className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)] disabled:opacity-50">
+                  <SelectValue placeholder={!devId ? 'Сначала выберите ЖК' : unitsLoading ? 'Загрузка…' : unitOptions.length === 0 ? 'Свободных юнитов нет' : 'Выберите квартиру'} />
                 </SelectTrigger>
                 <SelectContent className="border-[var(--green-border)] bg-[var(--green-card)] text-[color:var(--app-text)]">
-                  {AGENCY_SECONDARY_LOTS_MOCK.map(lot => (
-                    <SelectItem key={lot.id} value={lot.id} className="focus:bg-[var(--dropdown-hover)]">
-                      {lot.address} · {lot.propertyType}
+                  {unitOptions.map(opt => (
+                    <SelectItem key={opt.id} value={opt.id} className="focus:bg-[var(--dropdown-hover)]">
+                      {opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sec-client" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.клиент_фио')}</Label>
-              <Input
-                id="sec-client"
-                value={secClient}
-                onChange={e => setSecClient(e.target.value)}
-                className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]"
-              />
-            </div>
+
             <div className="space-y-1.5">
               <Label className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.лид_из_вашей_базы_не')}</Label>
-              <LeadBookingSelect value={secLeadId} onChange={setSecLeadId} leads={leadsSorted} />
+              <LeadBookingSelect value={leadId} onChange={setLeadId} leads={leadsSorted} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sec-hours" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.срок_брони')}</Label>
-              <BookingHoursField id="sec-hours" value={secHours} onChange={setSecHours} />
+              <Label htmlFor="booking-hours" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.срок_брони')}</Label>
+              <BookingHoursField id="booking-hours" value={hours} onChange={setHours} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sec-notes" className="text-[color:var(--app-text)]">{t('bookings.bookingsPage.комментарий')}</Label>
-              <Input
-                id="sec-notes"
-                value={secNotes}
-                onChange={e => setSecNotes(e.target.value)}
-                className="border-[var(--green-border)] bg-[var(--green-deep)] text-[color:var(--app-text)]"
-              />
-            </div>
+
+            {submitError && (
+              <div style={{ fontSize: 13, color: '#ffb4ab' }}>{submitError}</div>
+            )}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => setSecondaryOpen(false)} className="border-[var(--green-border)] bg-transparent text-[color:var(--app-text)]">
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} className="border-[var(--green-border)] bg-transparent text-[color:var(--app-text)]">
               {t('bookings.bookingsPage.отмена')}</Button>
-            <Button type="button" onClick={submitSecondaryBooking} variant="sectionPrimary">
+            <Button type="button" onClick={() => void submitBooking()} disabled={!devId || !unitId || submitting} variant="sectionPrimary">
+              {submitting && <Loader2 className="mr-1.5 size-4 animate-spin" />}
               {t('bookings.bookingsPage.создать')}</Button>
           </DialogFooter>
         </DialogContent>
@@ -850,38 +611,39 @@ export function BookingsPage() {
   )
 }
 
-function BookingCard({ booking }: { booking: Booking }) {
-    const { t } = useI18n();
-  const statusColor = BOOKING_STATUS_COLORS[booking.status]
-  const isActive = booking.status === 'active'
-  const market = apartmentMarket(booking)
+function BookingCard({
+  booking,
+  unitLabel,
+  leadName,
+  canConfirm,
+  canCancel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  booking: BookingV2
+  unitLabel: string
+  leadName?: string
+  canConfirm: boolean
+  canCancel: boolean
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const { t } = useI18n();
+  const statusColor = STATUS_COLOR[booking.status]
+  const isOpen = booking.status === 'pending' || booking.status === 'booked'
 
   return (
     <div style={{
       background: 'var(--green-card)',
-      border: `1px solid ${isActive ? 'rgba(74,222,128,0.2)' : 'var(--green-border)'}`,
+      border: `1px solid ${isOpen ? 'rgba(201,168,76,0.2)' : 'var(--green-border)'}`,
       borderRadius: 10,
       padding: '18px 20px',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
         <div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: booking.type === 'client' ? C.blue : C.gold }}>
-              {booking.type === 'client' ? 'Бронь клиента · новостройки' : 'Бронь квартиры'}
-            </span>
-            {booking.type === 'apartment' && (
-              <span style={{
-                fontSize: 10,
-                fontWeight: 400,
-                padding: '2px 8px',
-                borderRadius: 20,
-                background: market === 'primary' ? 'rgba(96,165,250,0.12)' : 'rgba(201,168,76,0.12)',
-                border: `1px solid ${market === 'primary' ? 'rgba(96,165,250,0.35)' : 'rgba(201,168,76,0.35)'}`,
-                color: market === 'primary' ? C.blue : C.gold,
-              }}>
-                {market === 'primary' ? 'Первичка' : 'Вторичка'}
-              </span>
-            )}
             <span style={{
               fontSize: 10,
               fontWeight: 400,
@@ -891,85 +653,60 @@ function BookingCard({ booking }: { booking: Booking }) {
               border: `1px solid ${statusColor}44`,
               color: statusColor,
             }}>
-              {BOOKING_STATUS_LABELS[booking.status]}
+              {STATUS_LABEL[booking.status]}
             </span>
           </div>
-          <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--app-text)' }}>{booking.clientName}</div>
+          <div style={{ fontSize: 16, fontWeight: 400, color: 'var(--app-text)' }}>{unitLabel}</div>
           <div style={{ fontSize: 13, color: 'var(--app-text-muted)', marginTop: 2 }}>
-            {booking.propertyAddress} · {booking.propertyType}
+            {leadName ? `Лид: ${leadName}` : 'Без лида'}
           </div>
-          {booking.developerName && (
-            <div style={{ fontSize: 11, color: 'var(--app-text-subtle)', marginTop: 2 }}>
-              {t('bookings.bookingsPage.застройщик')}{booking.developerName}
-            </div>
-          )}
-          {booking.type === 'apartment' && (
-            <div style={{ fontSize: 11, color: 'var(--app-text-subtle)', marginTop: 4 }}>
-              {market === 'primary'
-                ? 'Сценарий: шахматка ЖК, конкретный лот.'
-                : 'Сценарий: объект из списка агентства, связь с лидом.'}
-            </div>
-          )}
-          {booking.sourceLeadId && (
-            <div style={{ fontSize: 11, color: 'var(--theme-accent-link-dim)', marginTop: 4 }}>
-              {t('bookings.bookingsPage.лид')}{booking.sourceLeadId}
-            </div>
-          )}
         </div>
 
-        {/* Timer */}
         <div style={{ textAlign: 'right' as const }}>
-          <CountdownTimer expiresAt={booking.expiresAt} status={booking.status} />
+          <CountdownTimer expiresAt={booking.dateRange.expiresAt} status={booking.status} />
           <div style={{ fontSize: 10, color: 'var(--app-text-subtle)', marginTop: 4 }}>
-            {t('bookings.bookingsPage.истекает')}{new Date(booking.expiresAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+            {t('bookings.bookingsPage.истекает')}{new Date(booking.dateRange.expiresAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
           </div>
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 11, color: 'var(--app-text-subtle)' }}>
-          {t('bookings.bookingsPage.агент')}{booking.agentName} {t('bookings.bookingsPage.создана')}{new Date(booking.bookedAt).toLocaleDateString('ru-RU')}
+          {booking.manager} · {new Date(booking.createdAt).toLocaleDateString('ru-RU')}
         </div>
-        {isActive && (
+        {isOpen && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button style={{
-              padding: '5px 12px',
-              background: 'rgba(74,222,128,0.1)',
-              border: '1px solid rgba(74,222,128,0.3)',
-              borderRadius: 'var(--section-cta-radius)',
-              color: '#4ade80',
-              fontSize: 11,
-              fontWeight: 400,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}>
-              <CheckCircle size={11} /> {t('bookings.bookingsPage.подтвердить')}</button>
-            <button style={{
-              padding: '5px 12px',
-              background: 'rgba(248,113,113,0.1)',
-              border: '1px solid rgba(248,113,113,0.3)',
-              borderRadius: 'var(--section-cta-radius)',
-              color: '#f87171',
-              fontSize: 11,
-              fontWeight: 400,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}>
-              <XCircle size={11} /> {t('bookings.bookingsPage.отменить')}</button>
+            {canConfirm && booking.status === 'pending' && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onConfirm}
+                style={{
+                  padding: '5px 12px', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)',
+                  borderRadius: 'var(--section-cta-radius)', color: '#4ade80', fontSize: 11, fontWeight: 400,
+                  cursor: busy ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: busy ? 0.5 : 1,
+                }}
+              >
+                {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle size={11} />} {t('bookings.bookingsPage.подтвердить')}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onCancel}
+                style={{
+                  padding: '5px 12px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)',
+                  borderRadius: 'var(--section-cta-radius)', color: '#f87171', fontSize: 11, fontWeight: 400,
+                  cursor: busy ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: busy ? 0.5 : 1,
+                }}
+              >
+                {busy ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />} {t('bookings.bookingsPage.отменить')}
+              </button>
+            )}
           </div>
         )}
       </div>
-
-      {booking.notes && (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--app-text-subtle)', fontStyle: 'italic' as const }}>
-          {booking.notes}
-        </div>
-      )}
     </div>
   )
 }

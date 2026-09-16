@@ -1,19 +1,28 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { UnitDocument } from '../developments/schemas/unit.schema';
 import { InjectConnection } from '@nestjs/mongoose';
+import { ListingRepository, PropertyAssetRepository, type ListingDocument, type PropertyAssetDocument } from '@baza/property-assets';
 import { randomBytes } from 'node:crypto';
 import { ClientSession, Connection, Types } from 'mongoose';
+import { AppException } from '../../shared/errors/app-exception';
+import { ErrorCode } from '../../shared/errors/error-codes';
 import { runInTransaction } from '../../shared/transactions/run-in-transaction';
 import { IdempotencyService, type IdempotentReplay } from '../../shared/idempotency/idempotency.service';
 import { DevelopmentsService } from '../developments/developments.service';
 import { CrmService } from '../crm/crm.service';
-import { DevSelectionRepository, type UpdateDevSelectionPatch } from './repository/dev-selection.repository';
+import { DevSelectionRepository, type DevSelectionItemRef, type UpdateDevSelectionPatch } from './repository/dev-selection.repository';
 import type {
   DevSelectionDocument,
   DevSelectionItem,
   DevSelectionReaction,
   DevSelectionStatus,
 } from './schemas/dev-selection.schema';
+
+/** Объявление вторички с характеристиками объекта — для денормализации в публичном ответе, симметрично Unit выше. */
+export interface SelectionListingDenorm {
+  listing: ListingDocument;
+  asset: PropertyAssetDocument;
+}
 
 /** Параметры идемпотентности создающей/изменяющей команды (тот же паттерн, что DevelopmentsService). */
 interface IdempotencyParams {
@@ -30,7 +39,9 @@ export interface PublicDevSelection {
   agentNote?: string;
   status: DevSelectionStatus;
   items: Array<{
-    unitId: string;
+    targetType: 'unit' | 'listing';
+    unitId?: string;
+    listingId?: string;
     agentNote?: string;
     reaction?: DevSelectionReaction;
     viewedAt?: string;
@@ -49,6 +60,18 @@ export interface PublicDevSelection {
       price?: { amountMinorUnits: number; currency: string };
       status: string;
     };
+    /** Объявление вторички (N-27) — тот же принцип и та же честность отказа, что `unit` выше. */
+    listing?: {
+      propertyType: string;
+      city: string;
+      address: string;
+      area: number;
+      rooms?: number;
+      floor?: number;
+      dealType: string;
+      price: { amountMinorUnits: number; currency: string };
+      status: string;
+    };
   }>;
   createdAt: string;
   sentAt?: string;
@@ -59,6 +82,7 @@ export interface PublicDevSelection {
 export function toPublicDevSelection(
   doc: DevSelectionDocument,
   units?: Map<string, UnitDocument>,
+  listings?: Map<string, SelectionListingDenorm>,
 ): PublicDevSelection {
   return {
     title: doc.title,
@@ -66,9 +90,12 @@ export function toPublicDevSelection(
     agentNote: doc.agentNote,
     status: doc.status,
     items: doc.items.map((item) => {
-      const unit = units?.get(item.unitId.toString());
+      const unit = item.unitId ? units?.get(item.unitId.toString()) : undefined;
+      const denorm = item.listingId ? listings?.get(item.listingId.toString()) : undefined;
       return {
-        unitId: item.unitId.toString(),
+        targetType: item.targetType,
+        unitId: item.unitId?.toString(),
+        listingId: item.listingId?.toString(),
         agentNote: item.agentNote,
         reaction: item.reaction,
         viewedAt: item.viewedAt?.toISOString(),
@@ -88,6 +115,19 @@ export function toPublicDevSelection(
                 ? { amountMinorUnits: unit.price.amountMinorUnits, currency: unit.price.currency }
                 : undefined,
               status: unit.status,
+            }
+          : undefined,
+        listing: denorm
+          ? {
+              propertyType: denorm.asset.propertyType,
+              city: denorm.asset.location.city,
+              address: denorm.asset.location.address,
+              area: denorm.asset.characteristics.area,
+              rooms: denorm.asset.characteristics.rooms,
+              floor: denorm.asset.characteristics.floor,
+              dealType: denorm.listing.dealType,
+              price: { amountMinorUnits: denorm.listing.price.amountMinorUnits, currency: denorm.listing.price.currency },
+              status: denorm.listing.status,
             }
           : undefined,
       };
@@ -112,25 +152,12 @@ export interface SelectionResponse {
   agentNote?: string;
   status: DevSelectionStatus;
   items: Array<{
-    unitId: string;
+    targetType: 'unit' | 'listing';
+    unitId?: string;
+    listingId?: string;
     agentNote?: string;
     reaction?: DevSelectionReaction;
     viewedAt?: string;
-    /**
-     * Сам объект: номер, площадь, цена. До 04.09.2026 публичный ответ отдавал
-     * только `unitId`, а публично разрешить объект по id было нечем — клиент,
-     * открывший ссылку от риэлтора, физически не мог увидеть подобранные
-     * квартиры. Поле необязательное: если объект удалён или переехал в другую
-     * организацию, подборка показывается без него, а не падает целиком.
-     */
-    unit?: {
-      number: string;
-      kind: string;
-      rooms?: number;
-      area: number;
-      price?: { amountMinorUnits: number; currency: string };
-      status: string;
-    };
   }>;
   createdAt: string;
   updatedAt: string;
@@ -154,7 +181,9 @@ export function toSelectionResponse(doc: DevSelectionDocument): SelectionRespons
     agentNote: doc.agentNote,
     status: doc.status,
     items: doc.items.map((item) => ({
-      unitId: item.unitId.toString(),
+      targetType: item.targetType,
+      unitId: item.unitId?.toString(),
+      listingId: item.listingId?.toString(),
       agentNote: item.agentNote,
       reaction: item.reaction,
       viewedAt: item.viewedAt?.toISOString(),
@@ -185,6 +214,8 @@ export class SelectionsService {
     private readonly idempotencyService: IdempotencyService,
     private readonly developmentsService: DevelopmentsService,
     private readonly crmService: CrmService,
+    private readonly listingRepository: ListingRepository,
+    private readonly propertyAssetRepository: PropertyAssetRepository,
   ) {}
 
   /** 256 бит энтропии — см. docstring DevSelectionDocument.publicToken про решение не хешировать. */
@@ -207,11 +238,29 @@ export class SelectionsService {
     }
   }
 
+  /** Симметрично requireUnitsExist — свой листинг вторички (ADR-001: только через ListingRepository, тот же импорт, что CrmService). */
+  private async requireListingsExist(listingIds: Types.ObjectId[], organizationId: Types.ObjectId): Promise<void> {
+    for (const listingId of listingIds) {
+      const listing = await this.listingRepository.findByIdForOrganization(listingId, organizationId);
+      if (!listing) {
+        throw new NotFoundException('Listing not found');
+      }
+    }
+  }
+
+  private toItemRefs(unitIds: Types.ObjectId[], listingIds: Types.ObjectId[]): DevSelectionItemRef[] {
+    return [
+      ...unitIds.map((id): DevSelectionItemRef => ({ targetType: 'unit', id })),
+      ...listingIds.map((id): DevSelectionItemRef => ({ targetType: 'listing', id })),
+    ];
+  }
+
   async createSelection(params: {
     organizationId: Types.ObjectId;
     createdByPositionId: Types.ObjectId;
     title: string;
     unitIds: Types.ObjectId[];
+    listingIds: Types.ObjectId[];
     leadId?: Types.ObjectId;
     clientName?: string;
     clientPhone?: string;
@@ -219,7 +268,11 @@ export class SelectionsService {
     customization?: Record<string, unknown>;
     idempotency: IdempotencyParams;
   }): Promise<DevSelectionDocument> {
+    if (params.unitIds.length === 0 && params.listingIds.length === 0) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'At least one of unitIds/listingIds is required');
+    }
     await this.requireUnitsExist(params.unitIds, params.organizationId);
+    await this.requireListingsExist(params.listingIds, params.organizationId);
     if (params.leadId) {
       await this.crmService.getLeadForOrganization(params.leadId, params.organizationId);
     }
@@ -235,7 +288,7 @@ export class SelectionsService {
           clientName: params.clientName,
           clientPhone: params.clientPhone,
           agentNote: params.agentNote,
-          unitIds: params.unitIds,
+          items: this.toItemRefs(params.unitIds, params.listingIds),
           customization: params.customization,
         },
         session,
@@ -379,17 +432,22 @@ export class SelectionsService {
     requiredPositionId?: Types.ObjectId;
     expectedVersion: number;
     unitIds: Types.ObjectId[];
+    listingIds: Types.ObjectId[];
     idempotency: IdempotencyParams;
   }): Promise<DevSelectionDocument> {
+    if (params.unitIds.length === 0 && params.listingIds.length === 0) {
+      throw new AppException(ErrorCode.VALIDATION_FAILED, 'At least one of unitIds/listingIds is required');
+    }
     await this.getSelection(params.id, params.organizationId, params.requiredPositionId);
     await this.requireUnitsExist(params.unitIds, params.organizationId);
+    await this.requireListingsExist(params.listingIds, params.organizationId);
 
     return runInTransaction(this.connection, async (session) => {
       const updated = await this.repository.addItemsWithVersionCheck(
         params.id,
         params.organizationId,
         params.expectedVersion,
-        params.unitIds,
+        this.toItemRefs(params.unitIds, params.listingIds),
         session,
       );
       if (!updated) {
@@ -405,7 +463,7 @@ export class SelectionsService {
     organizationId: Types.ObjectId;
     requiredPositionId?: Types.ObjectId;
     expectedVersion: number;
-    unitId: Types.ObjectId;
+    itemId: Types.ObjectId;
     idempotency: IdempotencyParams;
   }): Promise<DevSelectionDocument> {
     await this.getSelection(params.id, params.organizationId, params.requiredPositionId);
@@ -415,7 +473,7 @@ export class SelectionsService {
         params.id,
         params.organizationId,
         params.expectedVersion,
-        params.unitId,
+        params.itemId,
         session,
       );
       if (!updated) {
@@ -431,7 +489,7 @@ export class SelectionsService {
     organizationId: Types.ObjectId;
     requiredPositionId?: Types.ObjectId;
     expectedVersion: number;
-    unitId: Types.ObjectId;
+    itemId: Types.ObjectId;
     patch: { agentNote?: string; reaction?: DevSelectionItem['reaction'] | null };
     idempotency: IdempotencyParams;
   }): Promise<DevSelectionDocument> {
@@ -442,12 +500,12 @@ export class SelectionsService {
         params.id,
         params.organizationId,
         params.expectedVersion,
-        params.unitId,
+        params.itemId,
         params.patch,
         session,
       );
       if (!updated) {
-        throw new ConflictException('Selection was modified by another request (version conflict), or unit is not in this selection');
+        throw new ConflictException('Selection was modified by another request (version conflict), or item is not in this selection');
       }
       await this.recordIdempotency(params.idempotency, 200, updated, session);
       return updated;
@@ -494,19 +552,29 @@ export class SelectionsService {
     // Авторизует показ сам токен — 256 бит случайности, — и он открывает ровно
     // те объекты, которые агент положил в эту подборку, ничего сверх.
     const units = new Map<string, UnitDocument>();
+    const listings = new Map<string, SelectionListingDenorm>();
     await Promise.all(
       updated.items.map(async (item) => {
         try {
-          const unit = await this.developmentsService.getUnitForOrganization(item.unitId, updated.organizationId);
-          units.set(item.unitId.toString(), unit);
+          if (item.targetType === 'unit' && item.unitId) {
+            const unit = await this.developmentsService.getUnitForOrganization(item.unitId, updated.organizationId);
+            units.set(item.unitId.toString(), unit);
+          } else if (item.targetType === 'listing' && item.listingId) {
+            const listing = await this.listingRepository.findByIdForOrganization(item.listingId, updated.organizationId);
+            if (!listing) return;
+            const asset = await this.propertyAssetRepository.findByIdForOrganization(listing.propertyAssetId, updated.organizationId);
+            if (!asset) return;
+            listings.set(item.listingId.toString(), { listing, asset });
+          }
         } catch {
           // Объект удалён или больше не принадлежит организации: подборка
           // показывается без него. Ронять всю страницу из-за одной пропавшей
-          // квартиры — худший вариант для клиента, который просто открыл ссылку.
+          // квартиры/объявления — худший вариант для клиента, который просто
+          // открыл ссылку.
         }
       }),
     );
 
-    return toPublicDevSelection(updated, units);
+    return toPublicDevSelection(updated, units, listings);
   }
 }

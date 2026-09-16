@@ -55,14 +55,17 @@ function versionOf(selection: DevSelection): number {
 
 interface State {
   selections: DevSelection[]
-  create: (params: { title: string; unitIds: string[]; leadId?: string; clientName?: string; clientPhone?: string; agentNote?: string; customization?: DevSelectionCustomization }) => DevSelection
+  create: (params: { title: string; unitIds?: string[]; listingIds?: string[]; leadId?: string; clientName?: string; clientPhone?: string; agentNote?: string; customization?: DevSelectionCustomization }) => DevSelection
   update: (id: string, patch: Partial<Omit<DevSelection, 'id' | 'publicToken' | 'createdAt'>>) => void
   setStatus: (id: string, status: DevSelectionStatus) => void
-  setReaction: (selectionId: string, unitId: string, reaction: DevSelectionReaction | undefined) => void
+  /** itemId — unitId либо listingId элемента (N-27: подборка объединяет оба типа). */
+  setReaction: (selectionId: string, itemId: string, reaction: DevSelectionReaction | undefined) => void
   markViewed: (publicToken: string) => void
-  updateItemNote: (selectionId: string, unitId: string, note: string) => void
+  updateItemNote: (selectionId: string, itemId: string, note: string) => void
+  /** Юнит-специфичная обёртка над addItems — используется шахматкой/UnitDetailModal (только первичка). */
   addUnits: (selectionId: string, unitIds: string[]) => void
-  removeUnit: (selectionId: string, unitId: string) => void
+  addItems: (selectionId: string, items: { unitIds?: string[]; listingIds?: string[] }) => void
+  removeItem: (selectionId: string, itemId: string) => void
   remove: (id: string) => void
   getByToken: (publicToken: string) => DevSelection | undefined
   /** Забрать актуальный список подборок организации с backend (вызывается страницами при монтировании, тот же паттерн, что useInstallmentStore.fetchForProject). */
@@ -94,7 +97,7 @@ function replaceSelection(id: string, saved: DevSelectionRecord) {
 state = {
   selections: load(),
 
-  create({ title, unitIds, leadId, clientName, clientPhone, agentNote, customization }) {
+  create({ title, unitIds = [], listingIds = [], leadId, clientName, clientPhone, agentNote, customization }) {
     const now = new Date().toISOString()
     const tempId = uid()
     const sel: DevSelectionRecord = {
@@ -106,7 +109,10 @@ state = {
       clientPhone,
       agentNote,
       status: 'draft',
-      items: unitIds.map((unitId): DevSelectionItem => ({ unitId })),
+      items: [
+        ...unitIds.map((unitId): DevSelectionItem => ({ targetType: 'unit', unitId })),
+        ...listingIds.map((listingId): DevSelectionItem => ({ targetType: 'listing', listingId })),
+      ],
       createdAt: now,
       viewCount: 0,
       customization: customization ?? DEFAULT_DEV_CUSTOMIZATION,
@@ -115,7 +121,7 @@ state = {
     set({ selections: [sel, ...get().selections] })
 
     devSelectionsApiV2
-      .create({ title, unitIds, leadId, clientName, clientPhone, agentNote, customization })
+      .create({ title, unitIds, listingIds, leadId, clientName, clientPhone, agentNote, customization })
       .then((saved) => replaceSelection(tempId, saved))
       .catch((err) => console.error('Не удалось сохранить подборку на сервере:', err))
 
@@ -157,7 +163,7 @@ state = {
       .catch((err) => console.error('Не удалось изменить статус подборки на сервере:', err))
   },
 
-  setReaction(selectionId, unitId, reaction) {
+  setReaction(selectionId, itemId, reaction) {
     const target = findRecord(selectionId)
     if (!target) return
     const now = new Date().toISOString()
@@ -166,13 +172,15 @@ state = {
         if (s.id !== selectionId) return s
         return {
           ...s,
-          items: s.items.map((item) => (item.unitId === unitId ? { ...item, reaction, viewedAt: now } : item)),
+          items: s.items.map((item) =>
+            item.unitId === itemId || item.listingId === itemId ? { ...item, reaction, viewedAt: now } : item,
+          ),
         }
       }),
     })
 
     devSelectionsApiV2
-      .updateItem(selectionId, unitId, { reaction: reaction ?? null }, versionOf(target))
+      .updateItem(selectionId, itemId, { reaction: reaction ?? null }, versionOf(target))
       .then((saved) => replaceSelection(selectionId, saved))
       .catch((err) => console.error('Не удалось сохранить реакцию на лот на сервере:', err))
   },
@@ -187,53 +195,73 @@ state = {
       .catch((err) => console.error('Не удалось открыть подборку по ссылке:', err))
   },
 
-  updateItemNote(selectionId, unitId, note) {
+  updateItemNote(selectionId, itemId, note) {
     const target = findRecord(selectionId)
     if (!target) return
     set({
       selections: get().selections.map((s) => {
         if (s.id !== selectionId) return s
-        return { ...s, items: s.items.map((item) => (item.unitId === unitId ? { ...item, agentNote: note } : item)) }
+        return {
+          ...s,
+          items: s.items.map((item) =>
+            item.unitId === itemId || item.listingId === itemId ? { ...item, agentNote: note } : item,
+          ),
+        }
       }),
     })
 
     devSelectionsApiV2
-      .updateItem(selectionId, unitId, { agentNote: note }, versionOf(target))
+      .updateItem(selectionId, itemId, { agentNote: note }, versionOf(target))
       .then((saved) => replaceSelection(selectionId, saved))
       .catch((err) => console.error('Не удалось сохранить заметку агента на сервере:', err))
   },
 
   addUnits(selectionId, unitIds) {
+    get().addItems(selectionId, { unitIds })
+  },
+
+  addItems(selectionId, { unitIds = [], listingIds = [] }) {
     const target = findRecord(selectionId)
     if (!target) return
-    const existing = new Set(target.items.map((i) => i.unitId))
-    const newUnitIds = unitIds.filter((id) => !existing.has(id))
-    if (newUnitIds.length === 0) return
+    const existingUnits = new Set(target.items.map((i) => i.unitId).filter(Boolean))
+    const existingListings = new Set(target.items.map((i) => i.listingId).filter(Boolean))
+    const newUnitIds = unitIds.filter((id) => !existingUnits.has(id))
+    const newListingIds = listingIds.filter((id) => !existingListings.has(id))
+    if (newUnitIds.length === 0 && newListingIds.length === 0) return
 
     set({
       selections: get().selections.map((s) => {
         if (s.id !== selectionId) return s
-        return { ...s, items: [...s.items, ...newUnitIds.map((unitId): DevSelectionItem => ({ unitId }))] }
+        return {
+          ...s,
+          items: [
+            ...s.items,
+            ...newUnitIds.map((unitId): DevSelectionItem => ({ targetType: 'unit', unitId })),
+            ...newListingIds.map((listingId): DevSelectionItem => ({ targetType: 'listing', listingId })),
+          ],
+        }
       }),
     })
 
     devSelectionsApiV2
-      .addItems(selectionId, newUnitIds, versionOf(target))
+      .addItems(selectionId, { unitIds: newUnitIds, listingIds: newListingIds }, versionOf(target))
       .then((saved) => replaceSelection(selectionId, saved))
       .catch((err) => console.error('Не удалось добавить лоты в подборку на сервере:', err))
   },
 
-  removeUnit(selectionId, unitId) {
+  removeItem(selectionId, itemId) {
     const target = findRecord(selectionId)
     if (!target) return
     set({
       selections: get().selections.map((s) =>
-        s.id !== selectionId ? s : { ...s, items: s.items.filter((i) => i.unitId !== unitId) },
+        s.id !== selectionId
+          ? s
+          : { ...s, items: s.items.filter((i) => i.unitId !== itemId && i.listingId !== itemId) },
       ),
     })
 
     devSelectionsApiV2
-      .removeItem(selectionId, unitId, versionOf(target))
+      .removeItem(selectionId, itemId, versionOf(target))
       .then((saved) => replaceSelection(selectionId, saved))
       .catch((err) => console.error('Не удалось удалить лот из подборки на сервере:', err))
   },

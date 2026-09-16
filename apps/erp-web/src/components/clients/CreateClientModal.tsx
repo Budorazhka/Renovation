@@ -1,39 +1,21 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { X, User, Building2, Megaphone } from 'lucide-react'
-import { CLIENT_SOURCE_GROUPS } from '@/data/clients-mock'
-import { type Client, type ClientRequestType, type ClientType, CLIENT_REQUEST_TYPE_LABEL } from '@/types/clients'
-import { useI18n } from "@/i18n";
+import { isAxiosError } from 'axios'
+import { X } from 'lucide-react'
+import { contactsApiV2, newIdempotencyKey } from '@/services/contactsApiV2'
+import { CONTACT_ROLES_V2, type ContactRoleV2, type ContactV2 } from '@/types/contactsV2'
+import { useI18n } from '@/i18n'
 
 const PRIMARY = 'var(--gold)'
 const SURFACE = 'var(--green-deep)'
 const DIALOG_BG = 'var(--rail-bg)'
 
-const DEFAULT_SOURCE = CLIENT_SOURCE_GROUPS[0]?.sources[0] ?? 'BAZA.sale'
-
-function displayNameForCompany(org: string): string {
-  const t = org.trim()
-  if (!t) return ''
-  return t.length > 28 ? `${t.slice(0, 26)}…` : t
-}
-
-function displayNameFromPerson(lastName: string, firstName: string): string {
-  const L = lastName.trim()
-  const F = firstName.trim()
-  if (!L && !F) return ''
-  if (!F) return L
-  if (!L) return F
-  return `${L} ${F[0]}.`
-}
-
-const REQUEST_KEYS = Object.keys(CLIENT_REQUEST_TYPE_LABEL) as ClientRequestType[]
-
-function budgetInputToStored(raw: string): string | undefined {
-  const t = raw.trim()
-  if (t === '') return undefined
-  const n = Number(t)
-  if (!Number.isFinite(n) || n < 0 || n > 1e15) return undefined
-  return `$${Math.round(n).toLocaleString('ru-RU').replace(/ | /g, ' ')}`
+const ROLE_LABELS: Record<ContactRoleV2, string> = {
+  buyer: 'Покупатель',
+  investor: 'Инвестор',
+  owner: 'Собственник',
+  referral: 'Реферал',
+  broker: 'Посредник',
 }
 
 const inputBase = {
@@ -55,45 +37,32 @@ const labelStyle = { fontSize: 13, fontWeight: 400 as const, color: 'rgba(220,23
 type Props = {
   open: boolean
   onClose: () => void
-  onCreated: (client: Client) => void
-  assignedAgentId: string
-  assignedAgentName: string
+  onCreated: (contact: ContactV2) => void
 }
 
-export function CreateClientModal({
-  open,
-  onClose,
-  onCreated,
-  assignedAgentId,
-  assignedAgentName,
-}: Props) {
-    const { t } = useI18n();
-  const [clientType, setClientType] = useState<ClientType>('individual')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [companyName, setCompanyName] = useState('')
+/**
+ * «Добавить клиента» независимо от лида (N-20, POST /api/v1/contacts).
+ * Раньше собирала фиктивную карточку локально: тип физ/юрлица, бюджет,
+ * источник обращения и комментарий — ни одно из этих полей CRM не хранит.
+ * Реальные поля контакта — имя, телефон, email, роли (buyer/investor/
+ * owner/referral/broker), их и запрашивает форма.
+ */
+export function CreateClientModal({ open, onClose, onCreated }: Props) {
+  const { t } = useI18n()
+  const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
-  const [budget, setBudget] = useState('')
-  const [requestType, setRequestType] = useState<ClientRequestType | ''>('')
-  const [sourceKey, setSourceKey] = useState<string>(DEFAULT_SOURCE)
-  const [sourceOther, setSourceOther] = useState('')
-  const [interests, setInterests] = useState('')
+  const [roles, setRoles] = useState<ContactRoleV2[]>([])
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setClientType('individual')
-    setFirstName('')
-    setLastName('')
-    setCompanyName('')
+    setName('')
     setPhone('')
     setEmail('')
-    setBudget('')
-    setRequestType('')
-    setSourceKey(DEFAULT_SOURCE)
-    setSourceOther('')
-    setInterests('')
+    setRoles([])
+    setSubmitting(false)
     setError(null)
   }, [open])
 
@@ -109,89 +78,54 @@ export function CreateClientModal({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !submitting) onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, submitting])
 
   if (!open || typeof document === 'undefined') return null
 
-  const resolvedSource =
-    sourceKey === 'Другое' ? sourceOther.trim() || 'Другое (не указано)' : sourceKey
+  function toggleRole(role: ContactRoleV2) {
+    setRoles(prev => (prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]))
+  }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    const p = phone.trim()
-    if (!p) {
+    const trimmedName = name.trim()
+    const trimmedPhone = phone.trim()
+    if (!trimmedName) {
+      setError('Укажите имя или название')
+      return
+    }
+    if (!trimmedPhone) {
       setError('Укажите телефон')
       return
     }
-    if (!requestType) {
-      setError('Выберите тип запроса: первичка, вторичка, аренда или коммерция')
-      return
-    }
-    if (sourceKey === 'Другое' && !sourceOther.trim()) {
-      setError('Опишите источник в поле «Свой вариант» или выберите другой канал')
-      return
-    }
 
-    let name: string
-    let displayName: string
-    let firstNameOut: string | undefined
-    let lastNameOut: string | undefined
-
-    if (clientType === 'company') {
-      const org = companyName.trim()
-      if (!org) {
-        setError('Укажите название организации')
-        return
+    setSubmitting(true)
+    try {
+      const contact = await contactsApiV2.create(
+        {
+          name: trimmedName,
+          phone: trimmedPhone,
+          email: email.trim() || undefined,
+          roles: roles.length > 0 ? roles : undefined,
+        },
+        newIdempotencyKey(),
+      )
+      onCreated(contact)
+      onClose()
+    } catch (cause) {
+      if (isAxiosError(cause) && cause.response?.data?.error?.code === 'CONTACT_PHONE_TAKEN') {
+        setError('Клиент с таким телефоном уже есть в базе')
+      } else {
+        setError('Не удалось создать клиента. Попробуйте ещё раз')
       }
-      name = org
-      displayName = displayNameForCompany(org)
-    } else {
-      const fn = firstName.trim()
-      const ln = lastName.trim()
-      if (!fn) {
-        setError('Укажите имя')
-        return
-      }
-      if (!ln) {
-        setError('Укажите фамилию')
-        return
-      }
-      firstNameOut = fn
-      lastNameOut = ln
-      name = `${ln} ${fn}`
-      displayName = displayNameFromPerson(ln, fn)
+    } finally {
+      setSubmitting(false)
     }
-
-    const id = `cl-${Date.now()}`
-    const today = new Date().toISOString().slice(0, 10)
-    const client: Client = {
-      id,
-      type: clientType,
-      name,
-      displayName,
-      firstName: firstNameOut,
-      lastName: lastNameOut,
-      phone: p,
-      email: email.trim() || undefined,
-      assignedAgentId,
-      assignedAgentName,
-      segment: 'active',
-      source: resolvedSource,
-      createdAt: today,
-      lastContactAt: today,
-      budget: budgetInputToStored(budget),
-      requestType,
-      interests: interests.trim() || undefined,
-      dealsCount: 0,
-      tasksCount: 0,
-    }
-    onCreated(client)
-    onClose()
   }
 
   const modal = (
@@ -205,7 +139,7 @@ export function CreateClientModal({
           zIndex: 10100,
           background: 'rgba(0,0,0,0.55)',
         }}
-        onClick={onClose}
+        onClick={submitting ? undefined : onClose}
       />
       <div
         role="dialog"
@@ -217,8 +151,8 @@ export function CreateClientModal({
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          width: 'min(520px, calc(100vw - 28px))',
-          maxHeight: 'min(90vh, 780px)',
+          width: 'min(460px, calc(100vw - 28px))',
+          maxHeight: 'min(90vh, 640px)',
           overflowY: 'auto',
           padding: 22,
           background: DIALOG_BG,
@@ -236,6 +170,7 @@ export function CreateClientModal({
             type="button"
             aria-label={t('clients.createClientModal.закрыть')}
             onClick={onClose}
+            disabled={submitting}
             style={{
               flexShrink: 0,
               width: 36,
@@ -244,7 +179,8 @@ export function CreateClientModal({
               border: '1px solid rgba(255,255,255,0.12)',
               background: 'rgba(0,0,0,0.35)',
               color: 'rgba(220,230,224,0.85)',
-              cursor: 'pointer',
+              cursor: submitting ? 'default' : 'pointer',
+              opacity: submitting ? 0.5 : 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -254,89 +190,23 @@ export function CreateClientModal({
           </button>
         </div>
         <p style={{ margin: '0 0 18px', fontSize: 13, color: 'rgba(194, 200, 196, 0.72)', lineHeight: 1.45 }}>
-          {t('clients.createClientModal.источник_обязателен')}</p>
+          Телефон — уникальный идентификатор клиента в базе агентства.
+        </p>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 18 }}>
-            <span style={{ ...labelStyle, display: 'block', marginBottom: 8 }}>{t('clients.createClientModal.тип')}</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {(
-                [
-                  { key: 'individual' as const, label: 'Физлицо', Icon: User },
-                  { key: 'company' as const, label: 'Юрлицо', Icon: Building2 },
-                ] as const
-              ).map(({ key, label, Icon }) => {
-                const active = clientType === key
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setClientType(key)}
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      height: 44,
-                      borderRadius: 10,
-                      border: active ? `2px solid ${PRIMARY}` : '1px solid rgba(255,255,255,0.12)',
-                      background: active ? 'color-mix(in srgb, var(--gold) 12%, transparent)' : SURFACE,
-                      color: active ? PRIMARY : 'rgba(220,230,224,0.85)',
-                      fontSize: 13,
-                      fontWeight: active ? 700 : 600,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    <Icon size={18} />
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {clientType === 'individual' ? (
-            <>
-              <label style={{ display: 'block', marginBottom: 14 }}>
-                <span style={labelStyle}>
-                  {t('clients.createClientModal.имя')}<span style={{ color: '#fb923c' }}>*</span>
-                </span>
-                <input
-                  value={firstName}
-                  onChange={e => setFirstName(e.target.value)}
-                  placeholder={t('clients.createClientModal.иван')}
-                  style={inputBase}
-                  autoComplete="given-name"
-                />
-              </label>
-              <label style={{ display: 'block', marginBottom: 14 }}>
-                <span style={labelStyle}>
-                  {t('clients.createClientModal.фамилия')}<span style={{ color: '#fb923c' }}>*</span>
-                </span>
-                <input
-                  value={lastName}
-                  onChange={e => setLastName(e.target.value)}
-                  placeholder={t('clients.createClientModal.иванов')}
-                  style={inputBase}
-                  autoComplete="family-name"
-                />
-              </label>
-            </>
-          ) : (
-            <label style={{ display: 'block', marginBottom: 14 }}>
-              <span style={labelStyle}>
-                {t('clients.createClientModal.название_организации')}<span style={{ color: '#fb923c' }}>*</span>
-              </span>
-              <input
-                value={companyName}
-                onChange={e => setCompanyName(e.target.value)}
-                placeholder={t('clients.createClientModal.ооо')}
-                style={inputBase}
-              />
-            </label>
-          )}
+        <form onSubmit={e => void handleSubmit(e)}>
+          <label style={{ display: 'block', marginBottom: 14 }}>
+            <span style={labelStyle}>
+              {t('clients.createClientModal.имя')}<span style={{ color: '#fb923c' }}>*</span>
+            </span>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Иван Иванов"
+              style={inputBase}
+              autoComplete="name"
+              disabled={submitting}
+            />
+          </label>
 
           <label style={{ display: 'block', marginBottom: 14 }}>
             <span style={labelStyle}>
@@ -348,10 +218,11 @@ export function CreateClientModal({
               placeholder="+7 …"
               style={inputBase}
               inputMode="tel"
+              disabled={submitting}
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 14 }}>
+          <label style={{ display: 'block', marginBottom: 18 }}>
             <span style={labelStyle}>Email</span>
             <input
               value={email}
@@ -359,148 +230,39 @@ export function CreateClientModal({
               placeholder={t('clients.createClientModal.необязательно')}
               type="email"
               style={inputBase}
+              disabled={submitting}
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 14 }}>
-            <span style={labelStyle}>{t('clients.createClientModal.бюджет')}</span>
-            <div style={{ position: 'relative' }}>
-              <span
-                aria-hidden
-                style={{
-                  position: 'absolute',
-                  left: 14,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  color: 'rgba(194, 200, 196, 0.38)',
-                  pointerEvents: 'none',
-                  lineHeight: 1,
-                }}
-              >
-                $
-              </span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                className="create-client-budget-input"
-                value={budget}
-                onChange={e => setBudget(e.target.value)}
-                autoComplete="off"
-                style={{
-                  ...inputBase,
-                  width: '100%',
-                  paddingLeft: 28,
-                }}
-              />
+          <div style={{ marginBottom: 18 }}>
+            <span style={{ ...labelStyle, display: 'block', marginBottom: 8 }}>Роль клиента</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 8 }}>
+              {CONTACT_ROLES_V2.map(role => {
+                const active = roles.includes(role)
+                return (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => toggleRole(role)}
+                    disabled={submitting}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 999,
+                      border: active ? `1px solid ${PRIMARY}` : '1px solid rgba(255,255,255,0.12)',
+                      background: active ? 'color-mix(in srgb, var(--gold) 14%, transparent)' : SURFACE,
+                      color: active ? PRIMARY : 'rgba(220,230,224,0.85)',
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 400,
+                      cursor: submitting ? 'default' : 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {ROLE_LABELS[role]}
+                  </button>
+                )
+              })}
             </div>
-          </label>
-
-          <label style={{ display: 'block', marginBottom: 18 }}>
-            <span style={labelStyle}>
-              {t('clients.createClientModal.тип_запроса')}<span style={{ color: '#fb923c' }}>*</span>
-            </span>
-            <select
-              value={requestType}
-              onChange={e => setRequestType(e.target.value as ClientRequestType | '')}
-              style={{
-                ...inputBase,
-                height: 48,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="">{t('clients.createClientModal.выберите')}</option>
-              {REQUEST_KEYS.map(key => (
-                <option key={key} value={key}>
-                  {CLIENT_REQUEST_TYPE_LABEL[key]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div
-            style={{
-              marginBottom: 18,
-              padding: 14,
-              borderRadius: 12,
-              border: '1px solid color-mix(in srgb, var(--gold) 28%, transparent)',
-              background: 'rgba(15, 35, 30, 0.65)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  background: 'color-mix(in srgb, var(--gold) 15%, transparent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Megaphone size={20} color={PRIMARY} />
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 400, color: PRIMARY, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                  {t('clients.createClientModal.источник_обращения')}</div>
-                <div style={{ fontSize: 12, color: 'rgba(194,200,196,0.65)', marginTop: 2, lineHeight: 1.4 }}>
-                  {t('clients.createClientModal.кабинеты_платные_кам')}</div>
-              </div>
-            </div>
-            <label style={{ display: 'block', marginBottom: sourceKey === 'Другое' ? 10 : 0 }}>
-              <span style={{ ...labelStyle, fontSize: 12 }}>{t('clients.createClientModal.канал_сценарий')}<span style={{ color: '#fb923c' }}>*</span></span>
-              <select
-                value={sourceKey}
-                onChange={e => setSourceKey(e.target.value)}
-                style={{
-                  ...inputBase,
-                  height: 48,
-                  cursor: 'pointer',
-                }}
-              >
-                {CLIENT_SOURCE_GROUPS.map(group => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.sources.map(s => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            {sourceKey === 'Другое' && (
-              <label style={{ display: 'block' }}>
-                <span style={{ ...labelStyle, fontSize: 12 }}>{t('clients.createClientModal.свой_вариант')}<span style={{ color: '#fb923c' }}>*</span></span>
-                <input
-                  value={sourceOther}
-                  onChange={e => setSourceOther(e.target.value)}
-                  placeholder={t('clients.createClientModal.например_чат_бот_на')}
-                  style={inputBase}
-                />
-              </label>
-            )}
           </div>
-
-          <label style={{ display: 'block', marginBottom: error ? 12 : 18 }}>
-            <span style={labelStyle}>{t('clients.createClientModal.комментарий_к_запрос')}</span>
-            <textarea
-              value={interests}
-              onChange={e => setInterests(e.target.value)}
-              placeholder={t('clients.createClientModal.объект_сроки_пожелан')}
-              rows={3}
-              style={{
-                ...inputBase,
-                height: 'auto',
-                minHeight: 80,
-                padding: '12px 14px',
-                resize: 'vertical' as const,
-              }}
-            />
-          </label>
 
           {error && (
             <p style={{ margin: '0 0 14px', fontSize: 13, color: '#fb923c', lineHeight: 1.4 }}>
@@ -512,6 +274,7 @@ export function CreateClientModal({
             <button
               type="button"
               onClick={onClose}
+              disabled={submitting}
               style={{
                 flex: 1,
                 height: 48,
@@ -521,13 +284,14 @@ export function CreateClientModal({
                 color: 'rgba(220,230,224,0.9)',
                 fontSize: 14,
                 fontWeight: 400,
-                cursor: 'pointer',
+                cursor: submitting ? 'default' : 'pointer',
                 fontFamily: 'inherit',
               }}
             >
               {t('clients.createClientModal.отмена')}</button>
             <button
               type="submit"
+              disabled={submitting}
               style={{
                 flex: 1,
                 height: 48,
@@ -537,12 +301,13 @@ export function CreateClientModal({
                 color: '#fff',
                 fontSize: 14,
                 fontWeight: 400,
-                cursor: 'pointer',
+                cursor: submitting ? 'default' : 'pointer',
+                opacity: submitting ? 0.7 : 1,
                 fontFamily: 'inherit',
                 letterSpacing: '0.04em',
               }}
             >
-              {t('clients.createClientModal.создать')}</button>
+              {submitting ? 'Создаём…' : t('clients.createClientModal.создать')}</button>
           </div>
         </form>
       </div>

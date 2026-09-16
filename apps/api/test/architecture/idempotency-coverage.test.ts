@@ -36,6 +36,7 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
   'POST /marketplace/property-assets/:assetId/listings/:listingId/publish':
     'publish листинга в marketplace-потоке',
   'POST /leads': 'дубль лида искажает воронку и отчётность по менеджерам — данные, по которым принимают решения',
+  'POST /contacts': 'дубль клиента (N-20) искажает список клиентов и сегменты — повтор не должен завести второй контакт',
   'PATCH /leads/:leadId/stage':
     'стадия лида напрямую участвует в отчётах по воронке и метриках менеджеров — повтор (клиентский таймаут+ретрай) не должен применить смену дважды и задвоить историю переходов',
   'POST /deals': 'дубль сделки удваивает ожидаемую комиссию в отчётах',
@@ -63,13 +64,16 @@ const REQUIRE_IDEMPOTENCY_KEY: Record<string, string> = {
     '(двойной клик) завёл бы вторую пустую подборку',
   'PATCH /developments/:developmentId/installment-plans/:id': 'обновление плана рассрочки с Idempotency-Key и expectedVersion',
   'DELETE /developments/:developmentId/installment-plans/:id': 'удаление плана рассрочки с Idempotency-Key и expectedVersion',
+  'POST /developments/:developmentId/commission-rules': 'N-21: создание правила комиссии партнёра — дубль создал бы дублирующее правило',
+  'PATCH /developments/:developmentId/commission-rules/:id': 'обновление правила комиссии с Idempotency-Key и expectedVersion',
+  'DELETE /developments/:developmentId/commission-rules/:id': 'удаление правила комиссии с Idempotency-Key и expectedVersion',
   'POST /selections': 'дубль подборки для клиента — повтор формы создал бы вторую подборку с той же публичной ссылкой-намерением',
   'PATCH /selections/:id': 'обновление подборки с Idempotency-Key и expectedVersion',
   'PATCH /selections/:id/status': 'смена статуса подборки с Idempotency-Key и expectedVersion',
   'DELETE /selections/:id': 'удаление подборки с Idempotency-Key и expectedVersion',
   'POST /selections/:id/items': 'добавление лотов в подборку с Idempotency-Key и expectedVersion',
-  'DELETE /selections/:id/items/:unitId': 'удаление лота из подборки с Idempotency-Key и expectedVersion',
-  'PATCH /selections/:id/items/:unitId': 'заметка/реакция агента на лот в подборке с Idempotency-Key и expectedVersion',
+  'DELETE /selections/:id/items/:itemId': 'удаление лота из подборки с Idempotency-Key и expectedVersion',
+  'PATCH /selections/:id/items/:itemId': 'заметка/реакция агента на лот в подборке с Idempotency-Key и expectedVersion',
   'POST /messenger/accounts/telegram/bot': 'создание бота в организации — дубль создал бы дубликат канала',
   'POST /messenger/accounts/whatsapp': 'создание WA аккаунта — дубль создал бы дубликат канала',
   'POST /messenger/dialogs/:dialogId/messages': 'отправка сообщения — дубль отправил бы клиенту два одинаковых сообщения',
@@ -193,6 +197,8 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /leads/:leadId/unassign': 'условный update владельца (обратное действие assign, тот же принцип)',
   'PATCH /leads/:leadId':
     '`[phase 3]` обновление сопутствующих полей по id, идемпотентно — повтор с тем же телом применяет тот же $set повторно, без побочного дублирования (stage сюда не входит, тот путь — PATCH /leads/:leadId/stage, уже в списке обязательных выше). name/phone/email/productType того же класса: повтор применяет тот же $set к Contact/тот же сброс stage к тому же productType повторно',
+  'PATCH /contacts/:contactId':
+    'N-20: правка контакта по его собственному id — тот же $set-принцип, что PATCH /leads/:leadId выше, повтор с тем же телом идемпотентен по природе (не создание сущности, не счётчик)',
   'PATCH /leads/:leadId/checklist':
     'установка отметок чек-листа по (stage,index) — повтор с тем же телом применяет те же $set повторно, идемпотентно по природе (не создание сущности, не счётчик)',
   'PUT /leads/:leadId/stage-notes/:stage':

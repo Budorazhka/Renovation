@@ -128,10 +128,10 @@ describe('useDevSelectionsStore with real backend API', () => {
 
     store.addUnits(id, ['unit-1', 'unit-2'])
 
-    expect(addItemsMock).toHaveBeenCalledWith(id, ['unit-2'], 0)
+    expect(addItemsMock).toHaveBeenCalledWith(id, { unitIds: ['unit-2'], listingIds: [] }, 0)
   })
 
-  it('removeUnit() удаляет лот локально и вызывает API', async () => {
+  it('removeItem() удаляет лот локально и вызывает API', async () => {
     removeItemMock.mockResolvedValue({ ...baseServerSelection, items: [], version: 1 })
 
     const { getDevSelectionsState } = await import('@/store/useDevSelectionsStore')
@@ -139,7 +139,7 @@ describe('useDevSelectionsStore with real backend API', () => {
     store.create({ title: 'x', unitIds: ['unit-1'] })
     const id = getDevSelectionsState().selections[0]!.id
 
-    store.removeUnit(id, 'unit-1')
+    store.removeItem(id, 'unit-1')
 
     expect(getDevSelectionsState().selections.find((s) => s.id === id)?.items).toHaveLength(0)
     expect(removeItemMock).toHaveBeenCalledWith(id, 'unit-1', 0)

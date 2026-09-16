@@ -59,7 +59,10 @@ function fromBase64Url(value: string): string {
 /** Кодирует подборку в payload для `?d=`. */
 export function encodeSelectionShare(sel: DevSelection): string {
   const payload: SelectionSharePayload = {
-    i: sel.items.map((item) => {
+    // Фоллбэк-payload поддерживает только юниты новостроек (см. докстринг файла) —
+    // листинги вторички (N-27) резолвятся сервером в самой подборке по токену,
+    // а не через это временное окно до ответа create().
+    i: sel.items.filter((item): item is DevSelectionItem & { unitId: string } => Boolean(item.unitId)).map((item) => {
       const entry: { u: string; n?: string; r?: string } = { u: item.unitId }
       if (item.agentNote) entry.n = item.agentNote
       if (item.reaction) entry.r = REACTION_CODE[item.reaction]
@@ -102,7 +105,7 @@ export function parseSelectionShare(search: string): DevSelection | null {
     const items: DevSelectionItem[] = payload.i
       .filter((entry) => typeof entry?.u === 'string' && entry.u)
       .map((entry) => {
-        const item: DevSelectionItem = { unitId: entry.u }
+        const item: DevSelectionItem = { targetType: 'unit', unitId: entry.u }
         if (entry.n) item.agentNote = entry.n
         if (entry.r && REACTION_BY_CODE[entry.r]) item.reaction = REACTION_BY_CODE[entry.r]
         return item

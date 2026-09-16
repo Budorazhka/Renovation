@@ -41,6 +41,7 @@ import { InviteActivatePage } from '@/components/auth/InviteActivatePage'
 import { LMSPage } from '@/components/lms/LMSPage'
 import { MyPropertiesPage } from '@/components/management/my-properties/MyPropertiesPage'
 import { ClientsListPage } from '@/components/clients/ClientsListPage'
+import { ClientCardPage } from '@/components/clients/ClientCardPage'
 import { DealsKanbanPage } from '@/components/deals/DealsKanbanPage'
 import { DealCardPage } from '@/components/deals/DealCardPage'
 import { DealsReportPage } from '@/components/deals/DealsReportPage'
@@ -396,6 +397,7 @@ createRoot(document.getElementById('root')!).render(
                             </Route>
                             <Route path="clients" element={<ClientsPage />} />
                             <Route path="clients/list" element={<ClientsListPage />} />
+                            <Route path="clients/:clientId" element={<ClientCardPage />} />
                             <Route path="deals/kanban" element={<DealsKanbanPage />} />
                             <Route path="deals/report" element={<DealsReportPage />} />
                             <Route path="deals/:dealId" element={<DealCardPage />} />
@@ -403,9 +405,10 @@ createRoot(document.getElementById('root')!).render(
                             <Route path="tasks/my" element={<TasksPageFull />} />
                             <Route path="tasks/team" element={<TasksPageFull />} />
                             <Route path="tasks/auto" element={<TasksPageFull />} />
-                            <Route path="bookings/register-client" element={<BookingsPageFull />} />
+                            {/* "Фиксация клиента" — не отдельная бронь, а тот же жизненный цикл, что уже реализован в client-registrations (accept/reject/confirm/complete). Отдельного UI/API под неё больше нет — редирект на настоящий экран вместо дублирующего локального стейта. */}
+                            <Route path="bookings/register-client" element={<Navigate to="/dashboard/development/management/registrations" replace />} />
+                            <Route path="bookings/client" element={<Navigate to="/dashboard/development/management/registrations" replace />} />
                             <Route path="bookings/register-buyer" element={<BookingsPageFull />} />
-                            <Route path="bookings/client" element={<BookingsPageFull />} />
                             <Route path="bookings/apartment" element={<BookingsPageFull />} />
                             <Route path="bookings/history" element={<BookingsPageFull />} />
                             <Route path="calendar/personal" element={<CalendarPageFull />} />

@@ -90,6 +90,7 @@ describe('GET /contacts, GET /contacts/:contactId — HTTP integration (полн
   afterEach(async () => {
     await connection.collection('leads').deleteMany({});
     await connection.collection('lead_events').deleteMany({});
+    await connection.collection('deals').deleteMany({});
     await connection.collection('contacts').deleteMany({});
     await connection.collection('positions').deleteMany({});
     await connection.collection('position_assignments').deleteMany({});
@@ -428,6 +429,300 @@ describe('GET /contacts, GET /contacts/:contactId — HTTP integration (полн
       const response = await app.inject({ method: 'GET', url: `/api/v1/contacts/${contactId.toString()}`, headers: { cookie } });
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toMatch(/passwordHash|sessionToken|tokenHash/);
+    });
+  });
+
+  async function seedDeal(
+    organizationId: Types.ObjectId,
+    contactId: Types.ObjectId,
+    ownerPositionId: Types.ObjectId,
+    stage: string,
+  ): Promise<Types.ObjectId> {
+    const dealId = new Types.ObjectId();
+    await connection.collection('deals').insertOne({
+      _id: dealId,
+      organizationId,
+      contactId,
+      ownerPositionId,
+      title: 'Интеграционная сделка',
+      stage,
+      dealType: 'secondary',
+      participants: [],
+      checklistItems: [],
+      version: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    return dealId;
+  }
+
+  describe('GET /contacts, GET /contacts/:contactId — сегмент и dealsCount (N-20)', () => {
+    it('без единой сделки/лида — сегмент "active", dealsCount 0', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const contactId = await seedContact(organizationId);
+
+      const response = await app.inject({ method: 'GET', url: `/api/v1/contacts/${contactId.toString()}`, headers: { cookie } });
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({ segment: 'active', dealsCount: 0 });
+    });
+
+    it('сделка дошла до golden — сегмент "golden", dealsCount считает ВСЕ сделки контакта', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const contactId = await seedContact(organizationId);
+      await seedDeal(organizationId, contactId, positionId, 'showing');
+      await seedDeal(organizationId, contactId, positionId, 'golden');
+
+      const response = await app.inject({ method: 'GET', url: `/api/v1/contacts/${contactId.toString()}`, headers: { cookie } });
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({ segment: 'golden', dealsCount: 2 });
+
+      const listResponse = await app.inject({ method: 'GET', url: '/api/v1/contacts', headers: { cookie } });
+      const listBody = JSON.parse(listResponse.body);
+      expect(listBody.items[0]).toMatchObject({ id: contactId.toString(), segment: 'golden', dealsCount: 2 });
+    });
+
+    it('сделка сорвалась (closed_lost), открытых лидов нет — сегмент "archived"', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const contactId = await seedContact(organizationId);
+      await seedDeal(organizationId, contactId, positionId, 'closed_lost');
+
+      const response = await app.inject({ method: 'GET', url: `/api/v1/contacts/${contactId.toString()}`, headers: { cookie } });
+      expect(JSON.parse(response.body)).toMatchObject({ segment: 'archived', dealsCount: 1 });
+    });
+
+    it('лид в активной стадии без сделки — сегмент "active"', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const contactId = await seedContact(organizationId);
+      await seedLead(organizationId, contactId, { ownerPositionId: positionId });
+
+      const response = await app.inject({ method: 'GET', url: `/api/v1/contacts/${contactId.toString()}`, headers: { cookie } });
+      expect(JSON.parse(response.body)).toMatchObject({ segment: 'active', dealsCount: 0 });
+    });
+
+    it('GET /contacts?segment=golden — отдаёт только золотой фонд, остальные сегменты не попадают', async () => {
+      const { cookie, organizationId, positionId } = await seedOwnerSession();
+      const goldenContactId = await seedContact(organizationId, { name: 'Золотой Клиент' });
+      await seedDeal(organizationId, goldenContactId, positionId, 'golden');
+      const freshContactId = await seedContact(organizationId, { name: 'Свежий Клиент' });
+      void freshContactId;
+
+      const response = await app.inject({ method: 'GET', url: '/api/v1/contacts?segment=golden', headers: { cookie } });
+      const body = JSON.parse(response.body);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].id).toBe(goldenContactId.toString());
+    });
+  });
+});
+
+describe('POST /contacts, PATCH /contacts/:contactId — HTTP integration (полный AppModule)', () => {
+  let replSet: MongoMemoryReplSet;
+  let app: NestFastifyApplication;
+  let connection: Connection;
+  let authService: AuthService;
+  let organizationsService: OrganizationsService;
+
+  beforeAll(async () => {
+    replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+    await replSet.waitUntilRunning();
+    process.env.MONGO_URI = replSet.getUri();
+    process.env.MINIO_ENDPOINT ??= 'http://localhost:9000';
+    process.env.MINIO_ACCESS_KEY ??= 'test-access-key';
+    process.env.MINIO_SECRET_KEY ??= 'test-secret-key';
+    process.env.MINIO_BUCKET_PRIVATE ??= 'test-private';
+    process.env.MINIO_BUCKET_PUBLIC ??= 'test-public';
+    process.env.REDIS_URL ??= 'redis://localhost:6379';
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(RedisService)
+      .useValue(createRedisMockService())
+      .compile();
+    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+
+    await app.register(fastifyCookie);
+    const fastifyInstance = app.getHttpAdapter().getInstance();
+    const correlationIdMiddleware = app.get(CorrelationIdMiddleware);
+    const tenantContextMiddleware = app.get(TenantContextMiddleware);
+    const adminContextMiddleware = app.get(AdminContextMiddleware);
+    const marketplaceAccountContextMiddleware = app.get(MarketplaceAccountContextMiddleware);
+    const isHealthCheckPath = (url: string): boolean => url === '/health' || url === '/health/ready';
+    for (const middleware of [
+      correlationIdMiddleware,
+      tenantContextMiddleware,
+      adminContextMiddleware,
+      marketplaceAccountContextMiddleware,
+    ]) {
+      fastifyInstance.addHook('onRequest', async (req: FastifyRequest, reply: FastifyReply) => {
+        if (isHealthCheckPath(req.url)) return;
+        await middleware.use(req, reply, () => {});
+      });
+    }
+    app.useGlobalFilters(new AppExceptionFilter());
+    const { ValidationPipe } = await import('@nestjs/common');
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.setGlobalPrefix('api/v1', { exclude: ['health', 'health/ready'] });
+
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+
+    connection = moduleRef.get<Connection>(getConnectionToken());
+    authService = moduleRef.get(AuthService);
+    organizationsService = moduleRef.get(OrganizationsService);
+  }, 120_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await replSet?.stop();
+  });
+
+  afterEach(async () => {
+    await connection.collection('contacts').deleteMany({});
+    await connection.collection('positions').deleteMany({});
+    await connection.collection('position_assignments').deleteMany({});
+    await connection.collection('organizations').deleteMany({});
+    await connection.collection('audit_events').deleteMany({});
+    await connection.collection('permission_grants').deleteMany({});
+    await connection.collection('identities').deleteMany({});
+    await connection.collection('sessions').deleteMany({});
+    await connection.collection('product_accesses').deleteMany({});
+  });
+
+  const PASSWORD = 'correct horse battery staple';
+
+  async function seedOwnerSession(): Promise<{ cookie: string; organizationId: Types.ObjectId; positionId: Types.ObjectId }> {
+    const login = `owner-${new Types.ObjectId().toString()}@example.test`;
+    const identityId = await authService.registerIdentity({ login, password: PASSWORD });
+    const { organizationId, positionId } = await organizationsService.createOrganizationWithOwner({
+      type: 'agency',
+      name: 'Интеграционное агентство',
+      ownerIdentityId: identityId,
+    });
+    const session = await authService.login({ login, password: PASSWORD, audience: 'erp' });
+    return { cookie: `baza_session=${session.sessionToken}`, organizationId, positionId };
+  }
+
+  function post(url: string, cookie: string, payload: Record<string, unknown>, idempotencyKey?: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/v1${url}`,
+      headers: { cookie, ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) },
+      payload,
+    });
+  }
+
+  function patch(url: string, cookie: string, payload: Record<string, unknown>) {
+    return app.inject({ method: 'PATCH', url: `/api/v1${url}`, headers: { cookie }, payload });
+  }
+
+  describe('POST /contacts', () => {
+    it('без Idempotency-Key — 400 IDEMPOTENCY_KEY_REQUIRED', async () => {
+      const { cookie } = await seedOwnerSession();
+      const response = await post('/contacts', cookie, { name: 'Иван', phone: '+79990000000' });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
+    });
+
+    it('создаёт контакт — 201, сегмент "active", dealsCount 0, пишет аудит contact.create', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const response = await post('/contacts', cookie, { name: 'Иван Новый', phone: '+79991112233', roles: ['buyer'] }, 'idem-1');
+      expect(response.statusCode).toBe(201);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({ name: 'Иван Новый', phone: '+79991112233', roles: ['buyer'], segment: 'active', dealsCount: 0 });
+
+      const stored = await connection.collection('contacts').findOne({ organizationId, phone: '+79991112233' });
+      expect(stored?.name).toBe('Иван Новый');
+      const audit = await connection.collection('audit_events').findOne({ action: 'contact.create', resourceId: new Types.ObjectId(body.id) });
+      expect(audit).toBeTruthy();
+    });
+
+    it('повтор с тем же Idempotency-Key и телом — тот же ответ, второй контакт не создаётся', async () => {
+      const { cookie, organizationId } = await seedOwnerSession();
+      const first = await post('/contacts', cookie, { name: 'Иван', phone: '+79993334455' }, 'idem-repeat');
+      const second = await post('/contacts', cookie, { name: 'Иван', phone: '+79993334455' }, 'idem-repeat');
+
+      expect(second.statusCode).toBe(201);
+      expect(JSON.parse(second.body)).toEqual(JSON.parse(first.body));
+      const count = await connection.collection('contacts').countDocuments({ organizationId, phone: '+79993334455' });
+      expect(count).toBe(1);
+    });
+
+    it('телефон уже занят другим контактом этой организации — 409 CONTACT_PHONE_TAKEN', async () => {
+      const { cookie } = await seedOwnerSession();
+      await post('/contacts', cookie, { name: 'Первый', phone: '+79995556677' }, 'idem-a');
+
+      const response = await post('/contacts', cookie, { name: 'Второй', phone: '+79995556677' }, 'idem-b');
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe('CONTACT_PHONE_TAKEN');
+    });
+
+    it('без гранта contact.create — 403 FORBIDDEN', async () => {
+      const { cookie: ownerCookie, organizationId } = await seedOwnerSession();
+      const marketerLogin = `marketer-${new Types.ObjectId().toString()}@example.test`;
+      const marketerIdentityId = await authService.registerIdentity({ login: marketerLogin, password: PASSWORD });
+      await authService.grantErpAccess(marketerIdentityId);
+      const positionId = await organizationsService.createVacantPosition({ organizationId, fixedRole: 'marketer' });
+      await organizationsService.assignOccupant({
+        positionId,
+        identityId: marketerIdentityId,
+        occupantDisplayName: 'Маркетолог',
+        actorIdentityId: marketerIdentityId,
+        expectedOrganizationId: organizationId,
+        correlationId: 'http-integration-test-seed',
+      });
+      const session = await authService.login({ login: marketerLogin, password: PASSWORD, audience: 'erp' });
+      const marketerCookie = `baza_session=${session.sessionToken}`;
+      void ownerCookie;
+
+      const response = await post('/contacts', marketerCookie, { name: 'Иван', phone: '+79990000001' }, 'idem-marketer');
+      expect(response.statusCode).toBe(403);
+    });
+  });
+
+  describe('PATCH /contacts/:contactId', () => {
+    it('правит имя и телефон — 200, изменения видны в GET', async () => {
+      const { cookie } = await seedOwnerSession();
+      const created = JSON.parse((await post('/contacts', cookie, { name: 'Старое имя', phone: '+79990001111' }, 'idem-c')).body);
+
+      const response = await patch(`/contacts/${created.id}`, cookie, { name: 'Новое имя', phone: '+79990002222' });
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({ name: 'Новое имя', phone: '+79990002222' });
+
+      const getResponse = await app.inject({ method: 'GET', url: `/api/v1/contacts/${created.id}`, headers: { cookie } });
+      expect(JSON.parse(getResponse.body)).toMatchObject({ name: 'Новое имя', phone: '+79990002222' });
+    });
+
+    it('email:null снимает адрес', async () => {
+      const { cookie } = await seedOwnerSession();
+      const created = JSON.parse(
+        (await post('/contacts', cookie, { name: 'Иван', phone: '+79990003333', email: 'ivan@example.test' }, 'idem-d')).body,
+      );
+      expect(created.email).toBe('ivan@example.test');
+
+      const response = await patch(`/contacts/${created.id}`, cookie, { email: null });
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).email).toBeNull();
+    });
+
+    it('новый телефон занят ДРУГИМ контактом — 409 CONTACT_PHONE_TAKEN, запись не меняется', async () => {
+      const { cookie } = await seedOwnerSession();
+      const first = JSON.parse((await post('/contacts', cookie, { name: 'Первый', phone: '+79990004444' }, 'idem-e')).body);
+      const second = JSON.parse((await post('/contacts', cookie, { name: 'Второй', phone: '+79990005555' }, 'idem-f')).body);
+
+      const response = await patch(`/contacts/${second.id}`, cookie, { phone: '+79990004444' });
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe('CONTACT_PHONE_TAKEN');
+
+      const getResponse = await app.inject({ method: 'GET', url: `/api/v1/contacts/${second.id}`, headers: { cookie } });
+      expect(JSON.parse(getResponse.body).phone).toBe('+79990005555');
+      void first;
+    });
+
+    it('чужой контакт (другая организация) — 404, не 403 (non-disclosure)', async () => {
+      const { cookie: cookieA } = await seedOwnerSession();
+      const { cookie: cookieB } = await seedOwnerSession();
+      const created = JSON.parse((await post('/contacts', cookieA, { name: 'Иван', phone: '+79990006666' }, 'idem-g')).body);
+
+      const response = await patch(`/contacts/${created.id}`, cookieB, { name: 'Попытка чужой правки' });
+      expect(response.statusCode).toBe(404);
     });
   });
 });

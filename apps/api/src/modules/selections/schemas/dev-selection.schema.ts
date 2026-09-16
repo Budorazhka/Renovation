@@ -4,8 +4,20 @@ import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 export type DevSelectionStatus = 'draft' | 'sent' | 'viewed' | 'archived';
 export type DevSelectionReaction = 'liked' | 'disliked' | 'question';
 
+/**
+ * N-27: лот подборки — либо юнит новостройки (`developments`), либо
+ * объявление вторичного рынка (`@baza/property-assets`). До этого прохода
+ * `unitId` был единственным и обязательным полем — подборки вторички
+ * существовали только в браузере агента (`selections-mock`), сервер их не
+ * хранил вовсе.
+ */
+export type DevSelectionTargetType = 'unit' | 'listing';
+
 export interface DevSelectionItem {
-  unitId: Types.ObjectId;
+  /** `default: 'unit'` — у документов, записанных до N-27, поля не было; Mongoose применяет default и при чтении, старые записи читаются как unit без миграции. */
+  targetType: DevSelectionTargetType;
+  unitId?: Types.ObjectId;
+  listingId?: Types.ObjectId;
   agentNote?: string;
   reaction?: DevSelectionReaction;
   viewedAt?: Date;
@@ -13,7 +25,9 @@ export interface DevSelectionItem {
 
 const DevSelectionItemSchema = new MongooseSchema(
   {
-    unitId: { type: MongooseSchema.Types.ObjectId, required: true },
+    targetType: { type: String, required: true, enum: ['unit', 'listing'], default: 'unit' },
+    unitId: { type: MongooseSchema.Types.ObjectId, required: false },
+    listingId: { type: MongooseSchema.Types.ObjectId, required: false },
     agentNote: { type: String, required: false, maxlength: 2000 },
     reaction: { type: String, required: false, enum: ['liked', 'disliked', 'question'] },
     viewedAt: { type: Date, required: false },

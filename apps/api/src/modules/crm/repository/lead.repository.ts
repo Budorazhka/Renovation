@@ -225,6 +225,28 @@ export class LeadRepository {
   }
 
   /**
+   * Стадия каждого лида организации с его contactId — тот же вход для
+   * CrmService.buildContactSegmentIndex, что
+   * DealRepository.listContactStagesForOrganization, для контактов, у
+   * которых ещё нет сделки. Полный скан организации — тот же MVP-масштаб.
+   */
+  async listContactStagesForOrganization(
+    organizationId: Types.ObjectId,
+  ): Promise<Array<{ contactId: Types.ObjectId; stage: LeadStage }>> {
+    const rows = await this.model
+      .find({ organizationId }, { contactId: 1, stage: 1 })
+      .lean()
+      .exec();
+    return rows.map((row) => ({ contactId: row.contactId, stage: row.stage as LeadStage }));
+  }
+
+  /** То же, что listContactStagesForOrganization, но для одного контакта — GET /contacts/:id. */
+  async listStagesForContact(organizationId: Types.ObjectId, contactId: Types.ObjectId): Promise<LeadStage[]> {
+    const rows = await this.model.find({ organizationId, contactId }, { stage: 1 }).lean().exec();
+    return rows.map((row) => row.stage as LeadStage);
+  }
+
+  /**
    * assignLead (permission-matrix.md `lead.assign.organization`) — не
    * версионировано (в отличие от Development/Unit): concurrent assign той
    * же lead двумя РОПами одновременно — редкий edge case на MVP-масштабе,

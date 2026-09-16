@@ -47,7 +47,7 @@ export class SelectionsController {
     }
 
     const identityId = new Types.ObjectId(tenantContext.identityId);
-    const requestBody = { title: dto.title, unitIds: dto.unitIds };
+    const requestBody = { title: dto.title, unitIds: dto.unitIds ?? [], listingIds: dto.listingIds ?? [] };
     const replay = await this.selectionsService.checkCreateReplay(identityId, 'createSelection', idempotencyKey, requestBody);
     if (replay) {
       return replay.responseBody;
@@ -57,7 +57,8 @@ export class SelectionsController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       createdByPositionId: new Types.ObjectId(tenantContext.positionId),
       title: dto.title,
-      unitIds: dto.unitIds.map((id) => new Types.ObjectId(id)),
+      unitIds: (dto.unitIds ?? []).map((id) => new Types.ObjectId(id)),
+      listingIds: (dto.listingIds ?? []).map((id) => new Types.ObjectId(id)),
       leadId: dto.leadId ? new Types.ObjectId(dto.leadId) : undefined,
       clientName: dto.clientName,
       clientPhone: dto.clientPhone,
@@ -199,7 +200,7 @@ export class SelectionsController {
     }
 
     const identityId = new Types.ObjectId(tenantContext.identityId);
-    const requestBody = { id, expectedVersion: dto.expectedVersion, unitIds: dto.unitIds };
+    const requestBody = { id, expectedVersion: dto.expectedVersion, unitIds: dto.unitIds ?? [], listingIds: dto.listingIds ?? [] };
     const replay = await this.selectionsService.checkCreateReplay(identityId, 'addSelectionItems', idempotencyKey, requestBody);
     if (replay) {
       return replay.responseBody;
@@ -210,18 +211,20 @@ export class SelectionsController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       requiredPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
       expectedVersion: dto.expectedVersion,
-      unitIds: dto.unitIds.map((unitId) => new Types.ObjectId(unitId)),
+      unitIds: (dto.unitIds ?? []).map((unitId) => new Types.ObjectId(unitId)),
+      listingIds: (dto.listingIds ?? []).map((listingId) => new Types.ObjectId(listingId)),
       idempotency: { identityId, operation: 'addSelectionItems', key: idempotencyKey, requestBody },
     });
     return toSelectionResponse(updated);
   }
 
-  @Delete(':id/items/:unitId')
+  /** itemId — id юнита либо объявления (N-27); SelectionsService.removeItem бьёт по обоим полям сразу, см. репозиторий. */
+  @Delete(':id/items/:itemId')
   @RequirePermission('dev_selection', 'update')
   async removeItem(
     @Req() req: FastifyRequest,
     @Param('id') id: string,
-    @Param('unitId') unitId: string,
+    @Param('itemId') itemId: string,
     @Query('expectedVersion') expectedVersionParam: string | undefined,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
@@ -232,7 +235,7 @@ export class SelectionsController {
 
     const expectedVersion = expectedVersionParam !== undefined ? parseInt(expectedVersionParam, 10) : 0;
     const identityId = new Types.ObjectId(tenantContext.identityId);
-    const requestBody = { id, unitId, expectedVersion };
+    const requestBody = { id, itemId, expectedVersion };
     const replay = await this.selectionsService.checkCreateReplay(identityId, 'removeSelectionItem', idempotencyKey, requestBody);
     if (replay) {
       return replay.responseBody;
@@ -243,18 +246,18 @@ export class SelectionsController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       requiredPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
       expectedVersion,
-      unitId: new Types.ObjectId(unitId),
+      itemId: new Types.ObjectId(itemId),
       idempotency: { identityId, operation: 'removeSelectionItem', key: idempotencyKey, requestBody },
     });
     return toSelectionResponse(updated);
   }
 
-  @Patch(':id/items/:unitId')
+  @Patch(':id/items/:itemId')
   @RequirePermission('dev_selection', 'update')
   async updateItem(
     @Req() req: FastifyRequest,
     @Param('id') id: string,
-    @Param('unitId') unitId: string,
+    @Param('itemId') itemId: string,
     @Body() dto: UpdateSelectionItemDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
@@ -264,7 +267,7 @@ export class SelectionsController {
     }
 
     const identityId = new Types.ObjectId(tenantContext.identityId);
-    const requestBody = { id, unitId, expectedVersion: dto.expectedVersion, agentNote: dto.agentNote, reaction: dto.reaction };
+    const requestBody = { id, itemId, expectedVersion: dto.expectedVersion, agentNote: dto.agentNote, reaction: dto.reaction };
     const replay = await this.selectionsService.checkCreateReplay(identityId, 'updateSelectionItem', idempotencyKey, requestBody);
     if (replay) {
       return replay.responseBody;
@@ -275,7 +278,7 @@ export class SelectionsController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       requiredPositionId: await this.ownerFilterForAction(tenantContext.positionId, 'update'),
       expectedVersion: dto.expectedVersion,
-      unitId: new Types.ObjectId(unitId),
+      itemId: new Types.ObjectId(itemId),
       patch: { agentNote: dto.agentNote, reaction: dto.reaction },
       idempotency: { identityId, operation: 'updateSelectionItem', key: idempotencyKey, requestBody },
     });

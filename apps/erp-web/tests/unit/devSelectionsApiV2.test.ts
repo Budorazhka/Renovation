@@ -127,7 +127,7 @@ describe('devSelectionsApiV2', () => {
       postMock.mockResolvedValue({ data: apiSelection })
 
       const { devSelectionsApiV2 } = await import('@/services/devSelectionsApiV2')
-      await devSelectionsApiV2.addItems('sel-1', ['unit-2'], 1)
+      await devSelectionsApiV2.addItems('sel-1', { unitIds: ['unit-2'] }, 1)
 
       const [url, body] = postMock.mock.calls[0]!
       expect(url).toBe('/api/v1/selections/sel-1/items')

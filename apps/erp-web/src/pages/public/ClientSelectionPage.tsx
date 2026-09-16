@@ -14,8 +14,57 @@ import { getUnitShareSearchQuery } from '@/lib/unit-share'
 import { loadPublicUnitLanding } from '@/lib/unit-landing'
 import type { PublicUnitLanding } from '@/services/developmentApi'
 import type { DevSelectionItem } from '@/types/dev-selection'
+import type { PublicSelectionItem, PublicSelectionListing } from '@/services/publicSelectionsApi'
 import type { IBuilding, IProject, IUnit, UnitStatus } from '@/types/core'
 import { useI18n } from "@/i18n";
+
+const DEAL_TYPE_LABEL_RU: Record<PublicSelectionListing['dealType'], string> = {
+  sale: 'Продажа',
+  rent_long: 'Аренда (длительная)',
+  rent_short: 'Аренда (посуточно)',
+}
+
+function formatListingPrice(price: PublicSelectionListing['price']): string {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: price.currency, maximumFractionDigits: 0 }).format(
+    price.amountMinorUnits / 100,
+  )
+}
+
+function ListingCard({ item, listing }: { item: DevSelectionItem; listing: PublicSelectionListing }) {
+  const reaction = item.reaction
+  return (
+    <div
+      className={`flex flex-col overflow-hidden rounded-2xl border p-4 transition-all ${
+        reaction === 'liked'
+          ? 'border-emerald-500/50 bg-[rgba(16,185,129,0.05)]'
+          : reaction === 'disliked'
+            ? 'border-[rgba(242,207,141,0.08)] bg-[rgba(0,0,0,0.3)] opacity-60'
+            : 'border-[rgba(242,207,141,0.12)] bg-[rgba(0,0,0,0.25)]'
+      }`}
+    >
+      <p className="text-[11px] uppercase tracking-wide text-[rgba(96,165,250,0.9)]">{DEAL_TYPE_LABEL_RU[listing.dealType]}</p>
+      <p className="mt-1 text-base font-normal text-[#fcecc8]">{listing.address}</p>
+      {listing.city && <p className="mt-1 text-[11px] text-[rgba(242,207,141,0.4)]">{listing.city}</p>}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {listing.rooms != null && (
+          <span className="rounded-lg border border-[rgba(242,207,141,0.15)] px-2 py-0.5 text-[11px] text-[rgba(242,207,141,0.75)]">
+            {listing.rooms} комн.
+          </span>
+        )}
+        <span className="rounded-lg border border-[rgba(242,207,141,0.15)] px-2 py-0.5 text-[11px] text-[rgba(242,207,141,0.75)]">
+          {listing.area} м²
+        </span>
+        {listing.floor != null && (
+          <span className="rounded-lg border border-[rgba(242,207,141,0.15)] px-2 py-0.5 text-[11px] text-[rgba(242,207,141,0.75)]">
+            {listing.floor} эт.
+          </span>
+        )}
+      </div>
+      <p className="mt-3 text-base font-normal text-[#c9a84c]">{formatListingPrice(listing.price)}</p>
+      {item.agentNote && <p className="mt-2 text-xs italic text-[rgba(242,207,141,0.55)]">«{item.agentNote}»</p>}
+    </div>
+  )
+}
 
 /* ─── Map Constants ────────────────────────────────────────── */
 // const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY
@@ -34,6 +83,7 @@ interface ResolvedSelectionItem {
   unit?: IUnit
   building?: IBuilding
   project?: IProject
+  listing?: PublicSelectionListing
 }
 
 const PUBLIC_STATUS_TO_UNIT: Record<string, UnitStatus> = {
@@ -260,7 +310,8 @@ export function ClientSelectionPage() {
     if (token) markViewed(token)
   }, [token, markViewed])
 
-  // Лоты тянем через публичный API лота (как визитка) — иначе у клиента без авторизации карточки пустые.
+  // Юниты тянем через публичный API лота (как визитка) — иначе у клиента без авторизации карточки пустые.
+  // Листинги вторички сервер уже денормализует прямо в ответе подборки (item.listing) — доп. запрос не нужен.
   useEffect(() => {
     if (!selection) {
       setItems([])
@@ -268,15 +319,20 @@ export function ClientSelectionPage() {
     }
     let cancelled = false
     const ctx = { allUnits, buildings: allBuildings, projects }
+    const rawItems = selection.items as PublicSelectionItem[]
     Promise.all(
-      selection.items.map(async (item): Promise<ResolvedSelectionItem | null> => {
+      rawItems.map(async (item): Promise<ResolvedSelectionItem | null> => {
+        if (item.targetType === 'listing') {
+          return item.listing ? { item, listing: item.listing } : null
+        }
+        if (!item.unitId) return null
         const { data } = await loadPublicUnitLanding(item.unitId, ctx)
         if (!data) return null
         return { item, ...landingToSelectionShape(data) }
       }),
     ).then((resolved) => {
       if (cancelled) return
-      setItems(resolved.filter((e): e is ResolvedSelectionItem => !!e?.unit))
+      setItems(resolved.filter((e): e is ResolvedSelectionItem => !!e && (!!e.unit || !!e.listing)))
     })
     return () => {
       cancelled = true
@@ -414,7 +470,10 @@ export function ClientSelectionPage() {
       {/* ── Apartment cards ── */}
       <div className="px-4 py-8 md:px-10">
         <div className="mx-auto grid max-w-4xl gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map(({ item, unit, building }) => {
+          {items.map(({ item, unit, building, listing }) => {
+            if (listing) {
+              return <ListingCard key={item.listingId} item={item} listing={listing} />
+            }
             if (!unit) return null
             const reaction = item.reaction
             const price = unit.price ?? (unit.pricePerSqm && unit.area ? Math.round(unit.pricePerSqm * unit.area) : undefined)

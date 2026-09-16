@@ -29,6 +29,8 @@ import { BatchUpdatePricesDto } from './dto/batch-update-prices.dto';
 import { CreateInstallmentPlanDto } from './dto/create-installment-plan.dto';
 import { UpdateInstallmentPlanDto } from './dto/update-installment-plan.dto';
 import { ListInstallmentPlansQueryDto } from './dto/list-installment-plans-query.dto';
+import { CreateCommissionRuleDto } from './dto/create-commission-rule.dto';
+import { UpdateCommissionRuleDto } from './dto/update-commission-rule.dto';
 
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
@@ -856,6 +858,110 @@ export class DevelopmentsController {
       organizationId: new Types.ObjectId(tenantContext.organizationId),
       expectedVersion,
       idempotency: { identityId, operation: 'devDeleteInstallmentPlan', key: idempotencyKey, requestBody },
+    });
+  }
+
+  @Post('developments/:developmentId/commission-rules')
+  @HttpCode(201)
+  @RequirePermission('commission_rule', 'create')
+  async createCommissionRule(
+    @Req() req: FastifyRequest,
+    @Param('developmentId') developmentId: string,
+    @Body() dto: CreateCommissionRuleDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const tenantContext = requireTenantContext(req);
+    if (!idempotencyKey) {
+      throw new AppException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, 'Idempotency-Key header is required');
+    }
+
+    const identityId = new Types.ObjectId(tenantContext.identityId);
+    const requestBody = { developmentId, partnerType: dto.partnerType, commissionPercent: dto.commissionPercent };
+    const replay = await this.developmentsService.checkCreateReplay(identityId, 'devCreateCommissionRule', idempotencyKey, requestBody);
+    if (replay) {
+      return replay.responseBody;
+    }
+
+    return this.developmentsService.createCommissionRule({
+      developmentId: new Types.ObjectId(developmentId),
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      partnerType: dto.partnerType,
+      commissionPercent: dto.commissionPercent,
+      idempotency: { identityId, operation: 'devCreateCommissionRule', key: idempotencyKey, requestBody },
+    });
+  }
+
+  @Get('developments/:developmentId/commission-rules')
+  @RequirePermission('commission_rule', 'read')
+  async listCommissionRules(@Req() req: FastifyRequest, @Param('developmentId') developmentId: string) {
+    const tenantContext = requireTenantContext(req);
+    return this.developmentsService.listCommissionRules(
+      new Types.ObjectId(developmentId),
+      new Types.ObjectId(tenantContext.organizationId),
+    );
+  }
+
+  @Patch('developments/:developmentId/commission-rules/:id')
+  @RequirePermission('commission_rule', 'update')
+  async updateCommissionRule(
+    @Req() req: FastifyRequest,
+    @Param('developmentId') developmentId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateCommissionRuleDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const tenantContext = requireTenantContext(req);
+    if (!idempotencyKey) {
+      throw new AppException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, 'Idempotency-Key header is required');
+    }
+
+    const identityId = new Types.ObjectId(tenantContext.identityId);
+    const requestBody = { developmentId, id, expectedVersion: dto.expectedVersion, partnerType: dto.partnerType, commissionPercent: dto.commissionPercent };
+    const replay = await this.developmentsService.checkCreateReplay(identityId, 'devUpdateCommissionRule', idempotencyKey, requestBody);
+    if (replay) {
+      return replay.responseBody;
+    }
+
+    const { expectedVersion, ...patchFields } = dto;
+    return this.developmentsService.updateCommissionRule({
+      id: new Types.ObjectId(id),
+      developmentId: new Types.ObjectId(developmentId),
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      expectedVersion,
+      patch: patchFields,
+      idempotency: { identityId, operation: 'devUpdateCommissionRule', key: idempotencyKey, requestBody },
+    });
+  }
+
+  @Delete('developments/:developmentId/commission-rules/:id')
+  @HttpCode(204)
+  @RequirePermission('commission_rule', 'delete')
+  async deleteCommissionRule(
+    @Req() req: FastifyRequest,
+    @Param('developmentId') developmentId: string,
+    @Param('id') id: string,
+    @Query('expectedVersion') expectedVersionParam?: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    const tenantContext = requireTenantContext(req);
+    if (!idempotencyKey) {
+      throw new AppException(ErrorCode.IDEMPOTENCY_KEY_REQUIRED, 'Idempotency-Key header is required');
+    }
+
+    const expectedVersion = expectedVersionParam !== undefined ? parseInt(expectedVersionParam, 10) : 0;
+    const identityId = new Types.ObjectId(tenantContext.identityId);
+    const requestBody = { developmentId, id, expectedVersion };
+    const replay = await this.developmentsService.checkCreateReplay(identityId, 'devDeleteCommissionRule', idempotencyKey, requestBody);
+    if (replay) {
+      return;
+    }
+
+    await this.developmentsService.deleteCommissionRule({
+      id: new Types.ObjectId(id),
+      developmentId: new Types.ObjectId(developmentId),
+      organizationId: new Types.ObjectId(tenantContext.organizationId),
+      expectedVersion,
+      idempotency: { identityId, operation: 'devDeleteCommissionRule', key: idempotencyKey, requestBody },
     });
   }
 }

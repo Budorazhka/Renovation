@@ -1,11 +1,11 @@
-import { useState, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useCallback, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '@/context/AuthContext'
+import { toast } from 'sonner'
 import {
   Search,
   User,
-  Building2,
   Phone,
+  Mail,
   ChevronRight,
   ChevronLeft,
   Filter,
@@ -17,18 +17,32 @@ import { ConversionFunnelCard } from '@/components/clients/ConversionFunnelCard'
 import { CreateClientModal } from '@/components/clients/CreateClientModal'
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { ExportButton } from '@/components/common/ExportButton'
-import { CLIENTS_MOCK, SEGMENT_LABELS } from '@/data/clients-mock'
+import { contactsApiV2 } from '@/services/contactsApiV2'
+import { CONTACT_ROLES_V2, type ContactRoleV2, type ContactSegmentV2, type ContactV2 } from '@/types/contactsV2'
+import { useI18n } from '@/i18n'
 
-import { persistSessionClient } from '@/lib/session-client'
-import type { Client, ClientSegment } from '@/types/clients'
-import { useI18n } from "@/i18n";
+/** N-20: сегмент — не хранится, считается сервером из стадий сделок и лидов контакта (CrmService.computeContactSegment). */
+const SEGMENT_LABELS: Record<ContactSegmentV2, string> = {
+  golden: 'Золотой фонд',
+  active: 'Активный',
+  archived: 'Архив',
+  deferred: 'Отложенный спрос',
+}
 
-const SEGMENTS: { key: ClientSegment | 'all'; label: string }[] = [
+const ROLE_LABELS: Record<ContactRoleV2, string> = {
+  buyer: 'Покупатель',
+  investor: 'Инвестор',
+  owner: 'Собственник',
+  referral: 'Реферал',
+  broker: 'Посредник',
+}
+
+const SEGMENTS: { key: ContactSegmentV2 | 'all'; label: string }[] = [
   { key: 'all', label: 'Все клиенты' },
-  { key: 'active', label: 'Активные' },
-  { key: 'golden', label: 'Золотой фонд' },
-  { key: 'deferred', label: 'Отложенный спрос' },
-  { key: 'archived', label: 'Архив' },
+  { key: 'active', label: SEGMENT_LABELS.active },
+  { key: 'golden', label: SEGMENT_LABELS.golden },
+  { key: 'deferred', label: SEGMENT_LABELS.deferred },
+  { key: 'archived', label: SEGMENT_LABELS.archived },
 ]
 
 /** Токены ALPHABASE / хабы — светлая и тёмная тема (`index.css`). */
@@ -47,19 +61,19 @@ const PAGE_SIZE = 8
 const BENTO_TILE_MIN_PX = 168
 const TABLE_BODY_MAX_H = 'min(50vh, 520px)'
 
-function countSegment(list: Client[], seg: ClientSegment | 'all'): number {
+function countSegment(list: ContactV2[], seg: ContactSegmentV2 | 'all'): number {
   if (seg === 'all') return list.length
   return list.filter(c => c.segment === seg).length
 }
 
-function mutedAvatarBox(client: Client): boolean {
-  if (client.segment === 'archived') return true
-  if (client.segment === 'deferred' && client.dealsCount === 0) return true
+function mutedAvatarBox(contact: ContactV2): boolean {
+  if (contact.segment === 'archived') return true
+  if (contact.segment === 'deferred' && contact.dealsCount === 0) return true
   return false
 }
 
-function SegmentBadge({ segment }: { segment: ClientSegment }) {
-  const styles: Record<ClientSegment, { bg: string; text: string; border: string; dot: string }> = {
+function SegmentBadge({ segment }: { segment: ContactSegmentV2 }) {
+  const styles: Record<ContactSegmentV2, { bg: string; text: string; border: string; dot: string }> = {
     active: {
       bg: 'rgba(59, 130, 246, 0.1)',
       text: '#60a5fa',
@@ -110,29 +124,44 @@ function SegmentBadge({ segment }: { segment: ClientSegment }) {
 }
 
 export function ClientsListPage() {
-    const { t } = useI18n();
+  const { t } = useI18n()
   const navigate = useNavigate()
-  const { currentUser } = useAuth()
-  const [clients, setClients] = useState<Client[]>(() => [...CLIENTS_MOCK])
+  const [contacts, setContacts] = useState<ContactV2[]>([])
+  const [loading, setLoading] = useState(true)
+  const [incomplete, setIncomplete] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const [segment, setSegment] = useState<ClientSegment | 'all'>('all')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'individual' | 'company'>('all')
+  const [segment, setSegment] = useState<ContactSegmentV2 | 'all'>('all')
+  const [roleFilter, setRoleFilter] = useState<'all' | ContactRoleV2>('all')
   const [page, setPage] = useState(1)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
-  const agentId = currentUser?.id ?? 'lm-1'
-  const agentName = currentUser?.name ?? 'Анна Первичкина'
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { items, complete } = await contactsApiV2.listAll()
+      setContacts(items)
+      setIncomplete(!complete)
+    } catch {
+      toast.error('Не удалось загрузить клиентов')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const filtered = useMemo(() => {
-    return clients.filter(c => {
+    return contacts.filter(c => {
       const matchSeg = segment === 'all' || c.segment === segment
-      const matchType = typeFilter === 'all' || c.type === typeFilter
-      const matchSearch = !search || [c.name, c.phone, c.email || '', c.interests || '']
+      const matchRole = roleFilter === 'all' || c.roles.includes(roleFilter)
+      const matchSearch = !search || [c.name, c.phone, c.email || '']
         .some(s => s.toLowerCase().includes(search.toLowerCase()))
-      return matchSeg && matchType && matchSearch
+      return matchSeg && matchRole && matchSearch
     })
-  }, [clients, search, segment, typeFilter])
+  }, [contacts, search, segment, roleFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -145,7 +174,7 @@ export function ClientsListPage() {
   const startIdx = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1
   const endIdx = filtered.length === 0 ? 0 : Math.min(safePage * PAGE_SIZE, filtered.length)
 
-  const totalFmt = clients.length.toLocaleString('ru-RU')
+  const totalFmt = contacts.length.toLocaleString('ru-RU')
 
   return (
     <DashboardShell hideSidebar>
@@ -171,7 +200,9 @@ export function ClientsListPage() {
             <h1 style={{ fontSize: 22, fontWeight: 400, color: 'var(--app-text)', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.2 }}>
               {t('clients.clientsListPage.клиенты')}</h1>
             <p style={{ fontSize: 12, color: 'var(--hub-desc)', margin: '4px 0 0' }}>
-              {t('clients.clientsListPage.единая_база_физлиц_и')}{totalFmt} {t('clients.clientsListPage.записей')}</p>
+              {t('clients.clientsListPage.единая_база_физлиц_и')}{totalFmt} {t('clients.clientsListPage.записей')}
+              {incomplete ? ' · показаны не все записи' : ''}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <ExportButton entity="contacts" label="Экспорт в Excel" />
@@ -184,11 +215,8 @@ export function ClientsListPage() {
         <CreateClientModal
           open={createOpen}
           onClose={() => setCreateOpen(false)}
-          assignedAgentId={agentId}
-          assignedAgentName={agentName}
           onCreated={c => {
-            persistSessionClient(c)
-            setClients(prev => [c, ...prev])
+            setContacts(prev => [c, ...prev])
             setPage(1)
             setSegment('all')
             navigate(`/dashboard/clients/${c.id}`)
@@ -209,7 +237,7 @@ export function ClientsListPage() {
         >
           {SEGMENTS.map(s => {
             const active = segment === s.key
-            const cnt = countSegment(clients, s.key).toLocaleString('ru-RU')
+            const cnt = countSegment(contacts, s.key).toLocaleString('ru-RU')
             return (
               <button
                 key={s.key}
@@ -279,8 +307,8 @@ export function ClientsListPage() {
           </div>
           <div style={{ position: 'relative', minWidth: 160 }}>
             <select
-              value={typeFilter}
-              onChange={e => { setTypeFilter(e.target.value as typeof typeFilter); setPage(1) }}
+              value={roleFilter}
+              onChange={e => { setRoleFilter(e.target.value as typeof roleFilter); setPage(1) }}
               style={{
                 width: '100%',
                 height: 38,
@@ -296,9 +324,10 @@ export function ClientsListPage() {
                 boxSizing: 'border-box',
               }}
             >
-              <option value="all">{t('clients.clientsListPage.все_типы')}</option>
-              <option value="individual">{t('clients.clientsListPage.физлица')}</option>
-              <option value="company">{t('clients.clientsListPage.юрлица')}</option>
+              <option value="all">Все роли</option>
+              {CONTACT_ROLES_V2.map(role => (
+                <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+              ))}
             </select>
             <span
               style={{
@@ -381,7 +410,7 @@ export function ClientsListPage() {
                 {[
                   { w: '40%', label: 'КЛИЕНТ' },
                   { w: 'auto', label: 'ТЕЛЕФОН' },
-                  { w: 'auto', label: 'ИСТОЧНИК', center: true },
+                  { w: 'auto', label: 'РОЛИ', center: true },
                   { w: 'auto', label: 'СЕГМЕНТ' },
                   { w: 88, label: 'СДЕЛКИ', center: true },
                 ].map(col => (
@@ -404,18 +433,25 @@ export function ClientsListPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {!loading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--app-text-subtle)' }}>
                     {t('clients.clientsListPage.клиенты_не_найдены')}</td>
                 </tr>
               )}
-              {pageSlice.map((client, i) => (
+              {loading && (
+                <tr>
+                  <td colSpan={5} style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--app-text-subtle)' }}>
+                    Загружаем клиентов…
+                  </td>
+                </tr>
+              )}
+              {pageSlice.map((contact, i) => (
                 <ClientTableRow
-                  key={client.id}
-                  client={client}
+                  key={contact.id}
+                  contact={contact}
                   isLast={i === pageSlice.length - 1 && filtered.length > 0}
-                  onClick={() => navigate(`/dashboard/clients/${client.id}`)}
+                  onClick={() => navigate(`/dashboard/clients/${contact.id}`)}
                 />
               ))}
             </tbody>
@@ -737,17 +773,17 @@ function BentoCard({
 }
 
 function ClientTableRow({
-  client,
+  contact,
   isLast,
   onClick,
 }: {
-  client: Client
+  contact: ContactV2
   isLast: boolean
   onClick: () => void
 }) {
   const [hover, setHover] = useState(false)
   const [chevHover, setChevHover] = useState(false)
-  const muted = mutedAvatarBox(client)
+  const muted = mutedAvatarBox(contact)
 
   return (
     <tr
@@ -776,11 +812,7 @@ function ClientTableRow({
               border: muted ? '1px solid var(--divider-subtle)' : 'none',
             }}
           >
-            {client.type === 'company' ? (
-              <Building2 size={16} color={muted ? 'rgba(194,200,196,0.45)' : ON_PRIMARY} />
-            ) : (
-              <User size={16} color={muted ? 'rgba(194,200,196,0.45)' : ON_PRIMARY} />
-            )}
+            <User size={16} color={muted ? 'rgba(194,200,196,0.45)' : ON_PRIMARY} />
           </div>
           <div style={{ minWidth: 0 }}>
             <div
@@ -794,11 +826,14 @@ function ClientTableRow({
                 transition: 'color 0.15s',
               }}
             >
-              {client.type === 'company' ? client.name : client.displayName}
+              {contact.name}
             </div>
-            {client.interests && (
+            {contact.email && (
               <div
                 style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
                   fontSize: 11,
                   color: 'var(--hub-body)',
                   overflow: 'hidden',
@@ -807,7 +842,8 @@ function ClientTableRow({
                   marginTop: 2,
                 }}
               >
-                {client.interests}
+                <Mail size={11} style={{ flexShrink: 0 }} />
+                {contact.email}
               </div>
             )}
           </div>
@@ -816,26 +852,30 @@ function ClientTableRow({
       <td style={{ padding: '12px 16px', verticalAlign: 'middle' as const }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--app-text-muted)' }}>
           <Phone size={16} color="var(--theme-accent-icon-dim)" style={{ flexShrink: 0 }} />
-          {client.phone}
+          {contact.phone}
         </div>
       </td>
       <td style={{ padding: '12px 16px', textAlign: 'center', verticalAlign: 'middle' as const }}>
-        <span
-          style={{
-            display: 'inline-block',
-            padding: '4px 8px',
-            borderRadius: 6,
-            background: SURFACE_HIGH,
-            fontSize: 11,
-            fontWeight: 500,
-            color: 'var(--hub-body)',
-          }}
-        >
-          {client.source}
-        </span>
+        {contact.roles.length > 0 ? (
+          <span
+            style={{
+              display: 'inline-block',
+              padding: '4px 8px',
+              borderRadius: 6,
+              background: SURFACE_HIGH,
+              fontSize: 11,
+              fontWeight: 500,
+              color: 'var(--hub-body)',
+            }}
+          >
+            {contact.roles.map(role => ROLE_LABELS[role]).join(', ')}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--app-text-subtle)' }}>—</span>
+        )}
       </td>
       <td style={{ padding: '12px 16px', verticalAlign: 'middle' as const }}>
-        <SegmentBadge segment={client.segment} />
+        <SegmentBadge segment={contact.segment} />
       </td>
       <td style={{ padding: '12px 16px', textAlign: 'center', verticalAlign: 'middle' as const }}>
         <div
@@ -847,14 +887,14 @@ function ClientTableRow({
             style={{
               fontSize: 13,
               fontWeight: 400,
-              color: client.dealsCount > 0 ? PRIMARY : 'var(--app-text-subtle)',
+              color: contact.dealsCount > 0 ? PRIMARY : 'var(--app-text-subtle)',
             }}
           >
-            {client.dealsCount}
+            {contact.dealsCount}
           </span>
           <ChevronRight
             size={16}
-            color={client.dealsCount > 0 ? 'var(--theme-accent-icon-dim)' : 'var(--app-text-subtle)'}
+            color={contact.dealsCount > 0 ? 'var(--theme-accent-icon-dim)' : 'var(--app-text-subtle)'}
             style={{ transform: chevHover ? 'translateX(3px)' : 'none', transition: 'transform 0.2s' }}
           />
         </div>

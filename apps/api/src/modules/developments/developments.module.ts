@@ -7,12 +7,14 @@ import { FloorDocument, FloorSchema } from './schemas/floor.schema';
 import { FloorPlanDocument, FloorPlanSchema } from './schemas/floor-plan.schema';
 import { UnitDocument, UnitSchema } from './schemas/unit.schema';
 import { InstallmentPlanDocument, InstallmentPlanSchema } from './schemas/installment-plan.schema';
+import { CommissionRuleDocument, CommissionRuleSchema } from './schemas/commission-rule.schema';
 import { BuildingRepository } from './repository/building.repository';
 import { SectionRepository } from './repository/section.repository';
 import { FloorRepository } from './repository/floor.repository';
 import { FloorPlanRepository } from './repository/floor-plan.repository';
 import { UnitRepository } from './repository/unit.repository';
 import { InstallmentPlanRepository } from './repository/installment-plan.repository';
+import { CommissionRuleRepository } from './repository/commission-rule.repository';
 import { DevelopmentsService } from './developments.service';
 import { ChessboardWorkbookService } from './chessboard-workbook.service';
 import { DevelopmentsController } from './developments.controller';
@@ -33,6 +35,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
       { name: FloorPlanDocument.name, schema: FloorPlanSchema },
       { name: UnitDocument.name, schema: UnitSchema },
       { name: InstallmentPlanDocument.name, schema: InstallmentPlanSchema },
+      { name: CommissionRuleDocument.name, schema: CommissionRuleSchema },
     ]),
     AuditModule,
     OutboxModule,
@@ -53,6 +56,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
     FloorPlanRepository,
     UnitRepository,
     InstallmentPlanRepository,
+    CommissionRuleRepository,
     DevelopmentsService,
     ChessboardWorkbookService,
   ],

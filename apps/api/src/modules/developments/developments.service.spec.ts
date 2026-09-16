@@ -14,6 +14,7 @@ import type { MarketplacePublicationRepository } from '@baza/publication';
 import type { IdempotencyService } from '../../shared/idempotency/idempotency.service';
 import type { OrganizationsService } from '../organizations/organizations.service';
 import type { InstallmentPlanRepository } from './repository/installment-plan.repository';
+import type { CommissionRuleRepository } from './repository/commission-rule.repository';
 
 function makeMockConnection() {
   return {
@@ -38,6 +39,7 @@ function makeService(overrides: {
   idempotencyService?: Partial<IdempotencyService>;
   organizationsService?: Partial<OrganizationsService>;
   installmentPlanRepository?: Partial<InstallmentPlanRepository>;
+  commissionRuleRepository?: Partial<CommissionRuleRepository>;
 } = {}) {
   return new DevelopmentsService(
     makeMockConnection() as never,
@@ -77,6 +79,7 @@ function makeService(overrides: {
     (overrides.organizationsService ??
       { getOrganizationById: jest.fn().mockResolvedValue({ type: 'developer' }) }) as OrganizationsService,
     (overrides.installmentPlanRepository ?? {}) as InstallmentPlanRepository,
+    (overrides.commissionRuleRepository ?? {}) as CommissionRuleRepository,
   );
 }
 
@@ -1624,6 +1627,127 @@ describe('DevelopmentsService — Installment Plans', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });
+
+});
+
+describe('DevelopmentsService — Commission Rules', () => {
+  const developmentId = new Types.ObjectId();
+  const organizationId = new Types.ObjectId();
+
+  describe('createCommissionRule', () => {
+    it('отклоняет, если ЖК не найден в организации', async () => {
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      });
+
+      await expect(
+        service.createCommissionRule({
+          developmentId,
+          organizationId,
+          partnerType: 'Агентство-партнёр',
+          commissionPercent: 3.5,
+          idempotency: idem(),
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('создаёт правило через репозиторий при валидных параметрах', async () => {
+      const mockCreated = { _id: new Types.ObjectId(), partnerType: 'Агентство-партнёр' };
+      const createSpy = jest.fn().mockResolvedValue(mockCreated);
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: developmentId }) },
+        commissionRuleRepository: { create: createSpy },
+      });
+
+      const result = await service.createCommissionRule({
+        developmentId,
+        organizationId,
+        partnerType: 'Агентство-партнёр',
+        commissionPercent: 3.5,
+        idempotency: idem(),
+      });
+
+      expect(result).toBe(mockCreated);
+      expect(createSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('listCommissionRules', () => {
+    it('отклоняет, если ЖК не найден в организации', async () => {
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+      });
+
+      await expect(service.listCommissionRules(developmentId, organizationId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('делегирует в commissionRuleRepository.listForDevelopment', async () => {
+      const mockList = [{ id: '1' }];
+      const listSpy = jest.fn().mockResolvedValue(mockList);
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: developmentId }) },
+        commissionRuleRepository: { listForDevelopment: listSpy },
+      });
+
+      const result = await service.listCommissionRules(developmentId, organizationId);
+      expect(result).toBe(mockList);
+      expect(listSpy).toHaveBeenCalledWith(developmentId, organizationId);
+    });
+  });
+
+  describe('updateCommissionRule', () => {
+    it('бросает ConflictException при расхождении версий', async () => {
+      const ruleId = new Types.ObjectId();
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: developmentId }) },
+        commissionRuleRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue({ _id: ruleId, developmentId }),
+          updateWithVersionCheck: jest.fn().mockResolvedValue(null),
+        },
+      });
+
+      await expect(
+        service.updateCommissionRule({
+          id: ruleId,
+          developmentId,
+          organizationId,
+          expectedVersion: 1,
+          patch: { commissionPercent: 5 },
+          idempotency: idem(),
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('deleteCommissionRule', () => {
+    it('бросает ConflictException при расхождении версий', async () => {
+      const ruleId = new Types.ObjectId();
+      const service = makeService({
+        developmentRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: developmentId }) },
+        commissionRuleRepository: {
+          findByIdForOrganization: jest.fn().mockResolvedValue({ _id: ruleId, developmentId }),
+          deleteWithVersionCheck: jest.fn().mockResolvedValue(false),
+        },
+      });
+
+      await expect(
+        service.deleteCommissionRule({
+          id: ruleId,
+          developmentId,
+          organizationId,
+          expectedVersion: 1,
+          idempotency: idem(),
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+});
+
+describe('DevelopmentsService — batchUpdatePrices', () => {
+  const developmentId = new Types.ObjectId();
+  const organizationId = new Types.ObjectId();
 
   describe('batchUpdatePrices', () => {
     it('обновляет цены юнитов и публикует UnitPriceChanged в outbox', async () => {

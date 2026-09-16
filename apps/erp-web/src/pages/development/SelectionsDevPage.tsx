@@ -8,7 +8,7 @@ import {
 import { useDevSelectionsStore } from '@/store/useDevSelectionsStore'
 import { useCoreStore } from '@/store/useCoreStore'
 import { openDevSelectionPdf } from '@/lib/dev-selection-pdf'
-import { DEV_SELECTION_STATUS_LABELS, DEV_SELECTION_STATUS_COLORS } from '@/types/dev-selection'
+import { DEV_SELECTION_STATUS_LABELS, DEV_SELECTION_STATUS_COLORS, isNewbuildSelection } from '@/types/dev-selection'
 import type { DevSelection } from '@/types/dev-selection'
 import { SelectionCustomizationPanel } from '@/components/selections/SelectionCustomizationPanel'
 import { DEV_CUSTOMIZATION_GROUPS, resolveDevCustomization } from '@/config/dev-selection-customization'
@@ -138,7 +138,7 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
   const allBuildings = useCoreStore((s) => s.allBuildings)
   const projects = useCoreStore((s) => s.projects)
   const setStatus = useDevSelectionsStore((s) => s.setStatus)
-  const removeUnit = useDevSelectionsStore((s) => s.removeUnit)
+  const removeItem = useDevSelectionsStore((s) => s.removeItem)
   const updateItemNote = useDevSelectionsStore((s) => s.updateItemNote)
   const updateSel = useDevSelectionsStore((s) => s.update)
   const removeSel = useDevSelectionsStore((s) => s.remove)
@@ -310,7 +310,7 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
           }
           return (
             <div
-              key={item.unitId}
+              key={item.unitId!}
               className="flex items-center gap-3 rounded-md border border-[rgba(242,207,141,0.1)] bg-[rgba(0,0,0,0.18)] p-3"
             >
               {/* Miniature plan */}
@@ -345,11 +345,11 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
                       placeholder={t('development.selectionsDevPage.комментарий_агента')}
                       className="flex-1 rounded-md border border-[rgba(242,207,141,0.2)] bg-[rgba(0,0,0,0.3)] px-2 py-1 text-[16px] text-[#fcecc8] outline-none focus:border-[#c9a84c]"
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') { updateItemNote(sel.id, item.unitId, noteVal); setEditingNote(null) }
+                        if (e.key === 'Enter') { updateItemNote(sel.id, item.unitId!, noteVal); setEditingNote(null) }
                         if (e.key === 'Escape') setEditingNote(null)
                       }}
                     />
-                    <button type="button" onClick={() => { updateItemNote(sel.id, item.unitId, noteVal); setEditingNote(null) }}
+                    <button type="button" onClick={() => { updateItemNote(sel.id, item.unitId!, noteVal); setEditingNote(null) }}
                       className="rounded p-1 text-[#d0e8df] hover:bg-[rgba(208,232,223,0.12)]">
                       <Check size={13} />
                     </button>
@@ -359,7 +359,7 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
                     </button>
                   </div>
                 ) : item.agentNote ? (
-                  <button type="button" onClick={() => { setEditingNote(item.unitId); setNoteVal(item.agentNote ?? '') }}
+                  <button type="button" onClick={() => { setEditingNote(item.unitId!); setNoteVal(item.agentNote ?? '') }}
                     className="mt-1 text-left text-[16px] italic text-[rgba(242,207,141,0.72)] hover:text-[rgba(242,207,141,0.8)]">
                     «{item.agentNote}»
                   </button>
@@ -371,7 +371,7 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
                 <button
                   type="button"
                   title={t('development.selectionsDevPage.добавить_комментарий')}
-                  onClick={() => { setEditingNote(item.unitId); setNoteVal(item.agentNote ?? '') }}
+                  onClick={() => { setEditingNote(item.unitId!); setNoteVal(item.agentNote ?? '') }}
                   className="rounded-md p-1.5 text-[rgba(242,207,141,0.72)] hover:text-[rgba(242,207,141,0.8)]"
                 >
                   <MessageSquarePlus size={14} />
@@ -379,7 +379,7 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
                 <button
                   type="button"
                   title={t('development.selectionsDevPage.удалить_из_подборки')}
-                  onClick={() => removeUnit(sel.id, item.unitId)}
+                  onClick={() => removeItem(sel.id, item.unitId!)}
                   className="rounded-md p-1.5 text-[rgba(242,207,141,0.72)] hover:text-[#ffb4ab]"
                 >
                   <X size={14} />
@@ -408,7 +408,8 @@ function SelectionDetail({ sel, onBack }: { sel: DevSelection; onBack: () => voi
 
 export function SelectionsDevPage() {
     const { t } = useI18n();
-  const selections = useDevSelectionsStore((s) => s.selections)
+  const allSelections = useDevSelectionsStore((s) => s.selections)
+  const selections = useMemo(() => allSelections.filter(isNewbuildSelection), [allSelections])
   const fetchAll = useDevSelectionsStore((s) => s.fetchAll)
   const navigate = useNavigate()
   const location = useLocation()

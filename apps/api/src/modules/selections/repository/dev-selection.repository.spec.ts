@@ -3,7 +3,7 @@ import { DevSelectionRepository } from './dev-selection.repository';
 
 describe('DevSelectionRepository', () => {
   describe('create', () => {
-    it('создаёт подборку со статусом draft, version 0 и items из unitIds', async () => {
+    it('создаёт подборку со статусом draft, version 0 и items из юнитов', async () => {
       const mockDoc = { id: 'sel-1' };
       const createSpy = jest.fn().mockResolvedValue([mockDoc]);
       const mockModel = { create: createSpy };
@@ -15,7 +15,7 @@ describe('DevSelectionRepository', () => {
         createdByPositionId: new Types.ObjectId(),
         publicToken: 'a'.repeat(64),
         title: 'Подборка для Анны',
-        unitIds,
+        items: unitIds.map((id) => ({ targetType: 'unit' as const, id })),
       };
 
       const result = await repository.create(params);
@@ -28,7 +28,7 @@ describe('DevSelectionRepository', () => {
             publicToken: params.publicToken,
             title: params.title,
             status: 'draft',
-            items: unitIds.map((unitId) => ({ unitId })),
+            items: unitIds.map((unitId) => ({ targetType: 'unit', unitId })),
             viewCount: 0,
             version: 0,
           }),
@@ -36,6 +36,29 @@ describe('DevSelectionRepository', () => {
         { session: undefined },
       );
       expect(result).toBe(mockDoc);
+    });
+
+    it('N-27: items из объявлений вторички получает targetType listing и listingId', async () => {
+      const mockDoc = { id: 'sel-2' };
+      const createSpy = jest.fn().mockResolvedValue([mockDoc]);
+      const mockModel = { create: createSpy };
+
+      const repository = new DevSelectionRepository(mockModel as never);
+      const listingId = new Types.ObjectId();
+      const params = {
+        organizationId: new Types.ObjectId(),
+        createdByPositionId: new Types.ObjectId(),
+        publicToken: 'b'.repeat(64),
+        title: 'Вторичка для Бориса',
+        items: [{ targetType: 'listing' as const, id: listingId }],
+      };
+
+      await repository.create(params);
+
+      expect(createSpy).toHaveBeenCalledWith(
+        [expect.objectContaining({ items: [{ targetType: 'listing', listingId }] })],
+        { session: undefined },
+      );
     });
   });
 
@@ -191,7 +214,7 @@ describe('DevSelectionRepository', () => {
 
       const findOneExecSpy = jest.fn().mockResolvedValue({
         version: 3,
-        items: [{ unitId: existingUnitId }],
+        items: [{ targetType: 'unit', unitId: existingUnitId }],
       });
       const sessionSpy = jest.fn().mockReturnValue({ exec: findOneExecSpy });
       const findOneSpy = jest.fn().mockReturnValue({ session: sessionSpy });
@@ -202,11 +225,39 @@ describe('DevSelectionRepository', () => {
       const mockModel = { findOne: findOneSpy, findOneAndUpdate: findOneAndUpdateSpy };
       const repository = new DevSelectionRepository(mockModel as never);
 
-      await repository.addItemsWithVersionCheck(id, organizationId, 3, [existingUnitId, newUnitId]);
+      await repository.addItemsWithVersionCheck(id, organizationId, 3, [
+        { targetType: 'unit', id: existingUnitId },
+        { targetType: 'unit', id: newUnitId },
+      ]);
 
       expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
         { _id: id, organizationId, version: 3 },
-        { $push: { items: { $each: [{ unitId: newUnitId }] } }, $inc: { version: 1 } },
+        { $push: { items: { $each: [{ targetType: 'unit', unitId: newUnitId }] } }, $inc: { version: 1 } },
+        { new: true, session: undefined },
+      );
+    });
+
+    it('N-27: unitId и listingId с одинаковым hex никогда не считаются дублями друг друга (разные targetType)', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const sameId = new Types.ObjectId();
+
+      const findOneExecSpy = jest.fn().mockResolvedValue({
+        version: 0,
+        items: [{ targetType: 'unit', unitId: sameId }],
+      });
+      const sessionSpy = jest.fn().mockReturnValue({ exec: findOneExecSpy });
+      const findOneSpy = jest.fn().mockReturnValue({ session: sessionSpy });
+      const updateExecSpy = jest.fn().mockResolvedValue({ id: 'updated' });
+      const findOneAndUpdateSpy = jest.fn().mockReturnValue({ exec: updateExecSpy });
+      const mockModel = { findOne: findOneSpy, findOneAndUpdate: findOneAndUpdateSpy };
+      const repository = new DevSelectionRepository(mockModel as never);
+
+      await repository.addItemsWithVersionCheck(id, organizationId, 0, [{ targetType: 'listing', id: sameId }]);
+
+      expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 0 },
+        { $push: { items: { $each: [{ targetType: 'listing', listingId: sameId }] } }, $inc: { version: 1 } },
         { new: true, session: undefined },
       );
     });
@@ -220,9 +271,31 @@ describe('DevSelectionRepository', () => {
       const mockModel = { findOne: findOneSpy };
 
       const repository = new DevSelectionRepository(mockModel as never);
-      const result = await repository.addItemsWithVersionCheck(id, organizationId, 0, [new Types.ObjectId()]);
+      const result = await repository.addItemsWithVersionCheck(id, organizationId, 0, [
+        { targetType: 'unit', id: new Types.ObjectId() },
+      ]);
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('removeItemWithVersionCheck', () => {
+    it('$pull по unitId ИЛИ listingId — одно и то же itemId для обеих коллекций', async () => {
+      const id = new Types.ObjectId();
+      const organizationId = new Types.ObjectId();
+      const itemId = new Types.ObjectId();
+      const execSpy = jest.fn().mockResolvedValue({ id: 'updated' });
+      const findOneAndUpdateSpy = jest.fn().mockReturnValue({ exec: execSpy });
+      const mockModel = { findOneAndUpdate: findOneAndUpdateSpy };
+
+      const repository = new DevSelectionRepository(mockModel as never);
+      await repository.removeItemWithVersionCheck(id, organizationId, 2, itemId);
+
+      expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
+        { _id: id, organizationId, version: 2 },
+        { $pull: { items: { $or: [{ unitId: itemId }, { listingId: itemId }] } }, $inc: { version: 1 } },
+        { new: true, session: undefined },
+      );
     });
   });
 
@@ -242,12 +315,12 @@ describe('DevSelectionRepository', () => {
       });
 
       expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
-        { _id: id, organizationId, version: 1, 'items.unitId': unitId },
+        { _id: id, organizationId, version: 1, $or: [{ 'items.unitId': unitId }, { 'items.listingId': unitId }] },
         {
           $set: { 'items.$[elem].agentNote': 'Хорошая планировка', 'items.$[elem].reaction': 'liked' },
           $inc: { version: 1 },
         },
-        { new: true, session: undefined, arrayFilters: [{ 'elem.unitId': unitId }] },
+        { new: true, session: undefined, arrayFilters: [{ $or: [{ 'elem.unitId': unitId }, { 'elem.listingId': unitId }] }] },
       );
     });
 
@@ -263,9 +336,9 @@ describe('DevSelectionRepository', () => {
       await repository.updateItemWithVersionCheck(id, organizationId, 0, unitId, { reaction: null });
 
       expect(findOneAndUpdateSpy).toHaveBeenCalledWith(
-        { _id: id, organizationId, version: 0, 'items.unitId': unitId },
+        { _id: id, organizationId, version: 0, $or: [{ 'items.unitId': unitId }, { 'items.listingId': unitId }] },
         { $unset: { 'items.$[elem].reaction': '' }, $inc: { version: 1 } },
-        { new: true, session: undefined, arrayFilters: [{ 'elem.unitId': unitId }] },
+        { new: true, session: undefined, arrayFilters: [{ $or: [{ 'elem.unitId': unitId }, { 'elem.listingId': unitId }] }] },
       );
     });
   });

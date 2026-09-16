@@ -133,4 +133,24 @@ export class ContactRepository {
     }
     return this.model.find(filter).sort({ _id: -1 }).limit(params.limit).exec();
   }
+
+  /** PATCH /contacts/:contactId — роли меняются отдельно от name/phone/email (updateFields), заменяют список целиком. */
+  async updateRoles(
+    id: Types.ObjectId,
+    organizationId: Types.ObjectId,
+    roles: ContactRole[],
+    session?: ClientSession,
+  ): Promise<void> {
+    await this.model.updateOne({ _id: id, organizationId }, { $set: { roles } }, { session }).exec();
+  }
+
+  /**
+   * Все id контактов организации — только для сегмент-фильтра
+   * (CrmService.listContacts), когда own-scope не сузил множество заранее.
+   * Не постраничный список, поэтому limit намеренно нет: MVP-масштаб той
+   * же природы, что distinctContactIdsForOwner в LeadRepository.
+   */
+  async listAllIds(organizationId: Types.ObjectId): Promise<Types.ObjectId[]> {
+    return this.model.distinct('_id', { organizationId }).exec();
+  }
 }

@@ -6,7 +6,23 @@ import {
   DevSelectionItem,
   DevSelectionReaction,
   DevSelectionStatus,
+  DevSelectionTargetType,
 } from '../schemas/dev-selection.schema';
+
+/** Один лот подборки, независимо от того, юнит это или объявление вторички (N-27). */
+export interface DevSelectionItemRef {
+  targetType: DevSelectionTargetType;
+  id: Types.ObjectId;
+}
+
+/** Ключ дедупликации: та же сущность может встретиться только раз, но unitId и listingId из разных коллекций между собой никогда не путаются. */
+function itemKey(targetType: DevSelectionTargetType, id: Types.ObjectId): string {
+  return `${targetType}:${id.toString()}`;
+}
+
+function toDevSelectionItem(ref: DevSelectionItemRef): DevSelectionItem {
+  return ref.targetType === 'unit' ? { targetType: 'unit', unitId: ref.id } : { targetType: 'listing', listingId: ref.id };
+}
 
 export interface CreateDevSelectionParams {
   organizationId: Types.ObjectId;
@@ -17,7 +33,7 @@ export interface CreateDevSelectionParams {
   clientName?: string;
   clientPhone?: string;
   agentNote?: string;
-  unitIds: Types.ObjectId[];
+  items: DevSelectionItemRef[];
   customization?: Record<string, unknown>;
 }
 
@@ -59,7 +75,7 @@ export class DevSelectionRepository {
           clientPhone: params.clientPhone,
           agentNote: params.agentNote,
           status: 'draft',
-          items: params.unitIds.map((unitId): DevSelectionItem => ({ unitId })),
+          items: params.items.map(toDevSelectionItem),
           customization: params.customization,
           viewCount: 0,
           version: 0,
@@ -141,21 +157,23 @@ export class DevSelectionRepository {
     return (res.deletedCount ?? 0) > 0;
   }
 
-  /** Добавляет только те unitId, которых ещё нет в items (дедупликация — тот же принцип, что useDevSelectionsStore.addUnits). */
+  /** Добавляет только те лоты, которых ещё нет в items (дедупликация — тот же принцип, что useDevSelectionsStore.addUnits). */
   async addItemsWithVersionCheck(
     id: Types.ObjectId,
     organizationId: Types.ObjectId,
     expectedVersion: number,
-    unitIds: Types.ObjectId[],
+    refs: DevSelectionItemRef[],
     session?: ClientSession,
   ): Promise<DevSelectionDocument | null> {
     const existing = await this.model.findOne({ _id: id, organizationId }).session(session ?? null).exec();
     if (!existing) return null;
 
-    const existingIds = new Set(existing.items.map((item) => item.unitId.toString()));
-    const newItems: DevSelectionItem[] = unitIds
-      .filter((unitId) => !existingIds.has(unitId.toString()))
-      .map((unitId) => ({ unitId }));
+    const existingKeys = new Set(
+      existing.items.map((item) => itemKey(item.targetType, (item.unitId ?? item.listingId)!)),
+    );
+    const newItems: DevSelectionItem[] = refs
+      .filter((ref) => !existingKeys.has(itemKey(ref.targetType, ref.id)))
+      .map(toDevSelectionItem);
 
     if (newItems.length === 0) {
       // Ничего нового добавлять не нужно — не тратим version на no-op.
@@ -171,17 +189,24 @@ export class DevSelectionRepository {
       .exec();
   }
 
+  /**
+   * itemId — id либо юнита, либо объявления (N-27): у каждого элемента
+   * items заполнено ровно одно из unitId/listingId (targetType решает,
+   * какое), поэтому `$or` по обоим полям бьёт ровно в тот один элемент,
+   * которому этот id принадлежит — коллизии между коллекциями исключены
+   * структурой документа, не удачей ObjectId.
+   */
   async removeItemWithVersionCheck(
     id: Types.ObjectId,
     organizationId: Types.ObjectId,
     expectedVersion: number,
-    unitId: Types.ObjectId,
+    itemId: Types.ObjectId,
     session?: ClientSession,
   ): Promise<DevSelectionDocument | null> {
     return this.model
       .findOneAndUpdate(
         { _id: id, organizationId, version: expectedVersion },
-        { $pull: { items: { unitId } }, $inc: { version: 1 } },
+        { $pull: { items: { $or: [{ unitId: itemId }, { listingId: itemId }] } }, $inc: { version: 1 } },
         { new: true, session },
       )
       .exec();
@@ -191,7 +216,7 @@ export class DevSelectionRepository {
     id: Types.ObjectId,
     organizationId: Types.ObjectId,
     expectedVersion: number,
-    unitId: Types.ObjectId,
+    itemId: Types.ObjectId,
     patch: { agentNote?: string; reaction?: DevSelectionReaction | null },
     session?: ClientSession,
   ): Promise<DevSelectionDocument | null> {
@@ -209,9 +234,9 @@ export class DevSelectionRepository {
 
     return this.model
       .findOneAndUpdate(
-        { _id: id, organizationId, version: expectedVersion, 'items.unitId': unitId },
+        { _id: id, organizationId, version: expectedVersion, $or: [{ 'items.unitId': itemId }, { 'items.listingId': itemId }] },
         update,
-        { new: true, session, arrayFilters: [{ 'elem.unitId': unitId }] },
+        { new: true, session, arrayFilters: [{ $or: [{ 'elem.unitId': itemId }, { 'elem.listingId': itemId }] }] },
       )
       .exec();
   }

@@ -39,6 +39,7 @@ import { FloorRepository } from './repository/floor.repository';
 import { FloorPlanRepository } from './repository/floor-plan.repository';
 import { UnitRepository } from './repository/unit.repository';
 import { InstallmentPlanRepository, type UpdateInstallmentPlanPatch } from './repository/installment-plan.repository';
+import { CommissionRuleRepository, type UpdateCommissionRulePatch } from './repository/commission-rule.repository';
 import { OrganizationsService } from '../organizations/organizations.service';
 import type { BuildingDocument, GeoPolygon } from './schemas/building.schema';
 import type { SectionDocument } from './schemas/section.schema';
@@ -53,6 +54,7 @@ import type {
   InstallmentPaymentFrequency,
   InstallmentTermType,
 } from './schemas/installment-plan.schema';
+import type { CommissionRuleDocument } from './schemas/commission-rule.schema';
 import { sortChessboardUnits, type ChessboardUnitInput } from './chessboard-export';
 
 /**
@@ -130,6 +132,7 @@ export class DevelopmentsService {
     private readonly idempotencyService: IdempotencyService,
     private readonly organizationsService: OrganizationsService,
     private readonly installmentPlanRepository: InstallmentPlanRepository,
+    private readonly commissionRuleRepository: CommissionRuleRepository,
   ) {}
 
   /**
@@ -1392,6 +1395,145 @@ export class DevelopmentsService {
       );
       if (!deleted) {
         throw new ConflictException('Installment plan was modified by another request (version conflict)');
+      }
+
+      await this.idempotencyService.record(
+        {
+          identityId: params.idempotency.identityId,
+          operation: params.idempotency.operation,
+          key: params.idempotency.key,
+          requestBody: params.idempotency.requestBody,
+          responseStatus: 204,
+          responseBody: {},
+        },
+        session,
+      );
+    });
+  }
+
+  async createCommissionRule(params: {
+    developmentId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    partnerType: string;
+    commissionPercent: number;
+    idempotency: IdempotencyParams;
+  }): Promise<CommissionRuleDocument> {
+    const development = await this.developmentRepository.findByIdForOrganization(
+      params.developmentId,
+      params.organizationId,
+    );
+    if (!development) {
+      throw new NotFoundException('Development not found');
+    }
+
+    return this.createIdempotently(params.idempotency, (session) =>
+      this.commissionRuleRepository.create(
+        {
+          organizationId: params.organizationId,
+          developmentId: params.developmentId,
+          partnerType: params.partnerType,
+          commissionPercent: params.commissionPercent,
+        },
+        session,
+      ),
+    );
+  }
+
+  async listCommissionRules(
+    developmentId: Types.ObjectId,
+    organizationId: Types.ObjectId,
+  ): Promise<CommissionRuleDocument[]> {
+    const development = await this.developmentRepository.findByIdForOrganization(developmentId, organizationId);
+    if (!development) {
+      throw new NotFoundException('Development not found');
+    }
+    return this.commissionRuleRepository.listForDevelopment(developmentId, organizationId);
+  }
+
+  async updateCommissionRule(params: {
+    id: Types.ObjectId;
+    developmentId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    expectedVersion: number;
+    patch: UpdateCommissionRulePatch;
+    idempotency: IdempotencyParams;
+  }): Promise<CommissionRuleDocument> {
+    const development = await this.developmentRepository.findByIdForOrganization(
+      params.developmentId,
+      params.organizationId,
+    );
+    if (!development) {
+      throw new NotFoundException('Development not found');
+    }
+
+    const existing = await this.commissionRuleRepository.findByIdForOrganization(
+      params.id,
+      params.organizationId,
+    );
+    if (!existing || !existing.developmentId.equals(params.developmentId)) {
+      throw new NotFoundException('Commission rule not found');
+    }
+
+    return runInTransaction(this.connection, async (session) => {
+      const updated = await this.commissionRuleRepository.updateWithVersionCheck(
+        params.id,
+        params.organizationId,
+        params.expectedVersion,
+        params.patch,
+        session,
+      );
+      if (!updated) {
+        throw new ConflictException('Commission rule was modified by another request (version conflict)');
+      }
+
+      await this.idempotencyService.record(
+        {
+          identityId: params.idempotency.identityId,
+          operation: params.idempotency.operation,
+          key: params.idempotency.key,
+          requestBody: params.idempotency.requestBody,
+          responseStatus: 200,
+          responseBody: toPlainRecord(updated),
+        },
+        session,
+      );
+
+      return updated;
+    });
+  }
+
+  async deleteCommissionRule(params: {
+    id: Types.ObjectId;
+    developmentId: Types.ObjectId;
+    organizationId: Types.ObjectId;
+    expectedVersion: number;
+    idempotency: IdempotencyParams;
+  }): Promise<void> {
+    const development = await this.developmentRepository.findByIdForOrganization(
+      params.developmentId,
+      params.organizationId,
+    );
+    if (!development) {
+      throw new NotFoundException('Development not found');
+    }
+
+    const existing = await this.commissionRuleRepository.findByIdForOrganization(
+      params.id,
+      params.organizationId,
+    );
+    if (!existing || !existing.developmentId.equals(params.developmentId)) {
+      throw new NotFoundException('Commission rule not found');
+    }
+
+    await runInTransaction(this.connection, async (session) => {
+      const deleted = await this.commissionRuleRepository.deleteWithVersionCheck(
+        params.id,
+        params.organizationId,
+        params.expectedVersion,
+        session,
+      );
+      if (!deleted) {
+        throw new ConflictException('Commission rule was modified by another request (version conflict)');
       }
 
       await this.idempotencyService.record(

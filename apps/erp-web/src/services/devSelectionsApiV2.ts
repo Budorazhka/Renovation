@@ -24,7 +24,9 @@ function uid(): string {
 }
 
 interface ApiSelectionItem {
-  unitId: string
+  targetType: 'unit' | 'listing'
+  unitId?: string
+  listingId?: string
   agentNote?: string
   reaction?: DevSelectionReaction
   viewedAt?: string
@@ -59,7 +61,9 @@ function mapApiSelectionToFrontend(raw: ApiSelectionResponse): DevSelectionRecor
     agentNote: raw.agentNote,
     status: raw.status,
     items: raw.items.map((item): DevSelectionItem => ({
+      targetType: item.targetType,
       unitId: item.unitId,
+      listingId: item.listingId,
       agentNote: item.agentNote,
       reaction: item.reaction,
       viewedAt: item.viewedAt,
@@ -91,7 +95,9 @@ function clearAttemptKey(operationId: string) {
 
 export interface CreateSelectionPayload {
   title: string
-  unitIds: string[]
+  /** Хотя бы один из unitIds/listingIds должен быть непустым (валидируется сервером). */
+  unitIds?: string[]
+  listingIds?: string[]
   leadId?: string
   clientName?: string
   clientPhone?: string
@@ -126,7 +132,7 @@ export const devSelectionsApiV2 = {
 
   /** POST /api/v1/selections */
   async create(payload: CreateSelectionPayload, customKey?: string): Promise<DevSelectionRecord> {
-    const opKey = `create:${payload.title}:${payload.unitIds.join(',')}`
+    const opKey = `create:${payload.title}:${(payload.unitIds ?? []).join(',')}:${(payload.listingIds ?? []).join(',')}`
     const idempotencyKey = customKey || attemptKey(opKey)
     const { data } = await api.post<ApiSelectionResponse>('/api/v1/selections', payload, {
       headers: { 'Idempotency-Key': idempotencyKey },
@@ -185,31 +191,33 @@ export const devSelectionsApiV2 = {
   /** POST /api/v1/selections/:id/items */
   async addItems(
     id: string,
-    unitIds: string[],
+    items: { unitIds?: string[]; listingIds?: string[] },
     expectedVersion: number,
     customKey?: string,
   ): Promise<DevSelectionRecord> {
-    const opKey = `add-items:${id}:${expectedVersion}:${unitIds.join(',')}`
+    const unitIds = items.unitIds ?? []
+    const listingIds = items.listingIds ?? []
+    const opKey = `add-items:${id}:${expectedVersion}:${unitIds.join(',')}:${listingIds.join(',')}`
     const idempotencyKey = customKey || attemptKey(opKey)
     const { data } = await api.post<ApiSelectionResponse>(
       `/api/v1/selections/${id}/items`,
-      { unitIds, expectedVersion },
+      { unitIds, listingIds, expectedVersion },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     )
     clearAttemptKey(opKey)
     return mapApiSelectionToFrontend(data)
   },
 
-  /** DELETE /api/v1/selections/:id/items/:unitId */
+  /** DELETE /api/v1/selections/:id/items/:itemId */
   async removeItem(
     id: string,
-    unitId: string,
+    itemId: string,
     expectedVersion: number,
     customKey?: string,
   ): Promise<DevSelectionRecord> {
-    const opKey = `remove-item:${id}:${unitId}`
+    const opKey = `remove-item:${id}:${itemId}`
     const idempotencyKey = customKey || attemptKey(opKey)
-    const { data } = await api.delete<ApiSelectionResponse>(`/api/v1/selections/${id}/items/${unitId}`, {
+    const { data } = await api.delete<ApiSelectionResponse>(`/api/v1/selections/${id}/items/${itemId}`, {
       params: { expectedVersion },
       headers: { 'Idempotency-Key': idempotencyKey },
     })
@@ -217,18 +225,18 @@ export const devSelectionsApiV2 = {
     return mapApiSelectionToFrontend(data)
   },
 
-  /** PATCH /api/v1/selections/:id/items/:unitId */
+  /** PATCH /api/v1/selections/:id/items/:itemId */
   async updateItem(
     id: string,
-    unitId: string,
+    itemId: string,
     patch: { agentNote?: string; reaction?: DevSelectionReaction | null },
     expectedVersion: number,
     customKey?: string,
   ): Promise<DevSelectionRecord> {
-    const opKey = `update-item:${id}:${unitId}:${expectedVersion}`
+    const opKey = `update-item:${id}:${itemId}:${expectedVersion}`
     const idempotencyKey = customKey || attemptKey(opKey)
     const { data } = await api.patch<ApiSelectionResponse>(
-      `/api/v1/selections/${id}/items/${unitId}`,
+      `/api/v1/selections/${id}/items/${itemId}`,
       { ...patch, expectedVersion },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     )

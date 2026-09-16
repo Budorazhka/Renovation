@@ -81,17 +81,12 @@ import {
 import { getGlobalAiEnabled } from '@/store/useAiKillSwitchStore'
 import { getMessengerSocket } from '@/services/messengerSocket'
 import { MESSENGERS_SOCKET_URL } from '@/config/backend'
-import { loadExtraSelections, loadSelectionCustomization } from '@/lib/selections-storage'
-import { SELECTIONS_MOCK } from '@/data/selections-mock'
 import { useDevSelectionsStore } from '@/store/useDevSelectionsStore'
 import { buildSelectionShareUrl } from '@/lib/selection-share'
-import { DEV_SELECTION_STATUS_COLORS } from '@/types/dev-selection'
+import { DEV_SELECTION_STATUS_COLORS, isSecondarySelection } from '@/types/dev-selection'
 import type { DevSelection } from '@/types/dev-selection'
-import { SELECTION_STATUS_COLORS } from '@/types/selections'
-import { resolveAgencyCustomization } from '@/config/agency-selection-customization'
+import { propertyAssetsApi, type PropertyAsset, type Listing } from '@/services/propertyAssetsApi'
 import { resolveDevCustomization } from '@/config/dev-selection-customization'
-import { useAgencyBranding } from '@/hooks/useAgencyBranding'
-import { openSelectionPdf } from '@/lib/selection-pdf'
 import { openDevSelectionPdf } from '@/lib/dev-selection-pdf'
 import { useToasts, type Toast } from '@/hooks/useToasts'
 import { ChatMessageBody } from '@/components/chat/ChatMessageBody'
@@ -801,7 +796,24 @@ export default function ChatsPage() {
   useEffect(() => {
     void fetchDevSelections()
   }, [fetchDevSelections])
-  const branding = useAgencyBranding()
+  const secondarySelections = useMemo(() => devSelections.filter(isSecondarySelection), [devSelections])
+  const [secondaryInventory, setSecondaryInventory] = useState<{ asset: PropertyAsset; listings: Listing[] }[]>([])
+  useEffect(() => {
+    let cancelled = false
+    propertyAssetsApi.listAllAssetsWithListings().then(({ items }) => {
+      if (!cancelled) setSecondaryInventory(items)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const secondaryListingById = useMemo(() => {
+    const map = new Map<string, { asset: PropertyAsset; listing: Listing }>()
+    for (const { asset, listings } of secondaryInventory) {
+      for (const listing of listings) map.set(listing._id, { asset, listing })
+    }
+    return map
+  }, [secondaryInventory])
   // Подписка на in-memory store — перерисовка при смене настроек ИИ
   useMessengerAiSettingsStore((s) => s.byDialogId)
   const [activeId, setActiveId] = useState<string>('')
@@ -3149,9 +3161,6 @@ export default function ChatsPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {selectionsSubTab === 'secondary' ? (
                             (() => {
-                              const secondarySelections = [...loadExtraSelections(), ...SELECTIONS_MOCK].filter(s =>
-                                s.properties.some(p => p.market === 'secondary')
-                              )
                               if (secondarySelections.length === 0) {
                                 return (
                                   <div style={{ padding: '24px 16px', color: 'var(--chat-text-secondary)', fontSize: 14, textAlign: 'center', fontStyle: 'italic' }}>
@@ -3159,7 +3168,7 @@ export default function ChatsPage() {
                                 )
                               }
                               return secondarySelections.map((sel) => {
-                                const statusColor = SELECTION_STATUS_COLORS[sel.status] || 'gray'
+                                const statusColor = DEV_SELECTION_STATUS_COLORS[sel.status] || 'gray'
                                 return (
                                   <div
                                     key={sel.id}
@@ -3182,7 +3191,7 @@ export default function ChatsPage() {
                                       </span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--chat-text-secondary)' }}>
-                                      <span>{sel.properties.length} {t('modules.chatsPage.объектов')}</span>
+                                      <span>{sel.items.length} {t('modules.chatsPage.объектов')}</span>
                                       <span>{new Date(sel.createdAt).toLocaleDateString('ru-RU')}</span>
                                     </div>
                                   </div>
@@ -3234,7 +3243,7 @@ export default function ChatsPage() {
                     ) : (
                       (() => {
                         if (activeSelection.market === 'secondary') {
-                          const sel = [...loadExtraSelections(), ...SELECTIONS_MOCK].find((s) => s.id === activeSelection.id)
+                          const sel = secondarySelections.find((s) => s.id === activeSelection.id)
                           if (!sel) {
                             return (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -3292,7 +3301,7 @@ export default function ChatsPage() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    navigator.clipboard.writeText(sel.portalUrl || '').then(() => {
+                                    navigator.clipboard.writeText(buildSelectionShareUrl(sel)).then(() => {
                                       addToast('Ссылка скопирована', 'success')
                                     })
                                   }}
@@ -3306,28 +3315,8 @@ export default function ChatsPage() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const agencyName = branding.name || 'Ваше агентство'
-                                    const customization = resolveAgencyCustomization(
-                                      loadSelectionCustomization(sel.id) ?? sel.customization
-                                    )
-                                    const opened = openSelectionPdf(sel, agencyName, branding.logoDataUrl, customization)
-                                    if (!opened) {
-                                      addToast('Браузер заблокировал PDF. Разрешите всплывающие окна.', 'error')
-                                    }
-                                  }}
-                                  style={{
-                                    flex: 1, height: 32, borderRadius: 4, border: '1px solid var(--chat-border)',
-                                    background: 'var(--chat-surface-subtle)', color: 'var(--chat-text)',
-                                    fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
-                                  }}
-                                >
-                                  PDF
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
                                     setDraft((prev) => {
-                                      const linkText = `Подборка объектов "${sel.title}": ${sel.portalUrl}`
+                                      const linkText = `Подборка объектов "${sel.title}": ${buildSelectionShareUrl(sel)}`
                                       return prev ? `${prev}\n${linkText}` : linkText
                                     })
                                   }}
@@ -3340,10 +3329,18 @@ export default function ChatsPage() {
                                   {t('modules.chatsPage.в_сообщение')}</button>
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                {sel.properties.map((prop: any) => {
+                                {sel.items.map((selItem) => {
+                                  const resolved = selItem.listingId ? secondaryListingById.get(selItem.listingId) : undefined
+                                  if (!resolved) return null
+                                  const { asset, listing } = resolved
+                                  const priceLabel = new Intl.NumberFormat('ru-RU', {
+                                    style: 'currency',
+                                    currency: listing.price.currency,
+                                    maximumFractionDigits: 0,
+                                  }).format(listing.price.amountMinorUnits / 100)
                                   return (
                                     <div
-                                      key={prop.id}
+                                      key={listing._id}
                                       style={{
                                         padding: 10, borderRadius: 6, border: '1px solid var(--chat-border)',
                                         background: 'var(--chat-surface)', fontSize: 14,
@@ -3352,21 +3349,21 @@ export default function ChatsPage() {
                                     >
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                         <span style={{ color: 'var(--chat-text)', fontWeight: 500, flex: 1, fontSize: 13 }}>
-                                          {prop.address}
+                                          {asset.location.address}
                                         </span>
                                       </div>
                                       <div style={{ color: 'var(--chat-text-secondary)', fontSize: 12 }}>
-                                        {prop.rooms} {t('modules.chatsPage.комн')}{prop.area} {t('modules.chatsPage.м_эт')}{prop.floor}
+                                        {asset.characteristics.rooms ?? '—'} {t('modules.chatsPage.комн')}{asset.characteristics.area} {t('modules.chatsPage.м_эт')}{asset.characteristics.floor ?? '—'}
                                       </div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                                         <span style={{ fontWeight: 500, color: 'var(--chat-gold-text)' }}>
-                                          ${prop.price ? prop.price.toLocaleString('ru-RU') : '—'}
+                                          {priceLabel}
                                         </span>
                                         <button
                                           type="button"
                                           onClick={() => {
                                             setDraft((prev) => {
-                                              const unitText = `🏠 ${prop.address}, ${prop.rooms} комн., ${prop.area} м², этаж ${prop.floor}. Цена: ${prop.price ? '$' + prop.price.toLocaleString('ru-RU') : 'по запросу'}`
+                                              const unitText = `🏠 ${asset.location.address}, ${asset.characteristics.rooms ?? '—'} комн., ${asset.characteristics.area} м², этаж ${asset.characteristics.floor ?? '—'}. Цена: ${priceLabel}`
                                               return prev ? `${prev}\n${unitText}` : unitText
                                             })
                                           }}

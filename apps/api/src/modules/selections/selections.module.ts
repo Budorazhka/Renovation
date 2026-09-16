@@ -1,5 +1,13 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import {
+  PropertyAssetDocument,
+  PropertyAssetSchema,
+  PropertyAssetRepository,
+  ListingDocument,
+  ListingSchema,
+  ListingRepository,
+} from '@baza/property-assets';
 import { DevSelectionDocument, DevSelectionSchema } from './schemas/dev-selection.schema';
 import { DevSelectionRepository } from './repository/dev-selection.repository';
 import { SelectionsService } from './selections.service';
@@ -12,7 +20,13 @@ import { CrmModule } from '../crm/crm.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: DevSelectionDocument.name, schema: DevSelectionSchema }]),
+    MongooseModule.forFeature([
+      { name: DevSelectionDocument.name, schema: DevSelectionSchema },
+      // N-27: лот подборки — юнит новостройки ИЛИ объявление вторички
+      // (@baza/property-assets, тот же паттерн регистрации, что CrmModule).
+      { name: PropertyAssetDocument.name, schema: PropertyAssetSchema },
+      { name: ListingDocument.name, schema: ListingSchema },
+    ]),
     AuthorizationModule,
     IdempotencyModule,
     // Unit-существование (getUnitForOrganization) и Lead-существование
@@ -22,6 +36,6 @@ import { CrmModule } from '../crm/crm.module';
     CrmModule,
   ],
   controllers: [SelectionsController, PublicSelectionsController],
-  providers: [DevSelectionRepository, SelectionsService],
+  providers: [DevSelectionRepository, SelectionsService, PropertyAssetRepository, ListingRepository],
 })
 export class SelectionsModule {}

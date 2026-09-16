@@ -1,14 +1,14 @@
-import { useState, useMemo } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { useSelectionsBasePath, useSelectionsMarket } from '@/hooks/useSelectionsBasePath'
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useSelectionsBasePath } from '@/hooks/useSelectionsBasePath'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { SELECTIONS_MOCK } from '@/data/selections-mock'
-import { loadExtraSelections } from '@/lib/selections-storage'
+import { useDevSelectionsStore } from '@/store/useDevSelectionsStore'
 import {
-  type SelectionStatus,
-  SELECTION_STATUS_LABELS,
-  SELECTION_STATUS_COLORS,
-} from '@/types/selections'
+  isSecondarySelection,
+  type DevSelectionStatus,
+  DEV_SELECTION_STATUS_LABELS,
+  DEV_SELECTION_STATUS_COLORS,
+} from '@/types/dev-selection'
 import {
   Plus,
   Search,
@@ -17,11 +17,11 @@ import {
 } from 'lucide-react'
 import { useI18n } from "@/i18n";
 
-const STATUS_FILTERS: { value: SelectionStatus | 'all'; label: string }[] = [
+const STATUS_FILTERS: { value: DevSelectionStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'Все' },
   { value: 'draft', label: 'Черновики' },
   { value: 'sent', label: 'Отправлены' },
-  { value: 'deal_created', label: 'Сделка создана' },
+  { value: 'viewed', label: 'Просмотрены' },
   { value: 'archived', label: 'Архив' },
 ]
 
@@ -32,21 +32,17 @@ function formatDate(iso: string) {
 export function SelectionsListPage() {
     const { t } = useI18n();
   const navigate = useNavigate()
-  const location = useLocation()
   const selectionsBase = useSelectionsBasePath()
-  const market = useSelectionsMarket()
+  const allSelections = useDevSelectionsStore((s) => s.selections)
+  const fetchAll = useDevSelectionsStore((s) => s.fetchAll)
   const [query, setQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<SelectionStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<DevSelectionStatus | 'all'>('all')
 
-  const marketBound = market === 'newbuild' ? 'primary' : 'secondary'
+  useEffect(() => {
+    void fetchAll()
+  }, [fetchAll])
 
-  const scoped = useMemo(
-    () =>
-      [...loadExtraSelections(), ...SELECTIONS_MOCK].filter(sel =>
-        sel.properties.some(p => p.market === marketBound),
-      ),
-    [location.pathname, location.key, marketBound],
-  )
+  const scoped = useMemo(() => allSelections.filter(isSecondarySelection), [allSelections])
 
   const filtered = useMemo(() => {
     return scoped.filter(sel => {
@@ -135,7 +131,7 @@ export function SelectionsListPage() {
               {t('selections.selectionsListPage.подборок_не_найдено')}</div>
           )}
           {filtered.map(sel => {
-            const statusColor = SELECTION_STATUS_COLORS[sel.status]
+            const statusColor = DEV_SELECTION_STATUS_COLORS[sel.status]
 
             return (
               <div
@@ -166,7 +162,7 @@ export function SelectionsListPage() {
                 <div style={{
                   width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
                   background: statusColor,
-                }} title={SELECTION_STATUS_LABELS[sel.status]} />
+                }} title={DEV_SELECTION_STATUS_LABELS[sel.status]} />
 
                 {/* Title — занимает основное пространство */}
                 <span style={{
@@ -180,7 +176,7 @@ export function SelectionsListPage() {
                 {/* Кол-во объектов */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 16, color: 'var(--app-text-muted)' }}>
                   <FileText size={16} color="var(--app-text-subtle)" />
-                  {sel.properties.length}
+                  {sel.items.length}
                 </div>
 
                 {/* Date */}
