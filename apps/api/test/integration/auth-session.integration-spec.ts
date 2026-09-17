@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { ValidationPipe } from '@nestjs/common';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -214,5 +215,160 @@ describe('GET /auth/session (real HTTP + MongoDB)', () => {
       const short = await changePassword(`baza_session=${current.token}`, { currentPassword: PASSWORD, newPassword: 'short' });
       expect(short.statusCode).toBe(400);
     });
+  });
+
+  describe('POST /auth/verify-password', () => {
+    const PASSWORD = 'correct horse battery staple';
+
+    async function seedSignedIn() {
+      const login = `owner-${new Types.ObjectId().toString()}@example.test`;
+      const identityId = await authService.registerIdentity({ login, password: PASSWORD });
+      const current = await sessionService.createSession({ identityId, productAudience: 'marketplace' });
+      return { login, identityId, current };
+    }
+
+    function verifyPassword(cookie: string | undefined, payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/verify-password',
+        headers: { origin: MARKETPLACE_ORIGIN, ...(cookie ? { cookie } : {}) },
+        payload,
+      });
+    }
+
+    it('верный пароль — valid:true, сессия и пароль не меняются', async () => {
+      const { login, current } = await seedSignedIn();
+
+      const response = await verifyPassword(`baza_session=${current.token}`, { password: PASSWORD });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ valid: true });
+
+      const stillIn = await app.inject({
+        method: 'GET',
+        url: '/api/v1/auth/session',
+        headers: { origin: MARKETPLACE_ORIGIN, cookie: `baza_session=${current.token}` },
+      });
+      expect(stillIn.json()).toEqual({ authenticated: true });
+
+      await expect(authService.login({ login, password: PASSWORD, audience: 'marketplace' })).resolves.toEqual(
+        expect.objectContaining({ requires2fa: false }),
+      );
+    });
+
+    it('неверный пароль — valid:false, не 401', async () => {
+      const { current } = await seedSignedIn();
+
+      const response = await verifyPassword(`baza_session=${current.token}`, { password: 'not-my-password' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ valid: false });
+    });
+
+    it('без сессии — 401 AUTH_NO_SESSION', async () => {
+      const response = await verifyPassword(undefined, { password: PASSWORD });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe('AUTH_NO_SESSION');
+    });
+  });
+
+  describe('GET /auth/sessions + POST /auth/sessions/:id/revoke', () => {
+    function listSessions(cookie: string | undefined) {
+      return app.inject({
+        method: 'GET',
+        url: '/api/v1/auth/sessions',
+        headers: { origin: ERP_ORIGIN, ...(cookie ? { cookie } : {}) },
+      });
+    }
+
+    function revokeSession(cookie: string | undefined, sessionId: string) {
+      return app.inject({
+        method: 'POST',
+        url: `/api/v1/auth/sessions/${sessionId}/revoke`,
+        headers: { origin: ERP_ORIGIN, ...(cookie ? { cookie } : {}) },
+      });
+    }
+
+    it('список показывает только сессии своего audience и помечает текущую current:true', async () => {
+      const identityId = new Types.ObjectId();
+      const current = await sessionService.createSession({ identityId, productAudience: 'erp' });
+      await sessionService.createSession({ identityId, productAudience: 'erp' });
+      await sessionService.createSession({ identityId, productAudience: 'marketplace' });
+
+      const response = await listSessions(`baza_session=${current.token}`);
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { items: Array<{ id: string; current: boolean }> };
+      expect(body.items).toHaveLength(2);
+      expect(body.items.filter((item) => item.current)).toHaveLength(1);
+    });
+
+    it('без cookie — 401', async () => {
+      const response = await listSessions(undefined);
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe('AUTH_NO_SESSION');
+    });
+
+    it('отзыв чужой (по id, но identityId другой) сессии — 404, не 200', async () => {
+      const owner = await sessionService.createSession({ identityId: new Types.ObjectId(), productAudience: 'erp' });
+      const stranger = await sessionService.createSession({ identityId: new Types.ObjectId(), productAudience: 'erp' });
+      const strangerSessionId = await resolveSessionId(stranger.token);
+
+      const response = await revokeSession(`baza_session=${owner.token}`, strangerSessionId);
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe('NOT_FOUND');
+    });
+
+    it('невалидный (не ObjectId) sessionId — 400, не 500', async () => {
+      const identityId = new Types.ObjectId();
+      const current = await sessionService.createSession({ identityId, productAudience: 'erp' });
+
+      const response = await revokeSession(`baza_session=${current.token}`, 'not-an-object-id');
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('VALIDATION_FAILED');
+    });
+
+    it('отзыв текущей сессии — 400, отклонён', async () => {
+      const identityId = new Types.ObjectId();
+      const current = await sessionService.createSession({ identityId, productAudience: 'erp' });
+      const currentSessionId = await resolveSessionId(current.token);
+
+      const response = await revokeSession(`baza_session=${current.token}`, currentSessionId);
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('VALIDATION_FAILED');
+    });
+
+    it('после отзыва сессия пропадает из списка и GET /auth/session для её токена возвращает authenticated:false', async () => {
+      const identityId = new Types.ObjectId();
+      const current = await sessionService.createSession({ identityId, productAudience: 'erp' });
+      const other = await sessionService.createSession({ identityId, productAudience: 'erp' });
+      const otherSessionId = await resolveSessionId(other.token);
+
+      const revokeResponse = await revokeSession(`baza_session=${current.token}`, otherSessionId);
+      expect(revokeResponse.statusCode).toBe(200);
+      expect(revokeResponse.json()).toEqual({ revoked: true });
+
+      const afterList = await listSessions(`baza_session=${current.token}`);
+      const afterIds = (afterList.json() as { items: Array<{ id: string }> }).items.map((item) => item.id);
+      expect(afterIds).not.toContain(otherSessionId);
+
+      const sessionCheck = await app.inject({
+        method: 'GET',
+        url: '/api/v1/auth/session',
+        headers: { origin: ERP_ORIGIN, cookie: `baza_session=${other.token}` },
+      });
+      expect(sessionCheck.json()).toEqual({ authenticated: false });
+    });
+
+    async function resolveSessionId(token: string): Promise<string> {
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const doc = await connection.collection('sessions').findOne({ tokenHash });
+      return doc!._id.toString();
+    }
   });
 });

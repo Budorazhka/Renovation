@@ -338,6 +338,9 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
 
   'POST /auth/change-password':
     'повтор того же запроса ставит тот же пароль и закрывает те же (уже закрытые) сессии; после первой смены прежний currentPassword перестаёт подходить — второй эффект недостижим',
+  'POST /auth/verify-password': 'read-only проверка пароля текущей сессии — ничего не меняет, повтор безопасен по определению',
+  'POST /auth/sessions/:sessionId/revoke':
+    'идемпотентен по природе, тот же принцип, что POST /auth/logout: повторный отзыв уже отозванной своей сессии — тот же итог (SessionRepository.revokeById сверяет matchedCount, не modifiedCount)',
 
   // --- Уведомления ---
   'PUT /me/notifications': 'выставляет флаги в заданное значение — повтор даёт то же состояние',

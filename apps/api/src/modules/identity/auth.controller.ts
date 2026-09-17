@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
 import { AppException } from '../../shared/errors/app-exception';
@@ -9,8 +9,10 @@ import { resolveProductAudienceFromHeaders, resolveProductAudienceFromOrigin } f
 import { LoginRequestDto } from './dto/login-request.dto';
 import { RegisterRequestDto } from './dto/register-request.dto';
 import { ChangePasswordRequestDto } from './dto/change-password-request.dto';
+import { VerifyPasswordRequestDto } from './dto/verify-password-request.dto';
 import { IpRateLimitGuard } from '../../shared/rate-limit/ip-rate-limit.guard';
 import { RateLimit } from '../../shared/rate-limit/rate-limit.decorator';
+import { ParseObjectIdPipe } from '../../shared/validation/parse-object-id.pipe';
 
 /**
  * OpenAPI `/auth/login` (security: [] — публичный, гость без сессии).
@@ -148,6 +150,112 @@ export class AuthController {
     });
 
     return { changed: true, revokedSessions };
+  }
+
+  /**
+   * Подтверждение пароля текущей сессии без побочных эффектов — не меняет
+   * пароль, не отзывает сессии (в отличие от change-password). Используется
+   * перед чувствительными действиями (например массовое редактирование
+   * юнитов в шахматке), где повторный ввод пароля — это доп. подтверждение
+   * личности, а не полноценный re-login. Rate limit по IP — тот же принцип,
+   * что у change-password: argon2id-перебор стоит здесь ровно столько же.
+   */
+  @Post('verify-password')
+  @HttpCode(200)
+  @UseGuards(IpRateLimitGuard)
+  @RateLimit({ keyPrefix: 'auth-verify-password', limit: 10, windowSeconds: 60 })
+  async verifyPassword(
+    @Req() req: FastifyRequest,
+    @Body() dto: VerifyPasswordRequestDto,
+  ): Promise<{ valid: boolean }> {
+    const audience = resolveProductAudienceFromHeaders({
+      origin: req.headers.origin,
+      host: req.headers.host,
+      forwardedProto: req.headers['x-forwarded-proto'] as string | undefined,
+    });
+    const session = await this.sessionService.getActiveSessionFromRequest(req, audience);
+    if (!session) {
+      throw new AppException(ErrorCode.AUTH_NO_SESSION, 'No active session');
+    }
+
+    const valid = await this.authService.verifyPassword(new Types.ObjectId(session.identityId), dto.password);
+    return { valid };
+  }
+
+  /**
+   * SecurityTab (ERP «Настройки → Безопасность»): активные сессии вошедшего
+   * в рамках ЕГО ЖЕ audience — не все продукты сразу (см. комментарий у
+   * SessionRepository.findActiveByIdentity: параллельная marketplace-сессия
+   * той же identity выглядела бы в ERP-кабинете как чужое устройство).
+   * ipAddress/userAgent отдаются как есть с сервера — reverse-geo (город по
+   * IP) на бэкенде нет, это честный пробел, не выдумываем.
+   */
+  @Get('sessions')
+  @UseGuards(IpRateLimitGuard)
+  @RateLimit({ keyPrefix: 'auth-sessions-list', limit: 30, windowSeconds: 60 })
+  async listSessions(
+    @Req() req: FastifyRequest,
+  ): Promise<{ items: Array<{ id: string; ipAddress?: string; userAgent?: string; createdAt: Date; current: boolean }> }> {
+    const audience = resolveProductAudienceFromHeaders({
+      origin: req.headers.origin,
+      host: req.headers.host,
+      forwardedProto: req.headers['x-forwarded-proto'] as string | undefined,
+    });
+    const session = await this.sessionService.getActiveSessionFromRequest(req, audience);
+    if (!session) {
+      throw new AppException(ErrorCode.AUTH_NO_SESSION, 'No active session');
+    }
+
+    const items = await this.sessionService.listSessions(
+      new Types.ObjectId(session.identityId),
+      audience,
+      this.sessionService.getRawTokenFromRequest(req),
+    );
+    return { items };
+  }
+
+  /**
+   * Отзыв одной сессии по id из SecurityTab. Не отзывает ТЕКУЩУЮ сессию
+   * (400 VALIDATION_FAILED) — для этого /auth/logout. Idempotency-Key не
+   * нужен: повторный отзыв уже отозванной своей сессии — тот же итог
+   * (idempotency-coverage.test.ts).
+   */
+  @Post('sessions/:sessionId/revoke')
+  @HttpCode(200)
+  @UseGuards(IpRateLimitGuard)
+  @RateLimit({ keyPrefix: 'auth-sessions-revoke', limit: 10, windowSeconds: 60 })
+  async revokeSessionById(
+    @Req() req: FastifyRequest,
+    @Param('sessionId', ParseObjectIdPipe) sessionId: Types.ObjectId,
+  ): Promise<{ revoked: true }> {
+    const audience = resolveProductAudienceFromHeaders({
+      origin: req.headers.origin,
+      host: req.headers.host,
+      forwardedProto: req.headers['x-forwarded-proto'] as string | undefined,
+    });
+    const session = await this.sessionService.getActiveSessionFromRequest(req, audience);
+    if (!session) {
+      throw new AppException(ErrorCode.AUTH_NO_SESSION, 'No active session');
+    }
+
+    const result = await this.sessionService.revokeSessionById(
+      new Types.ObjectId(session.identityId),
+      sessionId,
+      audience,
+      this.sessionService.getRawTokenFromRequest(req),
+    );
+
+    if (result === 'not_found') {
+      throw new AppException(ErrorCode.NOT_FOUND, 'Session not found');
+    }
+    if (result === 'cannot_revoke_current') {
+      throw new AppException(
+        ErrorCode.VALIDATION_FAILED,
+        'Cannot revoke the current session this way — use /auth/logout instead',
+      );
+    }
+
+    return { revoked: true };
   }
 
   @Post('logout')

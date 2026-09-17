@@ -138,6 +138,114 @@ paths:
                 currentPassword: { type: string, minLength: 1, maxLength: 200 }
                 newPassword: { type: string, minLength: 8, maxLength: 200 }
 
+  /auth/verify-password:
+    post:
+      operationId: verifyPassword
+      tags: [auth]
+      summary: >
+        Подтверждение пароля вошедшего пользователя без побочных эффектов —
+        не меняет пароль, не отзывает сессии (в отличие от change-password).
+        Для чувствительных действий, где нужно повторно подтвердить личность,
+        не выполняя полноценный re-login. Rate limit по IP, как на входе.
+      responses:
+        '200':
+          description: Результат проверки (валиден пароль или нет)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+        '401':
+          description: AUTH_NO_SESSION — нет активной сессии
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMIT_EXCEEDED
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 200 }
+
+  /auth/sessions:
+    get:
+      operationId: listSessions
+      tags: [auth]
+      summary: >
+        Активные сессии вошедшего в рамках его же продукта (ERP/marketplace/
+        admin резолвятся отдельно, не все сразу — параллельная сессия того же
+        человека в другом продукте здесь не показывается). Свежие первыми.
+      description: >
+        ipAddress/userAgent отдаются как есть с сервера — reverse-geo (город
+        по IP) на бэкенде нет. Rate limit по IP.
+      responses:
+        '200':
+          description: Список активных сессий.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, createdAt, current]
+                      properties:
+                        id: { type: string }
+                        ipAddress: { type: string }
+                        userAgent: { type: string }
+                        createdAt: { type: string, format: date-time }
+                        current: { type: boolean }
+        '401':
+          description: AUTH_NO_SESSION — нет активной сессии
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMIT_EXCEEDED
+          $ref: '#/components/responses/Error'
+
+  /auth/sessions/{sessionId}/revoke:
+    post:
+      operationId: revokeSessionById
+      tags: [auth]
+      summary: >
+        Отзыв одной сессии вошедшего по её id. Не отзывает текущую сессию —
+        для этого /auth/logout. Rate limit по IP, как на прочих auth-мутациях.
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Сессия отозвана
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean }
+        '400':
+          description: VALIDATION_FAILED — попытка отозвать текущую сессию этим путём
+          $ref: '#/components/responses/Error'
+        '401':
+          description: AUTH_NO_SESSION — нет активной сессии
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — сессия с таким id не найдена среди сессий вошедшего
+          $ref: '#/components/responses/Error'
+        '429':
+          description: RATE_LIMIT_EXCEEDED
+          $ref: '#/components/responses/Error'
+
   /auth/session:
     get:
       operationId: checkSession

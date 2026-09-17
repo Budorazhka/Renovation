@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   Archive,
@@ -27,7 +27,8 @@ import {
 import { toast } from 'sonner'
 import { DashboardShell } from '@/components/layout/DashboardShell'
 import { useAuth } from '@/context/AuthContext'
-import { SELECTIONS_MOCK } from '@/data/selections-mock'
+import { useDevSelectionsStore } from '@/store/useDevSelectionsStore'
+import { isSecondarySelection } from '@/types/dev-selection'
 import { mapEstateApartmentToProperty } from '@/lib/map-estate-apartment'
 import { formatPropertyUnitPrice } from '@/lib/property-unit-price'
 import { secondaryObjectsApi } from '@/services/secondaryObjectsApi'
@@ -77,6 +78,13 @@ export function ObjectCardPage() {
   const { currentUser } = useAuth()
 
   const [property, setProperty] = useState<PropertyWithAssetInfo | Property | undefined>()
+  const allSelections = useDevSelectionsStore((s) => s.selections)
+  const fetchSelections = useDevSelectionsStore((s) => s.fetchAll)
+  const addItemsToSelection = useDevSelectionsStore((s) => s.addItems)
+  const secondarySelections = useMemo(() => allSelections.filter(isSecondarySelection), [allSelections])
+  useEffect(() => {
+    void fetchSelections()
+  }, [fetchSelections])
   const [rawAsset, setRawAsset] = useState<PropertyAsset | null>(null)
   const [rawListings, setRawListings] = useState<Listing[]>([])
   const [publicationStatus, setPublicationStatus] = useState<string | null>(null)
@@ -403,8 +411,14 @@ export function ObjectCardPage() {
     void loadProperty()
   }
 
-  function addToSelection(selectionTitle: string) {
+  function addToSelection(selectionId: string, selectionTitle: string) {
     setSelectionOpen(false)
+    const listingId = (property as PropertyWithAssetInfo | undefined)?.primaryListing?._id
+    if (!listingId) {
+      toast.error(`У «${property?.title}» нет активного объявления — сначала опубликуйте лот`)
+      return
+    }
+    addItemsToSelection(selectionId, { listingIds: [listingId] })
     toast.success(`«${property?.title}» добавлен в подборку «${selectionTitle}»`)
   }
 
@@ -1031,8 +1045,11 @@ export function ObjectCardPage() {
             <div className="objects-confirm-modal">
               <h2>{t('objects.objectCardPage.в_подборку')}</h2>
               <div className="objects-selection-list">
-                {SELECTIONS_MOCK.map((selection) => (
-                  <button key={selection.id} type="button" onClick={() => addToSelection(selection.title)}>
+                {secondarySelections.length === 0 && (
+                  <p>Подборок вторички пока нет</p>
+                )}
+                {secondarySelections.map((selection) => (
+                  <button key={selection.id} type="button" onClick={() => addToSelection(selection.id, selection.title)}>
                     {selection.title}
                     <span>{selection.clientName}</span>
                   </button>

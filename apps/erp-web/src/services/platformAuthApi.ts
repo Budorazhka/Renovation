@@ -7,6 +7,15 @@ export interface PlatformLoginResponse {
   requires2fa: boolean
 }
 
+/** Одна активная сессия человека в рамках ERP audience. Зеркало ответа GET /auth/sessions. */
+export interface PlatformSession {
+  id: string
+  ipAddress?: string
+  userAgent?: string
+  createdAt: string
+  current: boolean
+}
+
 /** Один активный PermissionGrant позиции. Зеркало ErpMePermissionView на бэке. */
 export type PlatformPermission = ServerPermission
 
@@ -68,6 +77,17 @@ export const platformAuthApi = {
   },
 
   /**
+   * Подтверждение пароля текущей сессии без побочных эффектов — не меняет
+   * пароль, не отзывает сессии. Для чувствительных действий (массовое
+   * редактирование в шахматке), где нужно ещё раз подтвердить, что за
+   * клавиатурой владелец аккаунта, не выполняя полноценный re-login.
+   */
+  async verifyPassword(password: string): Promise<boolean> {
+    const { data } = await api.post<{ valid: boolean }>('/api/v1/auth/verify-password', { password })
+    return data.valid
+  },
+
+  /**
    * Контекст текущей сессии: организация, позиция и её активные права.
    *
    * Единственный источник правды по scope: сервер выводит организацию и
@@ -83,5 +103,19 @@ export const platformAuthApi = {
   async me(): Promise<PlatformMeResponse> {
     const { data } = await api.get<PlatformMeResponse>('/api/v1/me')
     return data
+  },
+
+  /**
+   * SecurityTab: активные сессии вошедшего в рамках ЕГО ЖЕ продукта (ERP) —
+   * сервер сам ограничивает audience по origin запроса, тут нечего выбирать.
+   */
+  async listSessions(): Promise<PlatformSession[]> {
+    const { data } = await api.get<{ items: PlatformSession[] }>('/api/v1/auth/sessions')
+    return data.items
+  },
+
+  /** Отзыв одной сессии по id. Текущую сессию сервер не даёт отозвать этим путём — для этого logout. */
+  async revokeSession(sessionId: string): Promise<void> {
+    await api.post(`/api/v1/auth/sessions/${sessionId}/revoke`)
   },
 }

@@ -23,7 +23,6 @@ import { EisenhowerChips } from '@/components/shared/EisenhowerChips'
 import { useAuth } from '@/context/AuthContext'
 import { MediaUploadError, mediaApiV2 } from '@/services/mediaApiV2'
 import { useLeads } from '@/context/LeadsContext'
-import { mockPhoneForLead } from '@/lib/lead-contact-mock'
 import { cn } from '@/lib/utils'
 import type { Task, TaskPriority, TaskSubtask } from '@/types/tasks'
 import { useI18n } from "@/i18n";
@@ -204,8 +203,7 @@ export function CreateTaskModal({
     return leadsState.leadPool.filter(lead => {
       const name = (lead.name ?? '').toLowerCase()
       const id = lead.id.toLowerCase()
-      const phone = mockPhoneForLead(lead.id)
-      const phoneDigits = digitsOnly(phone)
+      const phoneDigits = digitsOnly(lead.phone ?? '')
       if (q && (name.includes(q) || id.includes(q))) return true
       if (d.length >= 2 && (phoneDigits.includes(d) || id.replace(/\D/g, '').includes(d))) return true
       return false
@@ -404,7 +402,7 @@ export function CreateTaskModal({
                     >
                       <span className="font-medium text-[color:var(--app-text)]">{lead.name ?? 'Без имени'}</span>
                       <span className="text-[color:var(--app-text)]/50">
-                        {lead.id} · {mockPhoneForLead(lead.id)}
+                        {lead.id}{lead.phone ? ` · ${lead.phone}` : ''}
                       </span>
                     </button>
                   </li>

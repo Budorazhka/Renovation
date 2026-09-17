@@ -637,3 +637,51 @@ describe('AuthService.changePassword', () => {
     expect(setPassword).not.toHaveBeenCalled();
   });
 });
+
+describe('AuthService.verifyPassword', () => {
+  function makeService(identity: unknown) {
+    return new AuthService(
+      { findByIdWithPasswordHash: jest.fn().mockResolvedValue(identity) } as unknown as IdentityRepository,
+      {} as unknown as ProductAccessRepository,
+      {} as unknown as SessionService,
+    );
+  }
+
+  it('верный пароль — true, ничего не меняет и не отзывает', async () => {
+    const identity = await makeIdentity({ password: 'correct-1' });
+    const service = makeService(identity);
+
+    await expect(service.verifyPassword(identity._id, 'correct-1')).resolves.toBe(true);
+  });
+
+  it('неверный пароль — false, не бросает', async () => {
+    const identity = await makeIdentity({ password: 'correct-1' });
+    const service = makeService(identity);
+
+    await expect(service.verifyPassword(identity._id, 'wrong')).resolves.toBe(false);
+  });
+
+  it('деактивированная identity — false', async () => {
+    const identity = await makeIdentity({ status: 'deactivated', password: 'correct-1' });
+    const service = makeService(identity);
+
+    await expect(service.verifyPassword(identity._id, 'correct-1')).resolves.toBe(false);
+  });
+
+  it('несуществующая identity — false, не бросает', async () => {
+    const service = makeService(null);
+
+    await expect(service.verifyPassword(new Types.ObjectId(), 'anything')).resolves.toBe(false);
+  });
+
+  it('legacy bcrypt-пароль тоже проходит', async () => {
+    const identity = {
+      _id: new Types.ObjectId(),
+      status: 'active',
+      legacyPasswordHash: await bcrypt.hash('legacy-password', 4),
+    };
+    const service = makeService(identity);
+
+    await expect(service.verifyPassword(identity._id, 'legacy-password')).resolves.toBe(true);
+  });
+});

@@ -23,7 +23,6 @@ import { useLeads } from '@/context/LeadsContext'
 import { useDeals } from '@/context/DealsContext'
 import { useRolePermissions } from '@/hooks/useRolePermissions'
 import { FMT_USD, formatUsdMillions, formatUsdThousands } from '@/lib/format-currency'
-import { CLIENTS_MOCK } from '@/data/clients-mock'
 import { STAGE_LABELS, STAGE_ORDER, type DealStage, type DealType, type PaymentStatus } from '@/types/deals'
 import { DEAL_TYPES_V2 } from '@/types/dealsV2'
 import { toast } from 'sonner'
@@ -70,7 +69,7 @@ export function DealCardPage() {
   const navigate = useNavigate()
   const { currentUser } = useAuth()
   const { isManager } = useRolePermissions()
-  const { getLeadWithHistory, state: leadsState, dispatch, leadManagers } = useLeads()
+  const { getLeadWithHistory, dispatch, leadManagers } = useLeads()
   const { deals, updateChecklist, changeType } = useDeals()
   const [savingType, setSavingType] = useState(false)
   const [tab, setTab] = useState<Tab>('checklist')
@@ -105,17 +104,14 @@ export function DealCardPage() {
     }
   }, [tab, deal?.id, deal?.commissionReceived])
 
-  /** Связанный лид в CRM: sourceLeadId, clientId lead-* или клиент с convertedFromLeadId, если лид есть в пуле */
+  /** Связанный лид в CRM: sourceLeadId либо clientId в форме lead-* */
   const linkedLeadId = useMemo(() => {
     const d = deals.find(x => x.id === dealId)
     if (!d) return null
     if (d.sourceLeadId) return d.sourceLeadId
     if (d.clientId?.startsWith('lead-')) return d.clientId
-    const client = CLIENTS_MOCK.find(c => c.id === d.clientId)
-    const conv = client?.convertedFromLeadId
-    if (conv && leadsState.leadPool.some(l => l.id === conv)) return conv
     return null
-  }, [deals, dealId, leadsState.leadPool])
+  }, [deals, dealId])
 
   const leadCrmPath = linkedLeadId
     ? `/dashboard/leads/poker?lead=${encodeURIComponent(linkedLeadId)}`

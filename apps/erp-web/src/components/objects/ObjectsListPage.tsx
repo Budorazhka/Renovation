@@ -38,7 +38,8 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { SELECTIONS_MOCK } from '@/data/selections-mock'
+import { useDevSelectionsStore } from '@/store/useDevSelectionsStore'
+import { isSecondarySelection } from '@/types/dev-selection'
 import { ObjectEditWizard } from './ObjectEditWizard'
 import type {
   ConditionState,
@@ -52,7 +53,7 @@ import { FMT_USD } from '@/lib/format-currency'
 import { formatPropertyUnitPrice } from '@/lib/property-unit-price'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
-import { mapPropertyAssetToUiProperty } from '@/lib/map-property-asset'
+import { mapPropertyAssetToUiProperty, type PropertyWithAssetInfo } from '@/lib/map-property-asset'
 import { canDo } from '@/lib/permissions'
 import { propertyAssetsApi } from '@/services/propertyAssetsApi'
 import { MlsConfirmDialog, type MlsDialogMode } from './MlsConfirmDialog'
@@ -183,6 +184,13 @@ export function ObjectsListPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const favorites = useFavorites()
+  const allSelections = useDevSelectionsStore((s) => s.selections)
+  const fetchSelections = useDevSelectionsStore((s) => s.fetchAll)
+  const addItemsToSelection = useDevSelectionsStore((s) => s.addItems)
+  const secondarySelections = useMemo(() => allSelections.filter(isSecondarySelection), [allSelections])
+  useEffect(() => {
+    void fetchSelections()
+  }, [fetchSelections])
   const [confirmRefreshId, setConfirmRefreshId] = useState<string | null>(null)
   const [promoteOpen, setPromoteOpen] = useState(false)
   const [selectionTargetId, setSelectionTargetId] = useState<string | null>(null)
@@ -470,12 +478,17 @@ export function ObjectsListPage() {
     toast.success(`«${next.title}» добавлен`)
   }
 
-  function addToSelection(selectionTitle: string) {
-    const target = list.find((property) => property.id === selectionTargetId)
+  function addToSelection(selectionId: string, selectionTitle: string) {
+    const target = list.find((property) => property.id === selectionTargetId) as PropertyWithAssetInfo | undefined
     setSelectionTargetId(null)
-    if (target) {
-      toast.success(`«${target.title}» добавлен в подборку «${selectionTitle}»`)
+    const listingId = target?.primaryListing?._id
+    if (!target) return
+    if (!listingId) {
+      toast.error(`У «${target.title}» нет активного объявления — сначала опубликуйте лот`)
+      return
     }
+    addItemsToSelection(selectionId, { listingIds: [listingId] })
+    toast.success(`«${target.title}» добавлен в подборку «${selectionTitle}»`)
   }
 
   function toggleSelected(id: string) {
@@ -953,11 +966,14 @@ export function ObjectsListPage() {
             <div className="objects-confirm-modal">
               <h2>{t('objects.objectsListPage.в_подборку')}</h2>
               <div className="objects-selection-list">
-                {SELECTIONS_MOCK.map((selection) => (
+                {secondarySelections.length === 0 && (
+                  <p>Подборок вторички пока нет</p>
+                )}
+                {secondarySelections.map((selection) => (
                   <button
                     key={selection.id}
                     type="button"
-                    onClick={() => addToSelection(selection.title)}
+                    onClick={() => addToSelection(selection.id, selection.title)}
                   >
                     {selection.title}
                     <span>{selection.clientName}</span>

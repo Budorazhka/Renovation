@@ -1,8 +1,7 @@
 import { useRef, useState } from 'react'
 import { Lock, X } from 'lucide-react'
 
-import { MOCK_USERS } from '@/context/AuthContext'
-import { useAuth } from '@/context/AuthContext'
+import { platformAuthApi } from '@/services/platformAuthApi'
 import { Button } from '@/components/ui/button'
 import { useI18n } from "@/i18n";
 
@@ -13,15 +12,22 @@ interface Props {
 
 export function PasswordConfirmModal({ onConfirm, onCancel }: Props) {
     const { t } = useI18n();
-  const { currentUser } = useAuth()
   const [password, setPassword] = useState('')
   const [error, setError] = useState(false)
+  const [checking, setChecking] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const match = MOCK_USERS.find((u) => u.id === currentUser?.id && u.password === password)
-    if (match) {
+    setChecking(true)
+    let valid = false
+    try {
+      valid = await platformAuthApi.verifyPassword(password)
+    } catch {
+      valid = false
+    }
+    setChecking(false)
+    if (valid) {
       onConfirm()
     } else {
       setError(true)
@@ -55,7 +61,7 @@ export function PasswordConfirmModal({ onConfirm, onCancel }: Props) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <form onSubmit={(e) => { void handleSubmit(e) }} className="flex flex-col gap-3">
           <input
             ref={inputRef}
             autoFocus
@@ -82,10 +88,10 @@ export function PasswordConfirmModal({ onConfirm, onCancel }: Props) {
             <Button
               type="submit"
               size="sm"
-              disabled={!password}
+              disabled={!password || checking}
               className="flex-1 bg-[#c9a84c] text-[#0a1f12] hover:bg-[#e2c97e]"
             >
-              {t('common.passwordConfirmModal.подтвердить')}</Button>
+              {checking ? 'Проверка…' : t('common.passwordConfirmModal.подтвердить')}</Button>
           </div>
         </form>
       </div>

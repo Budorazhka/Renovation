@@ -145,5 +145,56 @@ export class SessionService {
     return this.parseCookie(req.headers.cookie, SESSION_COOKIE_NAME);
   }
 
+  /**
+   * SecurityTab: список активных сессий человека в рамках ОДНОГО audience
+   * (см. SessionRepository.findActiveByIdentity — не все продукты сразу).
+   * currentRawToken опционален только формально: вызывающий код всегда
+   * резолвит сессию до вызова этого метода, но сигнатура не обязывает.
+   */
+  async listSessions(
+    identityId: Types.ObjectId,
+    productAudience: ProductAudience,
+    currentRawToken?: string,
+  ): Promise<Array<{ id: string; ipAddress?: string; userAgent?: string; createdAt: Date; current: boolean }>> {
+    const sessions = await this.sessionRepository.findActiveByIdentity(identityId, productAudience);
+    const currentTokenHash = currentRawToken ? this.hashToken(currentRawToken) : undefined;
+
+    return sessions.map((session) => ({
+      id: session._id.toString(),
+      ipAddress: session.ipAddress,
+      userAgent: session.userAgent,
+      createdAt: session.createdAt,
+      current: currentTokenHash !== undefined && session.tokenHash === currentTokenHash,
+    }));
+  }
+
+  /**
+   * Отзыв одной сессии по id из SecurityTab. Запрещает отзывать ТЕКУЩУЮ
+   * сессию этим путём — для этого есть /auth/logout (тот же принцип, что
+   * change-password не даёт закрыть текущую сессию). "Текущая" определяется
+   * сравнением _id найденной по currentRawToken активной сессии с sessionId,
+   * не сравнением хешей токенов напрямую — так работает даже если
+   * currentRawToken успел устареть, но sessionId всё ещё указывает на неё.
+   */
+  async revokeSessionById(
+    identityId: Types.ObjectId,
+    sessionId: Types.ObjectId,
+    productAudience: ProductAudience,
+    currentRawToken?: string,
+  ): Promise<'revoked' | 'not_found' | 'cannot_revoke_current'> {
+    if (currentRawToken) {
+      const currentSession = await this.sessionRepository.findActiveByTokenHash(
+        this.hashToken(currentRawToken),
+        productAudience,
+      );
+      if (currentSession && currentSession._id.equals(sessionId)) {
+        return 'cannot_revoke_current';
+      }
+    }
+
+    const found = await this.sessionRepository.revokeById(identityId, sessionId);
+    return found ? 'revoked' : 'not_found';
+  }
+
   static readonly COOKIE_NAME = SESSION_COOKIE_NAME;
 }

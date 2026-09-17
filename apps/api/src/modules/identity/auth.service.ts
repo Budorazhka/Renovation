@@ -216,6 +216,21 @@ export class AuthService {
     return { revokedSessions };
   }
 
+  /**
+   * Подтверждение пароля вошедшего пользователя без побочных эффектов — не
+   * меняет пароль, не трогает сессии (в отличие от changePassword). Нужен
+   * экранам, где действие уже выполняется под активной cookie-сессией, но
+   * перед чувствительным шагом (массовое редактирование) требуется ещё раз
+   * подтвердить, что пароль вводит владелец, а не украденная cookie.
+   * Деактивированная/несуществующая identity — тот же false, что неверный
+   * пароль: не разбираем на подтипы гостю, который уже прошёл TenantGuard.
+   */
+  async verifyPassword(identityId: Types.ObjectId, password: string): Promise<boolean> {
+    const identity = await this.identityRepository.findByIdWithPasswordHash(identityId);
+    if (!identity || identity.status !== 'active') return false;
+    return this.passwordMatches(identity, password);
+  }
+
   /** Проверка пароля уже найденной Identity: argon2, а для непереведённой из старой системы — bcrypt. */
   private async passwordMatches(identity: IdentityDocument, password: string): Promise<boolean> {
     if (identity.passwordHash) {

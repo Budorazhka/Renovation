@@ -67,4 +67,37 @@ export class SessionRepository {
     }
     await this.model.updateMany(filter, { $set: { revokedAt: new Date() } }).exec();
   }
+
+  /**
+   * Активные сессии этой identity в рамках ОДНОГО audience — SecurityTab
+   * (ERP) не должен показывать параллельную marketplace-сессию того же
+   * человека, это выглядело бы как чужое устройство. Свежие первыми.
+   */
+  async findActiveByIdentity(
+    identityId: Types.ObjectId,
+    productAudience: ProductAudience,
+  ): Promise<SessionDocument[]> {
+    return this.model
+      .find({
+        identityId,
+        productAudience,
+        revokedAt: { $exists: false },
+        expiresAt: { $gt: new Date() },
+      })
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  /**
+   * Отзыв одной сессии по её _id — identityId ОБЯЗАТЕЛЬНО в фильтре, иначе
+   * один пользователь мог бы отозвать чужую сессию, подобрав id.
+   * matchedCount (не modifiedCount): повторный отзыв уже отозванной своей
+   * сессии находит документ и остаётся идемпотентным успехом, а не 404.
+   */
+  async revokeById(identityId: Types.ObjectId, sessionId: Types.ObjectId): Promise<boolean> {
+    const result = await this.model
+      .updateOne({ _id: sessionId, identityId }, { $set: { revokedAt: new Date() } })
+      .exec();
+    return result.matchedCount > 0;
+  }
 }
