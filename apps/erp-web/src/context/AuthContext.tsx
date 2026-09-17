@@ -8,7 +8,15 @@ import { ROLE_LABEL, ACCOUNT_TYPE_LABEL } from '@/lib/permissions'
 import { messengerApi } from '@/services/messengerApi'
 import { authenticateMessengerSocket } from '@/services/messengerSocket'
 
-/** Mock-пользователи для демонстрации (по одному на каждую роль) */
+/**
+ * БЫЛ бэкдором в login() — любой (login, '1') из этого списка обходил
+ * реальную сессию. Убран 17.09.2026: login() теперь всегда идёт через
+ * platformAuthApi (httpOnly cookie), эти пары больше никого не аутентифицируют.
+ * Массив остаётся только как источник данных для двух ОТДЕЛЬНЫХ, уже
+ * нерабочих для реальных пользователей моков — PasswordConfirmModal.tsx
+ * (сверка пароля) и TeamAccessPage.tsx (ростер) — их починка не входит в
+ * этот заход, чинить как отдельную задачу.
+ */
 export const MOCK_USERS: (CurrentUser & { password: string })[] = [
   {
     id: 'u1',
@@ -251,7 +259,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Сессия теперь живёт в httpOnly cookie, а не в localStorage — её не проверить
     // из JS. Если сессии нет, ensureSelf() сам получит 401 и отвалится в catch ниже.
     if (!currentUser?.id || currentUser.login === 'demo') return
-    if (MOCK_USERS.some((u) => u.id === currentUser.id)) return
 
     let cancelled = false
 
@@ -356,46 +363,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [currentUser?.id, currentUser?.login])
 
   async function login(login: string, password: string): Promise<LoginResult> {
-    const normalizedLogin = login.trim().toLowerCase()
-    
-    // 1. Моковый логин
-    const mockFound = MOCK_USERS.find(
-      (u) => u.login.toLowerCase() === normalizedLogin && u.password === password,
-    )
-    
-    if (mockFound) {
-      if (blockedUserIds.has(mockFound.id)) return 'blocked'
-      
-      // Очищаем реальные токены при входе под моком
-      localStorage.removeItem('jwt_token')
-      localStorage.removeItem('refresh_token')
-      localStorage.removeItem('msgr_jwt_token')
-      localStorage.removeItem('msgr_refresh_token')
-      localStorage.removeItem('userId')
-      localStorage.removeItem('user_data')
-      localStorage.removeItem('crm_session_active')
-      
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { password: _pw, ...user } = mockFound
-
-      try {
-        const msgrRes = await messengerApi.login(`${normalizedLogin}@demo.local`, password, {
-          demoUserId: mockFound.id,
-          teamId: mockFound.companyId,
-          role: mockFound.role,
-        });
-        if (msgrRes.token) localStorage.setItem('msgr_jwt_token', msgrRes.token);
-        if (msgrRes.refreshToken) localStorage.setItem('msgr_refresh_token', msgrRes.refreshToken);
-        authenticateMessengerSocket();
-      } catch (e) {
-        console.warn('[Auth] Messenger login skipped for mock user', e);
-      }
-
-      setCurrentUser(user)
-      return 'ok'
-    }
-
-    // 2. Реальный логин — через новый Platform API. Backend (ADR-004) ставит httpOnly cookie
+    // Реальный логин — через Platform API. Backend (ADR-004) ставит httpOnly cookie
     // с сессией — JS её не читает и не хранит; браузер сам прикладывает cookie к
     // последующим запросам (withCredentials: true на каждом axios-клиенте).
     try {

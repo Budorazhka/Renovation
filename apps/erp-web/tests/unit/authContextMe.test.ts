@@ -152,3 +152,45 @@ describe('AuthContext: контекст сессии приходит из GET /
     expect(screen.getByTestId('permissions').textContent).toBe('нет')
   })
 })
+
+/**
+ * До 17.09.2026 login() принимал пары вида (owner, '1') из MOCK_USERS в обход
+ * platformAuthApi — реальная сессия и cookie не требовались вовсе. Ловит
+ * регресс: если бэкдор вернётся, эти пароли снова начнут работать без
+ * обращения к реальному backend.
+ */
+describe('AuthContext: бэкдор-логин MOCK_USERS закрыт', () => {
+  beforeEach(() => {
+    cleanup()
+    window.localStorage.clear()
+    vi.clearAllMocks()
+    developersEnsureSelf.mockResolvedValue(null)
+  })
+
+  it.each(['owner', 'director', 'rop', 'manager', 'administrator', 'developer'])(
+    'login(%s, "1") идёт через platformAuthApi, а не подменяется локальным списком',
+    async (mockLogin) => {
+      login.mockRejectedValue(new Error('401'))
+      ensureSelf.mockResolvedValue(null)
+
+      let result: string | undefined
+      function Probe(): ReactElement {
+        const { login: doLogin } = useAuth()
+        return createElement('button', {
+          onClick: () => void doLogin(mockLogin, '1').then((r) => { result = r }),
+        }, 'войти')
+      }
+
+      render(createElement(AuthProvider, null, createElement(Probe)))
+      await act(async () => {
+        screen.getByText('войти').click()
+      })
+
+      // Реальный login() был вызван с этими же login/password — не перехвачен раньше.
+      expect(login).toHaveBeenCalledWith({ login: mockLogin, password: '1' })
+      // Раз platformAuthApi отклонил пароль — результат должен быть 'invalid', а
+      // не 'ok' от локального совпадения с MOCK_USERS.
+      expect(result).toBe('invalid')
+    },
+  )
+})
