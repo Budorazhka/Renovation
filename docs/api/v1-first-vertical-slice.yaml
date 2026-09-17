@@ -503,6 +503,103 @@ paths:
           description: NOT_FOUND — organizationId в URL не совпадает с TenantContext, либо Position не существует/чужая
           $ref: '#/components/responses/Error'
 
+    get:
+      operationId: listPositionGrants
+      summary: >
+        Полный список permission grants позиции (personal_access.read),
+        включая уже отозванные — с version для последующего revoke.
+      tags: [organizations]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: positionId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Список grants позиции
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, resource, action, scope, version]
+                      properties:
+                        id: {type: string}
+                        resource: {type: string}
+                        action: {type: string}
+                        scope: {type: string, enum: [own, position, team, organization, project, city, global, assigned, domain]}
+                        scopeValue: {type: string}
+                        version: {type: integer}
+                        revokedAt: {type: string, format: date-time}
+                        revokeReason: {type: string}
+        '403':
+          description: FORBIDDEN — нет personal_access.read
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — organizationId в URL не совпадает с TenantContext, либо Position не существует/чужая
+          $ref: '#/components/responses/Error'
+
+  /organizations/{organizationId}/positions/{positionId}/grants/{grantId}/revoke:
+    post:
+      operationId: revokePositionGrant
+      summary: >
+        Отозвать один grant позиции (personal_access.revoke) — обратная
+        операция к POST .../grants. Append-only: grant не удаляется
+        физически, помечается revokedAt/revokedBy/revokeReason. CAS через
+        expectedVersion.
+      tags: [organizations]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: positionId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: grantId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion, reason]
+              properties:
+                expectedVersion: {type: integer}
+                reason: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Grant отозван
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: {type: boolean, enum: [true]}
+        '403':
+          description: FORBIDDEN — нет personal_access.revoke
+          $ref: '#/components/responses/Error'
+        '404':
+          description: NOT_FOUND — organizationId не совпадает с TenantContext, Position не существует/чужая, либо grant не найден/принадлежит другой позиции
+          $ref: '#/components/responses/Error'
+        '409':
+          description: VERSION_CONFLICT — grant уже отозван, либо expectedVersion устарел
+          $ref: '#/components/responses/Error'
+
   /team-users:
     get:
       operationId: listTeamUsers

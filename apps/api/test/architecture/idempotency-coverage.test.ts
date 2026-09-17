@@ -140,6 +140,7 @@ const NO_IDEMPOTENCY_KEY_NEEDED: Record<string, string> = {
   'POST /organizations/:organizationId/positions/:positionId/assign': 'условный update позиции',
   'POST /organizations/:organizationId/positions/:positionId/grants':
     'грант идемпотентен по паре (subject, resource+action)',
+  'POST /organizations/:organizationId/positions/:positionId/grants/:grantId/revoke': 'условный update гранта (CAS через expectedVersion)',
 
   // --- Девелопмент ---
   'PATCH /developments/:developmentId': 'expectedVersion (CAS) не даст применить дважды',

@@ -93,6 +93,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/verify-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Подтверждение пароля вошедшего пользователя без побочных эффектов — не меняет пароль, не отзывает сессии (в отличие от change-password). Для чувствительных действий, где нужно повторно подтвердить личность, не выполняя полноценный re-login. Rate limit по IP, как на входе. */
+        post: operations["verifyPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Активные сессии вошедшего в рамках его же продукта (ERP/marketplace/ admin резолвятся отдельно, не все сразу — параллельная сессия того же человека в другом продукте здесь не показывается). Свежие первыми.
+         * @description ipAddress/userAgent отдаются как есть с сервера — reverse-geo (город по IP) на бэкенде нет. Rate limit по IP.
+         */
+        get: operations["listSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions/{sessionId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Отзыв одной сессии вошедшего по её id. Не отзывает текущую сессию — для этого /auth/logout. Rate limit по IP, как на прочих auth-мутациях. */
+        post: operations["revokeSessionById"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/session": {
         parameters: {
             query?: never;
@@ -212,10 +266,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Полный список permission grants позиции (personal_access.read), включая уже отозванные — с version для последующего revoke. */
+        get: operations["listPositionGrants"];
         put?: never;
         /** Выдать точечный permission grant позиции (personal_access.grant) — owner/director explicit ⚙-toggle. :organizationId в URL — та же читаемость-only роль, что assign выше. */
         post: operations["grantPositionPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organizationId}/positions/{positionId}/grants/{grantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Отозвать один grant позиции (personal_access.revoke) — обратная операция к POST .../grants. Append-only: grant не удаляется физически, помечается revokedAt/revokedBy/revokeReason. CAS через expectedVersion. */
+        post: operations["revokePositionGrant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7676,6 +7748,103 @@ export interface operations {
             429: components["responses"]["Error"];
         };
     };
+    verifyPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Результат проверки (валиден пароль или нет) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        valid: boolean;
+                    };
+                };
+            };
+            /** @description AUTH_NO_SESSION — нет активной сессии */
+            401: components["responses"]["Error"];
+            /** @description RATE_LIMIT_EXCEEDED */
+            429: components["responses"]["Error"];
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список активных сессий. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            id: string;
+                            ipAddress?: string;
+                            userAgent?: string;
+                            /** Format: date-time */
+                            createdAt: string;
+                            current: boolean;
+                        }[];
+                    };
+                };
+            };
+            /** @description AUTH_NO_SESSION — нет активной сессии */
+            401: components["responses"]["Error"];
+            /** @description RATE_LIMIT_EXCEEDED */
+            429: components["responses"]["Error"];
+        };
+    };
+    revokeSessionById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Сессия отозвана */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: boolean;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED — попытка отозвать текущую сессию этим путём */
+            400: components["responses"]["Error"];
+            /** @description AUTH_NO_SESSION — нет активной сессии */
+            401: components["responses"]["Error"];
+            /** @description NOT_FOUND — сессия с таким id не найдена среди сессий вошедшего */
+            404: components["responses"]["Error"];
+            /** @description RATE_LIMIT_EXCEEDED */
+            429: components["responses"]["Error"];
+        };
+    };
     checkSession: {
         parameters: {
             query?: never;
@@ -7857,6 +8026,46 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    listPositionGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: string;
+                positionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Список grants позиции */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            id: string;
+                            resource: string;
+                            action: string;
+                            /** @enum {string} */
+                            scope: "own" | "position" | "team" | "organization" | "project" | "city" | "global" | "assigned" | "domain";
+                            scopeValue?: string;
+                            version: number;
+                            /** Format: date-time */
+                            revokedAt?: string;
+                            revokeReason?: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description FORBIDDEN — нет personal_access.read */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — organizationId в URL не совпадает с TenantContext, либо Position не существует/чужая */
+            404: components["responses"]["Error"];
+        };
+    };
     grantPositionPermission: {
         parameters: {
             query?: never;
@@ -7895,6 +8104,46 @@ export interface operations {
             403: components["responses"]["Error"];
             /** @description NOT_FOUND — organizationId в URL не совпадает с TenantContext, либо Position не существует/чужая */
             404: components["responses"]["Error"];
+        };
+    };
+    revokePositionGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                organizationId: string;
+                positionId: string;
+                grantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedVersion: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Grant отозван */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        revoked: true;
+                    };
+                };
+            };
+            /** @description FORBIDDEN — нет personal_access.revoke */
+            403: components["responses"]["Error"];
+            /** @description NOT_FOUND — organizationId не совпадает с TenantContext, Position не существует/чужая, либо grant не найден/принадлежит другой позиции */
+            404: components["responses"]["Error"];
+            /** @description VERSION_CONFLICT — grant уже отозван, либо expectedVersion устарел */
+            409: components["responses"]["Error"];
         };
     };
     listTeamUsers: {

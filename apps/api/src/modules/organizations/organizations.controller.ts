@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Types } from 'mongoose';
 import { TenantGuard } from '../../shared/tenant/tenant.guard';
@@ -10,6 +10,8 @@ import { RequirePermission } from '../authorization/require-permission.decorator
 import { OrganizationsService } from './organizations.service';
 import { AssignOccupantByIdentityDto } from './dto/assign-occupant-by-identity.dto';
 import { GrantPositionPermissionDto } from './dto/grant-position-permission.dto';
+import { RevokePositionGrantDto } from './dto/revoke-position-grant.dto';
+import { ParseObjectIdPipe } from '../../shared/validation/parse-object-id.pipe';
 
 /**
  * ERP tenant-scoped endpoints (ADR-002, ADR-003). Первый реальный vertical
@@ -93,4 +95,75 @@ export class OrganizationsController {
     return { granted: true };
   }
 
+  /**
+   * `personal_access.read.position` — полный список грантов позиции
+   * (включая отозванные, с version для последующего revoke).
+   * :organizationId — та же читаемость-only роль, что у соседних роутов.
+   */
+  @Get(':organizationId/positions/:positionId/grants')
+  @RequirePermission('personal_access', 'read')
+  async listPositionGrants(
+    @Req() req: FastifyRequest,
+    @Param('organizationId') organizationIdParam: string,
+    @Param('positionId') positionIdParam: string,
+  ) {
+    const tenantContext = requireTenantContext(req);
+
+    if (organizationIdParam !== tenantContext.organizationId.toString()) {
+      throw new AppException(ErrorCode.NOT_FOUND, 'Organization not found');
+    }
+
+    const grants = await this.organizationsService.listPositionGrants({
+      positionId: new Types.ObjectId(positionIdParam),
+      expectedOrganizationId: new Types.ObjectId(tenantContext.organizationId),
+    });
+
+    return {
+      items: grants.map((g) => ({
+        id: g.id.toString(),
+        resource: g.resource,
+        action: g.action,
+        scope: g.scope,
+        scopeValue: g.scopeValue,
+        version: g.version,
+        revokedAt: g.revokedAt?.toISOString(),
+        revokeReason: g.revokeReason,
+      })),
+    };
+  }
+
+  /**
+   * `personal_access.revoke.position` — обратная операция к POST .../grants
+   * (owner decision xlsx #53/#24 «тумблер» — выключение права поверх
+   * дефолтного набора роли, append-only, см. OrganizationsService.
+   * revokePositionGrant докстринг).
+   */
+  @Post(':organizationId/positions/:positionId/grants/:grantId/revoke')
+  @HttpCode(200)
+  @RequirePermission('personal_access', 'revoke')
+  async revokePositionGrant(
+    @Req() req: FastifyRequest,
+    @Param('organizationId') organizationIdParam: string,
+    @Param('positionId') positionIdParam: string,
+    @Param('grantId', ParseObjectIdPipe) grantId: Types.ObjectId,
+    @Body() dto: RevokePositionGrantDto,
+  ): Promise<{ revoked: true }> {
+    const tenantContext = requireTenantContext(req);
+
+    if (organizationIdParam !== tenantContext.organizationId.toString()) {
+      throw new AppException(ErrorCode.NOT_FOUND, 'Organization not found');
+    }
+
+    await this.organizationsService.revokePositionGrant({
+      positionId: new Types.ObjectId(positionIdParam),
+      expectedOrganizationId: new Types.ObjectId(tenantContext.organizationId),
+      grantId,
+      expectedVersion: dto.expectedVersion,
+      reason: dto.reason,
+      revokedBy: new Types.ObjectId(tenantContext.identityId),
+      correlationId: req.correlationId,
+    });
+
+    return { revoked: true };
+  }
 }

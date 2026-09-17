@@ -522,6 +522,97 @@ export class OrganizationsService {
   }
 
   /**
+   * `personal_access.read.position` — полный список грантов позиции,
+   * включая уже отозванные (та же причина, что AdminAccountService.
+   * listGrants: экран «доступов» должен согласованно показывать, какую
+   * кнопку показать — «отозвать» или «уже отозвано», а для «отозвать»
+   * нужен version для CAS).
+   */
+  async listPositionGrants(params: {
+    positionId: Types.ObjectId;
+    expectedOrganizationId: Types.ObjectId;
+  }): Promise<
+    Array<{
+      id: Types.ObjectId;
+      resource: string;
+      action: string;
+      scope: PermissionScope;
+      scopeValue?: string;
+      version: number;
+      revokedAt?: Date;
+      revokeReason?: string;
+    }>
+  > {
+    const position = await this.positionRepository.findByIdForOrganization(
+      params.positionId,
+      params.expectedOrganizationId,
+    );
+    if (!position) {
+      throw new NotFoundException('Position not found');
+    }
+
+    return this.policyEvaluator.listAllGrantsForSubject('position', params.positionId);
+  }
+
+  /**
+   * `personal_access.revoke.position` — обратная операция к
+   * grantPositionPermission: append-only (revokedAt/revokedBy/revokeReason,
+   * не physical delete — PolicyEvaluatorService.revokeGrant), тот же
+   * CAS-принцип через expectedVersion, тот же non-disclosure на чужой/
+   * несуществующий grant (NOT_FOUND — не различаем "нет такого id" и "grant
+   * принадлежит другой позиции"), что AdminAccountService.revokeGrant.
+   * Критичное действие (лишает конкретного человека конкретного права) —
+   * audit обязателен.
+   */
+  async revokePositionGrant(params: {
+    positionId: Types.ObjectId;
+    expectedOrganizationId: Types.ObjectId;
+    grantId: Types.ObjectId;
+    expectedVersion: number;
+    reason: string;
+    revokedBy: Types.ObjectId;
+    correlationId: string;
+  }): Promise<void> {
+    const position = await this.positionRepository.findByIdForOrganization(
+      params.positionId,
+      params.expectedOrganizationId,
+    );
+    if (!position) {
+      throw new NotFoundException('Position not found');
+    }
+
+    const grant = await this.policyEvaluator.findGrantById(params.grantId);
+    if (!grant || grant.subjectType !== 'position' || !grant.subjectId.equals(params.positionId)) {
+      throw new AppException(ErrorCode.NOT_FOUND, 'PermissionGrant not found');
+    }
+    if (grant.revokedAt) {
+      throw new AppException(ErrorCode.VERSION_CONFLICT, 'Этот grant уже отозван');
+    }
+
+    const { modifiedCount } = await this.policyEvaluator.revokeGrant(params.grantId, params.expectedVersion, {
+      revokedBy: params.revokedBy,
+      reason: params.reason,
+    });
+    if (modifiedCount === 0) {
+      throw new AppException(
+        ErrorCode.VERSION_CONFLICT,
+        'Grant изменён другим запросом — обновите список и попробуйте снова',
+      );
+    }
+
+    await this.auditService.append({
+      actor: { type: 'identity', id: params.revokedBy },
+      action: 'personal_access.revoke',
+      resource: 'personal_access',
+      resourceId: params.positionId,
+      reason: params.reason,
+      before: { resource: grant.resource, action: grant.action, scope: grant.scope, scopeValue: grant.scopeValue },
+      after: { revoked: true },
+      correlationId: params.correlationId,
+    });
+  }
+
+  /**
    * assignOccupant (ADR-003): занимает вакантную позицию конкретной identity.
    * Транзакционно: создание PositionAssignment + пометка Position occupied +
    * audit-запись + outbox-событие PositionOccupantAssigned — всё в одной

@@ -619,6 +619,199 @@ describe('OrganizationsService.grantPositionPermission', () => {
   });
 });
 
+describe('OrganizationsService.listPositionGrants / revokePositionGrant', () => {
+  function makeService(overrides: {
+    positionRepository?: unknown;
+    policyEvaluator?: unknown;
+    auditService?: unknown;
+  }) {
+    return new OrganizationsService(
+      makeMockConnection() as never,
+      {} as unknown as OrganizationRepository,
+      (overrides.positionRepository ?? {}) as unknown as PositionRepository,
+      {} as unknown as PositionProfileRepository,
+      {} as unknown as PositionAssignmentRepository,
+      {} as unknown as InvitationRepository,
+      {} as SessionService,
+      {} as unknown as AuthService,
+      (overrides.auditService ?? { append: jest.fn().mockResolvedValue(undefined) }) as unknown as AuditService,
+      {} as unknown as OutboxService,
+      (overrides.policyEvaluator ?? {}) as unknown as PolicyEvaluatorService,
+      { setPublisherFrozenForOrganization: jest.fn().mockResolvedValue({ modifiedCount: 0 }) } as unknown as MarketplacePublicationRepository,
+    );
+  }
+
+  it('listPositionGrants: делегирует listAllGrantsForSubject для позиции, принадлежащей организации', async () => {
+    const positionId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const items = [{ id: new Types.ObjectId(), resource: 'lead', action: 'read', scope: 'organization' as const, version: 1 }];
+    const listSpy = jest.fn().mockResolvedValue(items);
+
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: positionId, organizationId }) },
+      policyEvaluator: { listAllGrantsForSubject: listSpy },
+    });
+
+    const result = await service.listPositionGrants({ positionId, expectedOrganizationId: organizationId });
+
+    expect(listSpy).toHaveBeenCalledWith('position', positionId);
+    expect(result).toBe(items);
+  });
+
+  it('listPositionGrants: чужая организация — NotFoundException', async () => {
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue(null) },
+    });
+
+    await expect(
+      service.listPositionGrants({ positionId: new Types.ObjectId(), expectedOrganizationId: new Types.ObjectId() }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('revokePositionGrant: отзывает свой grant, пишет audit', async () => {
+    const positionId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const grantId = new Types.ObjectId();
+    const revokedBy = new Types.ObjectId();
+    const grant = {
+      _id: grantId,
+      subjectType: 'position',
+      subjectId: positionId,
+      resource: 'lead',
+      action: 'read',
+      scope: 'organization',
+      scopeValue: undefined,
+      revokedAt: undefined,
+    };
+    const revokeSpy = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    const appendSpy = jest.fn().mockResolvedValue(undefined);
+
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: positionId, organizationId }) },
+      policyEvaluator: { findGrantById: jest.fn().mockResolvedValue(grant), revokeGrant: revokeSpy },
+      auditService: { append: appendSpy },
+    });
+
+    await service.revokePositionGrant({
+      positionId,
+      expectedOrganizationId: organizationId,
+      grantId,
+      expectedVersion: 1,
+      reason: 'ошибочно выдано',
+      revokedBy,
+      correlationId: 'corr-1',
+    });
+
+    expect(revokeSpy).toHaveBeenCalledWith(grantId, 1, { revokedBy, reason: 'ошибочно выдано' });
+    expect(appendSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokePositionGrant: чужой grant (другая позиция) — NOT_FOUND, revoke не вызывается', async () => {
+    const positionId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const grantId = new Types.ObjectId();
+    const revokeSpy = jest.fn();
+
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: positionId, organizationId }) },
+      policyEvaluator: {
+        findGrantById: jest.fn().mockResolvedValue({
+          _id: grantId,
+          subjectType: 'position',
+          subjectId: new Types.ObjectId(),
+          resource: 'lead',
+          action: 'read',
+          scope: 'organization',
+        }),
+        revokeGrant: revokeSpy,
+      },
+    });
+
+    await expect(
+      service.revokePositionGrant({
+        positionId,
+        expectedOrganizationId: organizationId,
+        grantId,
+        expectedVersion: 1,
+        reason: 'test',
+        revokedBy: new Types.ObjectId(),
+        correlationId: 'corr-1',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.NOT_FOUND });
+    expect(revokeSpy).not.toHaveBeenCalled();
+  });
+
+  it('revokePositionGrant: уже отозванный grant — VERSION_CONFLICT, revoke не вызывается повторно', async () => {
+    const positionId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const grantId = new Types.ObjectId();
+    const revokeSpy = jest.fn();
+
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: positionId, organizationId }) },
+      policyEvaluator: {
+        findGrantById: jest.fn().mockResolvedValue({
+          _id: grantId,
+          subjectType: 'position',
+          subjectId: positionId,
+          resource: 'lead',
+          action: 'read',
+          scope: 'organization',
+          revokedAt: new Date(),
+        }),
+        revokeGrant: revokeSpy,
+      },
+    });
+
+    await expect(
+      service.revokePositionGrant({
+        positionId,
+        expectedOrganizationId: organizationId,
+        grantId,
+        expectedVersion: 1,
+        reason: 'test',
+        revokedBy: new Types.ObjectId(),
+        correlationId: 'corr-1',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.VERSION_CONFLICT });
+    expect(revokeSpy).not.toHaveBeenCalled();
+  });
+
+  it('revokePositionGrant: modifiedCount 0 (гонка) — VERSION_CONFLICT', async () => {
+    const positionId = new Types.ObjectId();
+    const organizationId = new Types.ObjectId();
+    const grantId = new Types.ObjectId();
+
+    const service = makeService({
+      positionRepository: { findByIdForOrganization: jest.fn().mockResolvedValue({ _id: positionId, organizationId }) },
+      policyEvaluator: {
+        findGrantById: jest.fn().mockResolvedValue({
+          _id: grantId,
+          subjectType: 'position',
+          subjectId: positionId,
+          resource: 'lead',
+          action: 'read',
+          scope: 'organization',
+          revokedAt: undefined,
+        }),
+        revokeGrant: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+      },
+    });
+
+    await expect(
+      service.revokePositionGrant({
+        positionId,
+        expectedOrganizationId: organizationId,
+        grantId,
+        expectedVersion: 1,
+        reason: 'test',
+        revokedBy: new Types.ObjectId(),
+        correlationId: 'corr-1',
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.VERSION_CONFLICT });
+  });
+});
+
 describe('OrganizationsService.vacatePositionByPositionId', () => {
   it('находит активный assignment по positionId, делегирует vacatePosition, пишет audit+outbox', async () => {
     const positionId = new Types.ObjectId();
