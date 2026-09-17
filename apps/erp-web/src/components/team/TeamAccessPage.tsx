@@ -1,9 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { ROLE_PERMISSIONS, type UserRole, type PermissionAction } from '@/types/auth'
+import type { UserRole } from '@/types/auth'
 import { ROLE_LABEL } from '@/lib/permissions'
-import { useAuth, MOCK_USERS } from '@/context/AuthContext'
+import { useAuth } from '@/context/AuthContext'
+import { teamApi } from '@/services/teamApi'
+import { positionGrantsApi, type PositionGrant, type PermissionScope } from '@/services/positionGrantsApi'
 import { useI18n } from "@/i18n";
 
 const C = {
@@ -38,184 +40,277 @@ const ROLE_ACCENT: Record<UserRole, string> = {
   partner:          '#94a3b8',
 }
 
-type AccessColumn = {
-  key:
-    | 'view'
-    | 'create'
-    | 'edit'
-    | 'delete'
-    | 'assign'
-    | 'export'
-    | 'approve'
-    | 'finance'
-    | 'analytics'
-    | 'manage'
-  label: string
-  width?: number
+/**
+ * Роли, которым backend в default-role-grants.ts реально выдаёт
+ * personal_access.grant/read/revoke.position (owner/director/developer,
+ * НЕ rop/manager/administrator/marketer). Грубее реального 403 сервера, но
+ * убирает лишние клики — 403 всё равно остаётся конечным источником истины.
+ */
+const EDITABLE_ROLES: UserRole[] = ['owner', 'director', 'developer']
+
+/** Человекочитаемые подписи действий — общие для большинства resource. */
+const ACTION_LABELS: Record<string, string> = {
+  read: 'Просмотр',
+  create: 'Создать',
+  update: 'Изменить',
+  edit: 'Изменить',
+  delete: 'Удалить',
+  assign: 'Назначить',
+  reassign: 'Переназначить',
+  complete: 'Завершить',
+  confirm: 'Подтвердить',
+  cancel: 'Отменить',
+  extend: 'Продлить',
+  decide: 'Решение',
+  run: 'Запуск',
+  respond: 'Ответ',
+  'price.update': 'Цена',
+  'status.update': 'Статус',
 }
 
-const ACCESS_COLUMNS: AccessColumn[] = [
-  { key: 'view',      label: 'Просмотр', width: 110 },
-  { key: 'create',    label: 'Создать', width: 110 },
-  { key: 'edit',      label: 'Редакт.', width: 110 },
-  { key: 'delete',    label: 'Удалить', width: 110 },
-  { key: 'assign',    label: 'Назнач.', width: 110 },
-  { key: 'export',    label: 'Экспорт', width: 110 },
-  { key: 'approve',   label: 'Апрув', width: 110 },
-  { key: 'finance',   label: 'Финансы', width: 110 },
-  { key: 'analytics', label: 'Аналит.', width: 110 },
-  { key: 'manage',    label: 'Доступы', width: 120 },
-]
-
-const ACCESS_COLUMN_HINTS: Record<AccessColumn['key'], string> = {
-  view: 'Право видеть список и карточки в этом разделе.',
-  create: 'Право создавать новые карточки и записи в разделе.',
-  edit: 'Право изменять существующие карточки и данные.',
-  delete: 'Право удалять карточки и записи.',
-  assign: 'Право назначать ответственных и перераспределять задачи/лиды.',
-  export: 'Право выгружать данные (файлы, отчеты, таблицы).',
-  approve: 'Право согласовывать и подтверждать действия или этапы.',
-  finance: 'Право видеть финансовые показатели, комиссии и суммы.',
-  analytics: 'Право видеть аналитические отчеты и метрики.',
-  manage: 'Право управлять доступами и настройками прав других пользователей.',
+function actionLabel(action: string): string {
+  return ACTION_LABELS[action] ?? action
 }
 
-type AccessRow = {
-  group: string
+/**
+ * Дефолтный scope для НОВОГО grant'а этого resource+action. 'organization' —
+ * общий дефолт (владелец продукта, брифинг). Исключения — booking.create и
+ * booking.confirm: в default-role-grants.ts они ВСЕГДА 'own' у каждой роли
+ * без исключения (Booking.manager — Position, которая создала/владеет
+ * бронью), 'organization' там не встречается ни разу.
+ */
+const DEFAULT_SCOPE_OVERRIDES: Record<string, PermissionScope> = {
+  'booking.create': 'own',
+  'booking.confirm': 'own',
+}
+
+function defaultScopeFor(resource: string, action: string): PermissionScope {
+  return DEFAULT_SCOPE_OVERRIDES[`${resource}.${action}`] ?? 'organization'
+}
+
+type ResourceRow = {
   resource: string
+  label: string
   description?: string
-  map: Partial<Record<AccessColumn['key'], PermissionAction | PermissionAction[]>>
+  actions: string[]
 }
 
-const ACCESS_ROWS: AccessRow[] = [
+type DisabledRow = {
+  label: string
+  reason: string
+}
+
+type AccessGroup = {
+  group: string
+  rows: ResourceRow[]
+  /** Строки без реального resource.action в этой группе — показываем задизейбленными, не убираем. */
+  disabled?: DisabledRow[]
+}
+
+const ACCESS_GROUPS: AccessGroup[] = [
   {
     group: 'CRM',
-    resource: 'Лиды',
-    description: 'Очередь, распределение, контроль',
-    map: {
-      view: ['view_all_leads', 'view_all_stages'],
-      assign: ['assign_lead', 'transfer_leads', 'change_distribution'],
-      analytics: 'view_lead_analytics',
-      manage: 'manage_team',
-    },
+    rows: [
+      { resource: 'lead', label: 'Лиды', description: 'Очередь, распределение, контроль', actions: ['read', 'create', 'update', 'delete', 'assign', 'reassign'] },
+      { resource: 'deal', label: 'Сделки', description: 'Создание и ведение сделок', actions: ['read', 'create', 'edit'] },
+      { resource: 'contact', label: 'Контакты', description: 'Контактные лица клиентов', actions: ['read', 'create', 'update'] },
+      { resource: 'task', label: 'Задачи', description: 'Постановка и контроль задач', actions: ['read', 'create', 'edit', 'complete', 'reassign'] },
+    ],
   },
   {
-    group: 'CRM',
-    resource: 'Сделки',
-    description: 'Создание и согласование этапов',
-    map: {
-      create: 'create_deal',
-      approve: ['approve_deal', 'legal_approve'],
-      finance: ['see_finance', 'view_commissions'],
-      export: 'export_data',
-    },
+    group: 'Брони и регистрации',
+    rows: [
+      { resource: 'booking', label: 'Брони', description: 'Бронирование юнитов', actions: ['read', 'create', 'confirm', 'cancel', 'extend'] },
+      { resource: 'client_registration', label: 'Регистрации клиентов', description: 'Закрепление клиента за агентом у застройщика', actions: ['read', 'create', 'update', 'decide'] },
+    ],
   },
   {
-    group: 'CRM',
-    resource: 'Брони / Регистрации',
-    description: 'Бронирования клиента и квартиры',
-    map: {
-      edit: 'manage_bookings',
-      finance: ['see_finance', 'view_commissions'],
-    },
+    group: 'Объекты',
+    rows: [
+      { resource: 'listing', label: 'Листинги', description: 'Карточки объявлений', actions: ['read', 'create', 'edit'] },
+      { resource: 'property_asset', label: 'Объекты недвижимости', description: 'Карточки объектов', actions: ['read', 'create', 'edit'] },
+      { resource: 'development', label: 'ЖК / проекты', description: 'Карточка застройки', actions: ['read', 'edit'] },
+      { resource: 'unit', label: 'Юниты', description: 'Цена и статус юнита', actions: ['price.update', 'status.update'] },
+    ],
   },
   {
-    group: 'Каталог',
-    resource: 'Объекты',
-    description: 'Каталог и карточки объектов',
-    map: {
-      edit: 'manage_properties',
-    },
+    group: 'Подборки и рассрочки',
+    rows: [
+      { resource: 'dev_selection', label: 'Подборки', description: 'Подборки лотов для клиента', actions: ['read', 'create', 'update', 'delete'] },
+      { resource: 'installment_plan', label: 'Рассрочки', description: 'Планы рассрочки платежей', actions: ['read', 'create', 'update', 'delete'] },
+      { resource: 'commission_rule', label: 'Правила комиссии', description: 'Комиссии партнёров по ЖК', actions: ['read', 'create', 'update', 'delete'] },
+    ],
   },
   {
-    group: 'Партнёры',
-    resource: 'Партнёры',
-    description: 'Рефералы, посредники, собственники',
-    map: {
-      edit: 'manage_partners',
-      export: 'export_data',
-      analytics: 'view_network_analytics',
-    },
+    group: 'Финансы и отчёты',
+    rows: [
+      { resource: 'finance', label: 'Финансы', description: 'Финансовые показатели', actions: ['read'] },
+      { resource: 'manual_ledger', label: 'Ручная бухгалтерия', description: 'Ручные проводки', actions: ['read'] },
+      { resource: 'crm_report', label: 'Отчёты CRM', description: 'Аналитика по организации', actions: ['read'] },
+      { resource: 'export', label: 'Экспорт', description: 'Выгрузка данных', actions: ['run'] },
+      { resource: 'import', label: 'Импорт', description: 'Массовая загрузка данных', actions: ['run'] },
+    ],
   },
   {
-    group: 'Админ',
-    resource: 'Система',
-    description: 'Рассылки, блокировки, подмены',
-    map: {
-      edit: ['manage_mailings', 'block_account', 'set_substitute', 'add_lead_source'],
-      export: 'export_data',
-      manage: 'manage_team',
-    },
+    group: 'Партнёры / MLM',
+    rows: [
+      { resource: 'referral_network', label: 'Реферальная сеть', description: 'Просмотр структуры рефералов', actions: ['read'] },
+    ],
+    disabled: [
+      { label: 'Посредники / собственники', reason: 'Модуль не реализован' },
+    ],
+  },
+  {
+    group: 'Админ / Система',
+    rows: [],
+    disabled: [
+      { label: 'Рассылки, блокировки, подмены', reason: 'Нет grant-пространства позиции для этих действий' },
+    ],
   },
 ]
+
+function extractErrorMessage(err: unknown, fallback: string): string {
+  const message =
+    (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message ||
+    (err as { message?: string })?.message
+  return message || fallback
+}
+
+function errorStatus(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } })?.response?.status
+}
 
 export function TeamAccessPage() {
-    const { t } = useI18n();
+  const { t } = useI18n();
   const { currentUser } = useAuth()
-  const canEdit = currentUser?.role === 'owner'
+  const canEdit = Boolean(currentUser && EDITABLE_ROLES.includes(currentUser.role))
+  const organizationId = currentUser?.companyId ?? ''
 
-  const people = useMemo<AccessPerson[]>(
-    () =>
-      MOCK_USERS
-        .filter((u) => u.accountType === 'agency')
-        .map((u) => ({ id: u.id, name: u.name, role: u.role, position: ROLE_LABEL[u.role] })),
-    [],
+  const [people, setPeople] = useState<AccessPerson[]>([])
+  const [peopleLoading, setPeopleLoading] = useState(true)
+  const [peopleError, setPeopleError] = useState<string | null>(null)
+  const [selectedPersonId, setSelectedPersonId] = useState<string>('')
+
+  const [grants, setGrants] = useState<PositionGrant[]>([])
+  const [grantsLoading, setGrantsLoading] = useState(false)
+  const [grantsError, setGrantsError] = useState<string | null>(null)
+  const [pendingKey, setPendingKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setPeopleLoading(true)
+    setPeopleError(null)
+    teamApi
+      .list()
+      .then((users) => {
+        if (cancelled) return
+        setPeople(
+          users.map((u) => ({
+            id: u.positionId ?? u.id,
+            name: u.name,
+            role: u.role,
+            position: u.position || ROLE_LABEL[u.role] || u.role,
+          })),
+        )
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setPeopleError(extractErrorMessage(err, 'Не удалось загрузить список сотрудников'))
+      })
+      .finally(() => {
+        if (!cancelled) setPeopleLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedPersonId && people.length > 0) setSelectedPersonId(people[0].id)
+  }, [people, selectedPersonId])
+
+  const loadGrants = useCallback(
+    async (positionId: string) => {
+      if (!organizationId || !positionId) return
+      setGrantsLoading(true)
+      setGrantsError(null)
+      try {
+        const items = await positionGrantsApi.list(organizationId, positionId)
+        setGrants(items)
+      } catch (err) {
+        setGrantsError(extractErrorMessage(err, 'Не удалось загрузить права позиции'))
+        setGrants([])
+      } finally {
+        setGrantsLoading(false)
+      }
+    },
+    [organizationId],
   )
 
-  const [selectedPersonId, setSelectedPersonId] = useState<string>(people[0]?.id ?? '')
-  const [overrides, setOverrides] = useState<Record<string, Partial<Record<PermissionAction, boolean>>>>({})
+  useEffect(() => {
+    if (selectedPersonId) void loadGrants(selectedPersonId)
+  }, [selectedPersonId, loadGrants])
 
-  const selectedPerson = people.find((p) => p.id === selectedPersonId) ?? people[0]
-  const selectedRole = selectedPerson?.role
+  const selectedPerson = people.find((p) => p.id === selectedPersonId)
 
-  const hasPermission = (personId: string, role: UserRole, action: PermissionAction) => {
-    const override = overrides[personId]?.[action]
-    if (typeof override === 'boolean') return override
-    return ROLE_PERMISSIONS[role].includes(action)
-  }
+  const findActiveGrant = (resource: string, action: string): PositionGrant | undefined =>
+    grants.find((g) => g.resource === resource && g.action === action && !g.revokedAt)
 
-  const togglePermission = (personId: string, role: UserRole, action: PermissionAction) => {
-    if (!canEdit) return
-    const base = ROLE_PERMISSIONS[role].includes(action)
-    const current = hasPermission(personId, role, action)
-    const next = !current
-    setOverrides((prev) => {
-      const personOverrides = { ...(prev[personId] ?? {}) }
-      if (next === base) {
-        delete personOverrides[action]
-      } else {
-        personOverrides[action] = next
+  const toggleAction = async (resource: string, action: string) => {
+    if (!canEdit || !selectedPerson || pendingKey) return
+    const key = `${resource}.${action}`
+    const active = findActiveGrant(resource, action)
+
+    if (active) {
+      const reason = window.prompt('Причина отзыва права (обязательно):')?.trim()
+      if (!reason) return
+      setPendingKey(key)
+      try {
+        await positionGrantsApi.revoke(organizationId, selectedPerson.id, active.id, {
+          expectedVersion: active.version,
+          reason,
+        })
+        await loadGrants(selectedPerson.id)
+      } catch (err) {
+        const status = errorStatus(err)
+        if (status === 403) {
+          setGrantsError('Недостаточно прав для изменения доступов этой позиции')
+        } else if (status === 404 || status === 409) {
+          setGrantsError('Список прав устарел — обновляем список')
+          await loadGrants(selectedPerson.id)
+        } else {
+          setGrantsError(extractErrorMessage(err, 'Не удалось отозвать право'))
+        }
+      } finally {
+        setPendingKey(null)
       }
-      return { ...prev, [personId]: personOverrides }
-    })
+      return
+    }
+
+    setPendingKey(key)
+    try {
+      await positionGrantsApi.grant(organizationId, selectedPerson.id, {
+        resource,
+        action,
+        scope: defaultScopeFor(resource, action),
+      })
+      await loadGrants(selectedPerson.id)
+    } catch (err) {
+      const status = errorStatus(err)
+      if (status === 403) {
+        setGrantsError('Недостаточно прав для изменения доступов этой позиции')
+      } else if (status === 404 || status === 409) {
+        setGrantsError('Список прав устарел — обновляем список')
+        await loadGrants(selectedPerson.id)
+      } else {
+        setGrantsError(extractErrorMessage(err, 'Не удалось выдать право'))
+      }
+    } finally {
+      setPendingKey(null)
+    }
   }
 
-  const selectedOverridesCount = selectedPerson ? Object.keys(overrides[selectedPerson.id] ?? {}).length : 0
-
-  const columnKeys = ACCESS_COLUMNS.map((c) => c.key)
-
-  const getAllowed = (personId: string, role: UserRole, actionOrActions: PermissionAction | PermissionAction[] | undefined) => {
-    if (!actionOrActions) return false
-    const actions = Array.isArray(actionOrActions) ? actionOrActions : [actionOrActions]
-    return actions.some((a) => hasPermission(personId, role, a))
-  }
-
-  const toggleCell = (personId: string, role: UserRole, actionOrActions: PermissionAction | PermissionAction[] | undefined) => {
-    if (!actionOrActions) return
-    const actions = Array.isArray(actionOrActions) ? actionOrActions : [actionOrActions]
-    if (actions.length === 0) return
-
-    // Если в ячейке несколько разрешений — переключаем "все" в одно состояние:
-    // если хоть одно выключено → включаем все, иначе выключаем все.
-    const anyOff = actions.some((a) => !hasPermission(personId, role, a))
-    const desired = anyOff
-
-    actions.forEach((a) => {
-      const current = hasPermission(personId, role, a)
-      if (current === desired) return
-      togglePermission(personId, role, a)
-    })
-  }
+  const activeGrantsCount = grants.filter((g) => !g.revokedAt).length
 
   return (
     <DashboardShell>
@@ -227,8 +322,17 @@ export function TeamAccessPage() {
             <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 400, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.whiteLow }}>
               {t('team.teamAccessPage.сотрудники')}</div>
             <div style={{ maxHeight: '66vh', overflowY: 'auto' }}>
+              {peopleLoading && (
+                <div style={{ padding: '14px', fontSize: 11, color: C.whiteLow }}>Загрузка…</div>
+              )}
+              {peopleError && !peopleLoading && (
+                <div style={{ padding: '14px', fontSize: 11, color: '#f87171' }}>{peopleError}</div>
+              )}
+              {!peopleLoading && !peopleError && people.length === 0 && (
+                <div style={{ padding: '14px', fontSize: 11, color: C.whiteLow }}>Сотрудников не найдено</div>
+              )}
               {people.map((person) => {
-                const active = selectedPerson?.id === person.id
+                const active = selectedPersonId === person.id
                 return (
                   <button
                     key={person.id}
@@ -262,9 +366,6 @@ export function TeamAccessPage() {
                       >
                         {person.position}
                       </span>
-                      <span style={{ fontSize: 10, color: C.whiteLow }}>
-                        {t('team.teamAccessPage.правок')}{Object.keys(overrides[person.id] ?? {}).length}
-                      </span>
                     </div>
                   </button>
                 )
@@ -279,7 +380,9 @@ export function TeamAccessPage() {
                   {selectedPerson ? selectedPerson.name : 'Выберите сотрудника'}
                 </div>
                 <div style={{ marginTop: 2, fontSize: 11, color: C.whiteLow }}>
-                  {selectedRole ? ROLE_LABEL[selectedRole] : '—'} {t('team.teamAccessPage.правок')}{selectedOverridesCount}
+                  {selectedPerson ? ROLE_LABEL[selectedPerson.role] : '—'}
+                  {selectedPerson && !grantsLoading && ` · активных прав: ${activeGrantsCount}`}
+                  {grantsLoading && ' · загрузка прав…'}
                 </div>
               </div>
               {!canEdit && (
@@ -287,140 +390,115 @@ export function TeamAccessPage() {
                   {t('team.teamAccessPage.только_просмотр')}</div>
               )}
             </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <th style={{ padding: '14px 18px', textAlign: 'left', fontSize: 11, color: C.whiteLow, fontWeight: 400, width: 260 }}>
-                    {t('team.teamAccessPage.раздел')}</th>
-                  {ACCESS_COLUMNS.map((col) => (
-                    <th
-                      key={col.key}
-                      title={ACCESS_COLUMN_HINTS[col.key]}
-                      style={{
-                        padding: '14px 10px',
-                        textAlign: 'center',
-                        fontSize: 11,
-                        color: C.whiteLow,
-                        fontWeight: 400,
-                        width: col.width,
-                        whiteSpace: 'nowrap',
-                      }}
+
+            {grantsError && (
+              <div style={{ padding: '10px 16px', fontSize: 11, color: '#f87171', borderBottom: `1px solid ${C.border}`, background: 'rgba(248,113,113,0.06)' }}>
+                {grantsError}
+              </div>
+            )}
+
+            {ACCESS_GROUPS.map((group) => (
+              <div key={group.group}>
+                <div
+                  style={{
+                    padding: '10px 18px 6px',
+                    fontSize: 10,
+                    fontWeight: 400,
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    color: C.gold,
+                    background: 'rgba(201,168,76,0.04)',
+                    borderTop: `1px solid ${C.border}`,
+                  }}
+                >
+                  {group.group}
+                </div>
+
+                {group.rows.map((row) => (
+                  <div
+                    key={row.resource}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 16,
+                      padding: '12px 18px',
+                      borderBottom: `1px solid rgba(255,255,255,0.04)`,
+                    }}
+                  >
+                    <div style={{ minWidth: 200, maxWidth: 260, flexShrink: 0 }}>
+                      <div style={{ fontSize: 12, color: C.whiteMid, fontWeight: 400 }}>{row.label}</div>
+                      {row.description && (
+                        <div style={{ marginTop: 3, fontSize: 10, color: C.whiteLow }}>{row.description}</div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                      {row.actions.map((action) => {
+                        const active = Boolean(selectedPerson && findActiveGrant(row.resource, action))
+                        const key = `${row.resource}.${action}`
+                        const busy = pendingKey === key
+                        const clickable = canEdit && Boolean(selectedPerson) && !busy && !grantsLoading
+
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            disabled={!clickable}
+                            onClick={() => void toggleAction(row.resource, action)}
+                            title={
+                              !selectedPerson
+                                ? 'Выберите сотрудника'
+                                : active
+                                  ? 'Отозвать право'
+                                  : 'Выдать право'
+                            }
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '5px 10px',
+                              borderRadius: 20,
+                              border: `1px solid ${active ? 'rgba(74,222,128,0.35)' : C.border}`,
+                              background: active ? 'rgba(74,222,128,0.10)' : 'rgba(255,255,255,0.03)',
+                              color: active ? '#4ade80' : C.whiteLow,
+                              fontSize: 11,
+                              cursor: clickable ? 'pointer' : 'default',
+                              opacity: busy ? 0.5 : 1,
+                            }}
+                          >
+                            {active ? <Check size={11} /> : <X size={11} />}
+                            {actionLabel(action)}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {group.disabled?.map((d) => (
+                  <div
+                    key={d.label}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 16,
+                      padding: '12px 18px',
+                      borderBottom: `1px solid rgba(255,255,255,0.04)`,
+                      opacity: 0.45,
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: C.whiteMid, fontWeight: 400 }}>{d.label}</div>
+                    <div
+                      style={{ fontSize: 10, color: C.whiteLow, textTransform: 'uppercase', letterSpacing: '0.08em' }}
+                      title={d.reason}
                     >
-                      {col.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(new Set(ACCESS_ROWS.map((r) => r.group))).flatMap((group) => {
-                  const rowsInGroup = ACCESS_ROWS.filter((r) => r.group === group)
-                  const groupRows: ReactNode[] = [
-                    (
-                      <tr key={`group-${group}`}>
-                        <td
-                          colSpan={1 + columnKeys.length}
-                          style={{
-                            padding: '10px 18px 6px',
-                            fontSize: 10,
-                            fontWeight: 400,
-                            letterSpacing: '0.12em',
-                            textTransform: 'uppercase',
-                            color: C.gold,
-                            background: 'rgba(201,168,76,0.04)',
-                            borderTop: `1px solid ${C.border}`,
-                          }}
-                        >
-                          {group}
-                        </td>
-                      </tr>
-                    ),
-                  ]
-
-                  rowsInGroup.forEach((row, idx) => {
-                    groupRows.push(
-                      <tr
-                        key={`${group}-${row.resource}`}
-                        style={{
-                          borderBottom:
-                            idx < rowsInGroup.length - 1 ? `1px solid rgba(255,255,255,0.04)` : 'none',
-                        }}
-                      >
-                        <td style={{ padding: '12px 18px' }}>
-                          <div style={{ fontSize: 12, color: C.whiteMid, fontWeight: 400 }}>{row.resource}</div>
-                          {row.description && (
-                            <div style={{ marginTop: 3, fontSize: 10, color: C.whiteLow }}>
-                              {row.description}
-                            </div>
-                          )}
-                        </td>
-                        {ACCESS_COLUMNS.map((col) => {
-                          const actionOrActions = row.map[col.key]
-                          const allowed =
-                            selectedPerson && selectedRole
-                              ? getAllowed(selectedPerson.id, selectedRole, actionOrActions)
-                              : false
-
-                          const clickable = Boolean(actionOrActions) && canEdit && selectedPerson && selectedRole
-
-                          return (
-                            <td key={`${row.resource}-${col.key}`} style={{ padding: '10px', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                disabled={!clickable}
-                                onClick={() =>
-                                  selectedPerson && selectedRole &&
-                                  toggleCell(selectedPerson.id, selectedRole, actionOrActions)
-                                }
-                                style={{
-                                  border: 'none',
-                                  background: 'transparent',
-                                  cursor: clickable ? 'pointer' : 'default',
-                                  padding: 0,
-                                  opacity: actionOrActions ? 1 : 0.35,
-                                }}
-                                title={!actionOrActions ? 'Не применяется' : ACCESS_COLUMN_HINTS[col.key]}
-                              >
-                                {allowed ? (
-                                  <div
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      width: 24,
-                                      height: 24,
-                                      borderRadius: '50%',
-                                      background: 'rgba(74,222,128,0.12)',
-                                    }}
-                                  >
-                                    <Check size={13} color="#4ade80" />
-                                  </div>
-                                ) : (
-                                  <div
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      width: 24,
-                                      height: 24,
-                                      borderRadius: '50%',
-                                      background: 'rgba(255,255,255,0.04)',
-                                    }}
-                                  >
-                                    <X size={13} color="rgba(255,255,255,0.18)" />
-                                  </div>
-                                )}
-                              </button>
-                            </td>
-                          )
-                        })}
-                      </tr>,
-                    )
-                  })
-
-                  return groupRows
-                })}
-              </tbody>
-            </table>
+                      {d.reason}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -436,6 +514,9 @@ export function TeamAccessPage() {
               <X size={10} color="rgba(255,255,255,0.18)" />
             </div>
             {t('team.teamAccessPage.нет_доступа')}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.whiteLow, opacity: 0.6 }}>
+            Затемнённые строки — модуль не реализован
+          </div>
         </div>
       </div>
     </DashboardShell>
